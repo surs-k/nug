@@ -177,7 +177,7 @@ arch-chroot /mnt sed -i \
   
 arch-chroot /mnt mkinitcpio -P
 
-## ————      Network      ————
+## =  =  =  =       Network      =  =  =  =
 
 arch-chroot /mnt systemctl enable NetworkManager
 
