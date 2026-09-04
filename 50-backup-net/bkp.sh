@@ -34,6 +34,9 @@ else
 fi
 
 
+section_done "Check"
+
+
 
 #    Resolver
 
@@ -67,6 +70,9 @@ sudo systemctl restart systemd-resolved.service
 ## Test
 
 wait_for 60 getent hosts archlinux.org
+
+
+section_done "Resolver"
 
 
 
@@ -142,6 +148,9 @@ else
 fi
 
 
+section_done "Tailscale"
+
+
 
 #    SSH
 
@@ -171,6 +180,9 @@ sudo sshd -t
 sudo systemctl enable --now sshd.service
 
 sudo systemctl try-reload-or-restart sshd.service
+
+
+section_done "SSH"
 
 
 
@@ -256,6 +268,9 @@ sudo systemctl enable --now snapper-timeline.timer
 sudo systemctl enable --now snapper-cleanup.timer
 
 
+section_done "Snapper"
+
+
 
 #    Snapboot
 
@@ -314,6 +329,9 @@ if [[ "$SNAPBOOT" == yes ]]; then
 fi
 
 
+section_done "Snapboot"
+
+
 
 #    btrbk
 
@@ -346,6 +364,9 @@ else
 #######     target /mnt/backup/machineherald
 EOF
 fi
+
+
+section_done "btrbk"
 
 
 
@@ -403,6 +424,9 @@ warn  "restore tool"        command -v limine-snapper-restore
 verify_done
 
 
+section_done "Verify"
+
+
 
 #    End
 
@@ -417,3 +441,6 @@ echo
 echo "Rollback: boot a Snapshots entry, then run limine-snapper-restore"
 echo "Manual fallback is in Rollback.md"
 echo
+
+
+section_done "End"
