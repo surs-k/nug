@@ -12,6 +12,9 @@ set -Eeuo pipefail
 retry ping -c2 google.com
 
 
+section_done "Check"
+
+
 
 #    Timezone
 
@@ -24,6 +27,9 @@ sudo ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 ## Clock
 
 sudo hwclock --systohc
+
+
+section_done "Timezone"
 
 
 
@@ -46,6 +52,9 @@ echo "LANG=$LOCALE" | sudo tee /etc/locale.conf
 echo "KEYMAP=$KEYMAP" | sudo tee /etc/vconsole.conf
 
 
+section_done "Locale"
+
+
 
 #    Hostname
 
@@ -64,6 +73,9 @@ grep -q "$HOSTNAME" /etc/hosts || sudo tee -a /etc/hosts > /dev/null << EOF
 EOF
 
 
+section_done "Hostname"
+
+
 
 #    TPM2
 
@@ -73,6 +85,9 @@ EOF
 echo Encryption Pass
 
 sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "/dev/disk/by-partlabel/cryptsystem"
+
+
+section_done "TPM2"
 
 
 
@@ -86,6 +101,9 @@ sudo tee /etc/systemd/zram-generator.conf > /dev/null << EOF
 zram-size = min(ram / 2, 8192)
 compression-algorithm = zstd
 EOF
+
+
+section_done "zram"
 
 
 
@@ -126,6 +144,9 @@ fi
 		# exits because of commented install
 
 
+section_done "yay"
+
+
 
 #    End
 
@@ -133,3 +154,6 @@ fi
 stage_done 10-base
 
 echo "Run de.sh"
+
+
+section_done "End"
