@@ -18,6 +18,9 @@ else
 fi
 
 
+section_done "Check"
+
+
 
 #    Mullvad
 
@@ -72,6 +75,9 @@ echo "Connected"
 sudo mullvad lan set allow
 
 
+section_done "Mullvad"
+
+
 
 #    UFW
 
@@ -95,6 +101,9 @@ sudo ufw default allow outgoing
 sudo ufw --force enable
 
 
+section_done "UFW"
+
+
 
 #    Verify
 
@@ -114,8 +123,14 @@ verify_done
 stage_done 30-security
 
 
+section_done "Verify"
+
+
 
 #    End
 
 
 echo "Run virt.sh"
+
+
+section_done "End"
