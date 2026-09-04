@@ -12,6 +12,9 @@ set -Eeuo pipefail
 require_stage 30-security
 
 
+section_done "Check"
+
+
 
 #    Libvirt
 
@@ -50,6 +53,9 @@ After=ufw.service
 EOF
 
 sudo systemctl daemon-reload
+
+
+section_done "Libvirt"
 
 
 
@@ -146,6 +152,9 @@ sysctl net.ipv4.ip_forward
 mullvad lan get || true
 
 
+section_done "Network"
+
+
 
 #    Verify
 
@@ -169,6 +178,9 @@ check "libvirt nft rules" sh -c 'sudo nft list table ip libvirt_network'
 verify_done
 
 
+section_done "Verify"
+
+
 
 #    End
 
@@ -182,3 +194,6 @@ echo "REBOOT"
 echo
 echo "Run bkp.sh after"
 echo
+
+
+section_done "End"
