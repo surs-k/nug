@@ -12,6 +12,9 @@ set -Eeuo pipefail
 require_stage 10-base
 
 
+section_done "Check"
+
+
 
 #    Firelink
 
@@ -30,6 +33,9 @@ ln -sfn /games                  ~/firelink/games
 sudo chown "$USERNAME:$USERNAME" /games /home/ai
 
 
+section_done "Firelink"
+
+
 
 #    Nvidia
 
@@ -44,6 +50,9 @@ if lspci | grep -qi nvidia; then
     sudo mkinitcpio -P
 
 fi
+
+
+section_done "Nvidia"
 
 
 
@@ -70,6 +79,9 @@ sudo pacman -S archlinux-keyring
 ./install.sh -n > /dev/tty 2>&1
 
 
+section_done "HyDE"
+
+
 
 #    Chaotic
 
@@ -82,6 +94,9 @@ if [[ "$REMOVE_CHAOTIC" == "y" ]]; then
     sudo pacman -Rns --noconfirm chaotic-keyring chaotic-mirrorlist
     sudo pacman -Syu
 fi
+
+
+section_done "Chaotic"
 
 
 
@@ -104,6 +119,9 @@ EOF
 sudo localectl set-x11-keymap us pc105 colemak
 
 
+section_done "Keyboard"
+
+
 
 #    End
 
@@ -111,3 +129,6 @@ sudo localectl set-x11-keymap us pc105 colemak
 stage_done 20-desktop
 
 echo "Reboot"
+
+
+section_done "End"
