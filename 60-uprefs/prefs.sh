@@ -68,7 +68,17 @@ section_done "Repos"
 ## Repo
 
 sudo pacman -S --needed --noconfirm \
-	code signal-desktop dolphin flatpak curl pciutils xdg-utils
+	signal-desktop dolphin flatpak curl pciutils xdg-utils
+
+
+## Purge
+
+for p in code firefox; do
+	if pacman -Qq "$p" &>/dev/null; then
+		sudo pacman -Rns --noconfirm "$p" \
+			|| echo "could not remove $p - something depends on it" >&2
+	fi
+done
 
 
 ## Driver
@@ -113,6 +123,9 @@ yay -S --needed --noconfirm 1password \
 yay -S --needed --noconfirm mullvad-browser-bin \
 	|| echo "mullvad-browser-bin did not build - SUPER + B will do nothing" >&2
 
+yay -S --needed --noconfirm vscodium-bin \
+	|| echo "vscodium-bin did not build - SUPER + C will do nothing" >&2
+
 
 section_done "Packages"
 
@@ -137,7 +150,7 @@ section_done "Flatpak"
 
 
 
-#    Binds
+#    Hyprland
 
 
 ## Survey
@@ -172,7 +185,7 @@ cat >> "$LUA" << 'LUAEOF'
 -- rebuild prefs start
 
 hl.unbind("SUPER + C")
-hl.bind("SUPER + C", hl.dsp.exec_cmd("code"), { description = "[Rebuild] code" })
+hl.bind("SUPER + C", hl.dsp.exec_cmd("codium"), { description = "[Rebuild] codium" })
 
 hl.unbind("SUPER + P")
 hl.bind("SUPER + P", hl.dsp.exec_cmd("1password"), { description = "[Rebuild] 1password" })
@@ -191,6 +204,14 @@ hl.bind("SUPER + D", hl.dsp.exec_cmd("signal-desktop"), { description = "[Rebuil
 hl.unbind("SUPER + E")
 hl.bind("SUPER + F", hl.dsp.exec_cmd("dolphin"), { description = "[Rebuild] dolphin" })
 
+hl.window_rule({
+	name = "rebuild-mullvad",
+	match = { class = "^(mullvad browser)$" },
+	float = true,
+	size = { 1400, 1000 },
+	center = true,
+})
+
 -- rebuild prefs end
 LUAEOF
 
@@ -208,7 +229,7 @@ else
 fi
 
 
-section_done "Binds"
+section_done "Hyprland"
 
 
 
@@ -219,7 +240,7 @@ section_done "Binds"
 
 CODE_DESKTOP=""
 
-for d in code-oss.desktop code.desktop visual-studio-code.desktop; do
+for d in vscodium-wayland.desktop vscodium.desktop codium.desktop; do
 	[[ -f "/usr/share/applications/$d" ]] && { CODE_DESKTOP="$d"; break; }
 done
 
@@ -237,11 +258,65 @@ if [[ -n "$CODE_DESKTOP" ]]; then
 	echo "dolphin will open text with $CODE_DESKTOP"
 
 else
-	echo "warn: no code desktop file found - set the editor by hand in dolphin" >&2
+	echo "warn: no vscodium desktop file found - set the editor by hand in dolphin" >&2
+fi
+
+
+## Browser
+
+BROWSER_DESKTOP=""
+
+for d in mullvad-browser.desktop mullvadbrowser.desktop; do
+	[[ -f "/usr/share/applications/$d" ]] && { BROWSER_DESKTOP="$d"; break; }
+done
+
+if [[ -n "$BROWSER_DESKTOP" ]]; then
+
+	xdg-settings set default-web-browser "$BROWSER_DESKTOP"
+
+	echo "default browser is $BROWSER_DESKTOP"
+
+else
+	echo "warn: no mullvad-browser desktop file found - default browser unchanged" >&2
 fi
 
 
 section_done "Defaults"
+
+
+
+#    Configs
+
+
+## Source
+
+CFG="$(dirname "$(readlink -f "$0")")/config"
+
+
+## Dolphin
+
+if [[ -d "$CFG" ]]; then
+
+	if [[ -f "$CFG/dolphinrc" ]]; then
+		cp "$CFG/dolphinrc" "$HOME/.config/dolphinrc"
+	fi
+
+	if [[ -f "$CFG/user-places.xbel" ]]; then
+		mkdir -p "$HOME/.local/share"
+		cp "$CFG/user-places.xbel" "$HOME/.local/share/user-places.xbel"
+	fi
+
+	if [[ -d "$CFG/view_properties" ]]; then
+		mkdir -p "$HOME/.local/share/dolphin"
+		cp -r "$CFG/view_properties" "$HOME/.local/share/dolphin/"
+	fi
+
+else
+	echo "no config/ directory - dolphin settings left alone"
+fi
+
+
+section_done "Configs"
 
 
 
@@ -253,8 +328,6 @@ echo
 
 
 check "multilib enabled"    grep -q '^\[multilib\]' /etc/pacman.conf
-
-check "code"                command -v code
 
 check "signal-desktop"      command -v signal-desktop
 
@@ -270,6 +343,8 @@ check "block closed"        grep -q 'rebuild prefs end' "$LUA"
 
 check "block written once"  sh -c 'test "$(grep -c "rebuild prefs start" "$LUA")" = 1'
 
+warn  "codium"              command -v codium
+
 warn  "1password"           command -v 1password
 
 warn  "mullvad-browser"     command -v mullvad-browser
@@ -277,6 +352,10 @@ warn  "mullvad-browser"     command -v mullvad-browser
 warn  "freetube"            flatpak info io.freetubeapp.FreeTube
 
 warn  "hyde key_binds"      test -f "$BINDS"
+
+warn  "firefox removed"     sh -c '! pacman -Qq firefox'
+
+warn  "mullvad rule"        grep -q 'rebuild-mullvad' "$LUA"
 
 warn  "editor default"      sh -c 'test -n "$(xdg-mime query default text/plain)"'
 
