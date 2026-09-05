@@ -50,9 +50,12 @@ else
 
 	grep -q '^\[multilib\]' /etc/pacman.conf \
 		|| { echo "multilib uncomment failed - restore /etc/pacman.conf.bak-multilib" >&2; exit 1; }
-
-	sudo pacman -Syu --noconfirm
 fi
+
+
+## Sync
+
+sudo pacman -Syu --noconfirm
 
 
 section_done "Repos"
