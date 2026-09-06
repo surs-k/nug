@@ -23,8 +23,9 @@ command -v yay >/dev/null || { echo "yay missing - rerun 10-base" >&2; exit 1; }
 
 LUA="$HOME/.config/hypr/hyprland.lua"
 BINDS="$HOME/.local/share/hypr/lua/key_binds.lua"
+MON="$HOME/.config/hypr/monitors.lua"
 
-export LUA
+export LUA MON
 
 [[ -f "$HOME/.local/share/hypr/hyde.lua" ]] \
 	|| { echo "hyde.lua missing - HyDE is pre-lua, run install.sh -r first" >&2; exit 1; }
@@ -68,7 +69,7 @@ section_done "Repos"
 ## Repo
 
 sudo pacman -S --needed --noconfirm \
-	signal-desktop dolphin flatpak curl pciutils xdg-utils
+	signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr
 
 
 ## Purge
@@ -233,6 +234,77 @@ section_done "Hyprland"
 
 
 
+#    Monitors
+
+
+## Backup
+
+[[ -f "$MON" ]] || touch "$MON"
+
+[[ -f "$MON.bak-prefs" ]] || cp "$MON" "$MON.bak-prefs"
+
+
+## Clear
+
+sed -i '/^-- rebuild monitors start$/,/^-- rebuild monitors end$/d' "$MON"
+
+
+## Write
+
+cat >> "$MON" << 'MONEOF'
+-- rebuild monitors start
+
+hl.monitor({
+	output = "desc:Sceptre Tech Inc Sceptre O34",
+	mode = "3440x1440@165",
+	position = "1080x233",
+	scale = 1,
+	transform = 0,
+})
+
+hl.monitor({
+	output = "desc:Acer Technologies KG251Q T8ZAA00A8575",
+	mode = "1920x1080@143.98",
+	position = "0x0",
+	scale = 1,
+	transform = 1,
+})
+
+hl.monitor({
+	output = "",
+	mode = "preferred",
+	position = "auto",
+	scale = 1,
+	transform = 0,
+})
+
+-- rebuild monitors end
+MONEOF
+
+
+## Greeter
+
+sudo mkdir -p /etc/sddm /etc/sddm.conf.d
+
+sudo tee /etc/sddm/Xsetup-rebuild >/dev/null << 'XEOF'
+#!/bin/sh
+OUT=$(xrandr --query | awk '/ connected/{o=$1} o!="" && /^ +1920x1080/ && /\+/{print o; exit}')
+[ -n "$OUT" ] && xrandr --output "$OUT" --rotate left
+exit 0
+XEOF
+
+sudo chmod 755 /etc/sddm/Xsetup-rebuild
+
+sudo tee /etc/sddm.conf.d/20-rebuild-rotate.conf >/dev/null << 'SEOF'
+[X11]
+DisplayCommand=/etc/sddm/Xsetup-rebuild
+SEOF
+
+
+section_done "Monitors"
+
+
+
 #    Defaults
 
 
@@ -303,7 +375,8 @@ if [[ -d "$CFG" ]]; then
 
 	if [[ -f "$CFG/user-places.xbel" ]]; then
 		mkdir -p "$HOME/.local/share"
-		cp "$CFG/user-places.xbel" "$HOME/.local/share/user-places.xbel"
+		sed "s|/home/[^/\"]*|/home/$(id -un)|g" "$CFG/user-places.xbel" \
+			> "$HOME/.local/share/user-places.xbel"
 	fi
 
 	if [[ -d "$CFG/view_properties" ]]; then
@@ -356,6 +429,16 @@ warn  "hyde key_binds"      test -f "$BINDS"
 warn  "firefox removed"     sh -c '! pacman -Qq firefox'
 
 warn  "mullvad rule"        grep -q 'rebuild-mullvad' "$LUA"
+
+check "monitors block"      grep -q 'rebuild monitors start' "$MON"
+
+check "monitors once"       sh -c 'test "$(grep -c "rebuild monitors start" "$MON")" = 1'
+
+warn  "greeter rotate"      test -x /etc/sddm/Xsetup-rebuild
+
+warn  "no monitors.conf"    sh -c '! test -f "$HOME/.config/hypr/monitors.conf"'
+
+warn  "places installed"    test -f "$HOME/.local/share/user-places.xbel"
 
 warn  "editor default"      sh -c 'test -n "$(xdg-mime query default text/plain)"'
 
