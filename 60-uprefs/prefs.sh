@@ -206,8 +206,14 @@ hl.unbind("SUPER + E")
 hl.bind("SUPER + F", hl.dsp.exec_cmd("dolphin"), { description = "[Rebuild] dolphin" })
 
 hl.window_rule({
+	name = "rebuild-mullvad-nomax",
+	match = { class = "^(Mullvad Browser)$" },
+	suppress_event = "maximize",
+})
+
+hl.window_rule({
 	name = "rebuild-mullvad",
-	match = { class = "^(mullvad browser)$" },
+	match = { class = "^(Mullvad Browser)$" },
 	float = true,
 	size = { 1400, 1000 },
 	center = true,
@@ -429,6 +435,8 @@ warn  "hyde key_binds"      test -f "$BINDS"
 warn  "firefox removed"     sh -c '! pacman -Qq firefox'
 
 warn  "mullvad rule"        grep -q 'rebuild-mullvad' "$LUA"
+
+warn  "mullvad nomax"       grep -q 'rebuild-mullvad-nomax' "$LUA"
 
 check "monitors block"      grep -q 'rebuild monitors start' "$MON"
 
