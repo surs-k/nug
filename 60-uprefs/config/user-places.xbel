@@ -11,7 +11,7 @@
    <GroupState-Tags-IsHidden>false</GroupState-Tags-IsHidden>
   </metadata>
  </info>
- <bookmark href="file:///home/vlogic">
+ <bookmark href="file:///home/USERNAME">
   <title>Home</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -24,7 +24,7 @@
    </metadata>
   </info>
  </bookmark>
- <bookmark href="file:///home/vlogic/Desktop">
+ <bookmark href="file:///home/USERNAME/Desktop">
   <title>Desktop</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -37,7 +37,7 @@
    </metadata>
   </info>
  </bookmark>
- <bookmark href="file:///home/vlogic/Documents">
+ <bookmark href="file:///home/USERNAME/Documents">
   <title>Documents</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -50,7 +50,7 @@
    </metadata>
   </info>
  </bookmark>
- <bookmark href="file:///home/vlogic/Downloads">
+ <bookmark href="file:///home/USERNAME/Downloads">
   <title>Downloads</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -62,7 +62,7 @@
    </metadata>
   </info>
  </bookmark>
- <bookmark href="file:///home/vlogic/Music">
+ <bookmark href="file:///home/USERNAME/Music">
   <title>Music</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -75,7 +75,7 @@
    </metadata>
   </info>
  </bookmark>
- <bookmark href="file:///home/vlogic/Pictures">
+ <bookmark href="file:///home/USERNAME/Pictures">
   <title>Pictures</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -88,7 +88,7 @@
    </metadata>
   </info>
  </bookmark>
- <bookmark href="file:///home/vlogic/Videos">
+ <bookmark href="file:///home/USERNAME/Videos">
   <title>Videos</title>
   <info>
    <metadata owner="http://freedesktop.org">
@@ -125,49 +125,4 @@
    </metadata>
   </info>
  </bookmark>
- <separator>
-  <info>
-   <metadata owner="http://www.kde.org">
-    <UDI>/org/freedesktop/UDisks2/block_devices/dm_2d0</UDI>
-    <isSystemItem>true</isSystemItem>
-    <uuid>33624dc2-7ab9-4079-aeb6-fdcc3dafd29f</uuid>
-   </metadata>
-  </info>
- </separator>
- <separator>
-  <info>
-   <metadata owner="http://www.kde.org">
-    <UDI>/org/freedesktop/UDisks2/block_devices/dm_2d1</UDI>
-    <isSystemItem>true</isSystemItem>
-    <uuid>59a9f445-c0c4-4308-8fb5-aa178b5f76b3</uuid>
-   </metadata>
-  </info>
- </separator>
- <separator>
-  <info>
-   <metadata owner="http://www.kde.org">
-    <UDI>/org/freedesktop/UDisks2/block_devices/sda1</UDI>
-    <isSystemItem>true</isSystemItem>
-    <uuid>8cf2-267f</uuid>
-   </metadata>
-  </info>
- </separator>
- <separator>
-  <info>
-   <metadata owner="http://www.kde.org">
-    <UDI>/org/freedesktop/UDisks2/block_devices/vda2</UDI>
-    <isSystemItem>true</isSystemItem>
-    <uuid>1b7e8b00-9118-458b-bd73-18a4088f5b49</uuid>
-   </metadata>
-  </info>
- </separator>
- <separator>
-  <info>
-   <metadata owner="http://www.kde.org">
-    <UDI>/org/freedesktop/UDisks2/block_devices/vdb1</UDI>
-    <isSystemItem>true</isSystemItem>
-    <uuid>920e54db-258c-4862-b00c-9d36b8a0c18f</uuid>
-   </metadata>
-  </info>
- </separator>
 </xbel>
