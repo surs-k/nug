@@ -1,0 +1,45 @@
+[ContentDisplay]
+DirectorySizeMode=ContentSize
+
+[ContextMenu]
+ShowAddToPlaces=false
+ShowOpenTerminal=false
+
+[DetailsMode]
+HighlightEntireRow=false
+IconSize=32
+LeftPadding=0
+PreviewSize=32
+RightPadding=0
+
+[General]
+BrowseThroughArchives=true
+CloseSplitViewChoice=InactiveView
+DoubleClickViewAction=create_dir
+OpenNewTabAfterLastTab=true
+RememberOpenedTabs=false
+ShowFullPath=true
+ShowToolTips=true
+TabStyle=FullWidth
+ViewPropsTimestamp=2026,9,5,17,27,16.578
+
+[IconsMode]
+PreviewSize=48
+
+[KFileDialog Settings]
+Places Icons Auto-resize=false
+Places Icons Static Size=22
+
+[MainWindow][Toolbar mainToolBar]
+IconSize=16
+ToolButtonStyle=IconOnly
+
+[PreviewSettings]
+Plugins=appimagethumbnail,audiothumbnail,glycin-heif,comicbookthumbnail,cursorthumbnail,djvuthumbnail,ebookthumbnail,exrthumbnail,directorythumbnail,imagethumbnail,glycin-image-rs,jpegthumbnail,glycin-jxl,kraorathumbnail,windowsexethumbnail,windowsimagethumbnail,opendocumentthumbnail,glycin-svg,svgthumbnail,ffmpegthumbs
+
+[Toolbar mainToolBar]
+IconSize=16
+ToolButtonStyle=IconOnly
+
+[UiSettings]
+ColorScheme[$d]
