@@ -139,11 +139,14 @@ CONF=/boot/limine.conf
 ####### default_entry and quiet are deliberately never written
 ####### default_entry can land on a branch that cannot be booted, and quiet
 ####### hides the failure when it does
-grep -q '^timeout:' "\$CONF" && exit 0
+
+####### the timeout is rewritten every time rather than only added when
+####### missing, otherwise a value written by the snapshot sync is never
+####### corrected and the setting silently stops being ours
 
 TMP="\$(mktemp)"
 
-cat "\$CONF" > "\$TMP"
+grep -v '^timeout:' "\$CONF" > "\$TMP" || true
 
 {
 	printf 'timeout: %s\n' "$LIMINE_TIMEOUT"
@@ -182,34 +185,26 @@ run "reload systemd" $SUDO systemctl daemon-reload
 
 section "Unlock"
 
-####### tpm2 auto unlock is convenience, not protection
-####### pcr 7 measures the secure boot state, so with secure boot off it
-####### proves very little, and a firmware update can invalidate it
-####### the passphrase slot always stays, so a broken pcr is never a lockout
+####### enrolment already happened during the install, where the passphrase
+####### was in hand, so this only reports the outcome and never prompts
 
 SB="$(capture bootctl status)"
 
 if contains "$SB" "Secure Boot: enabled"; then
 	note "Secure Boot is on, PCR 7 is meaningful"
-	TPM_OK=yes
 else
-	flag "Secure Boot is off, PCR 7 binding is convenience only"
-	TPM_OK=ask
+	note "Secure Boot is off, TPM unlock is convenience only"
 fi
 
 ENROLLED="$(capture $SUDO cryptsetup luksDump /dev/disk/by-partlabel/cryptsystem)"
 
 if contains "$ENROLLED" "systemd-tpm2"; then
-	note "TPM2 already enrolled"
-
+	note "TPM unlock is active, no boot passphrase needed"
 elif [[ ! -e /dev/tpmrm0 ]]; then
-	flag "no TPM device found, skipping"
-
-elif [[ "$TPM_OK" == yes ]] || yesno "Enrol the TPM anyway so you skip the boot passphrase" y; then
-	note "You will be asked for your LUKS passphrase once."
-	$SUDO systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 \
-		/dev/disk/by-partlabel/cryptsystem \
-		|| flag "TPM enrolment failed, the passphrase still works"
+	flag "no TPM device on this machine, the passphrase is required at boot"
+else
+	flag "TPM is not enrolled, the passphrase is required at boot"
+	flag "to enrol it later: sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/cryptsystem"
 fi
 
 
