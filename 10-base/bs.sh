@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-retry ping -c2 archlinux.org
+retry online
 
 [[ "$HOSTNAME" != CHANGEME ]] || { printf 'No hostname in %s\n' "$CONFIG" >&2; exit 1; }
 [[ "$USERNAME" != CHANGEME ]] || { printf 'No username in %s\n' "$CONFIG" >&2; exit 1; }
