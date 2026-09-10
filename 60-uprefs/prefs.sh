@@ -166,13 +166,6 @@ sed -i '/^-- rebuild prefs start$/,/^-- rebuild prefs end$/d' "$LUA"
 cat >> "$LUA" << 'LUAEOF'
 -- rebuild prefs start
 
-hl.config({
-  input = {
-    kb_layout = "us",
-    kb_variant = "colemak"
-  }
-})
-
 hl.unbind("SUPER + C")
 hl.bind("SUPER + C", hl.dsp.exec_cmd("codium"), { description = "[Rebuild] codium" })
 
