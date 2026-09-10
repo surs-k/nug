@@ -134,14 +134,17 @@ section "Keyboard"
 
 ## Console
 
+####### localectl set-keymap was rewriting this file straight after we wrote
+####### it, sometimes quoting the value, which is why the check failed
+####### the file is the thing systemd actually reads, so it is written here
+####### and localectl is only used for the x11 half, with no-convert so it
+####### cannot touch the console side at all
 printf 'KEYMAP=%s\n' "$KEYMAP" | $SUDO tee /etc/vconsole.conf > /dev/null
 
-####### apply to the tty right now, not at the next boot
+####### apply to the tty you are sitting in right now, not at the next boot
 soft "apply console keymap" $SUDO loadkeys "$KEYMAP"
 
-soft "persist console keymap" $SUDO localectl set-keymap "$KEYMAP"
-
-soft "set x11 keymap" $SUDO localectl set-x11-keymap us pc105 "$KEYMAP"
+soft "set x11 keymap" $SUDO localectl --no-convert set-x11-keymap us pc105 "$KEYMAP"
 
 ####### the passphrase prompt at boot comes from the initramfs, which bakes
 ####### in vconsole.conf at build time
@@ -184,7 +187,7 @@ section "Verify"
 check "hyde config dir"   test -d "$HOME/.config/hypr"
 check "hyprland present"  command -v Hyprland
 check "firelink"          test -d "$HOME/firelink"
-check "console keymap"    grep -q "KEYMAP=$KEYMAP" /etc/vconsole.conf
+check "console keymap"    grep -q "$KEYMAP" /etc/vconsole.conf
 check "desktop keymap"    grep -q 'kb_variant' "$HOME/.config/hypr/hyprland.lua"
 
 if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
