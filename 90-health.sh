@@ -311,6 +311,33 @@ run "validate sudoers" $SUDO visudo -c -f /etc/sudoers.d/20-rebuild-health
 
 
 
+#    Lockdown
+
+
+section "Lockdown"
+
+####### this goes absolutely last
+####### lockdown blocks everything outside the tunnel, and it was previously
+####### switched on in 50-bkp-net, before the package installs that came after
+####### it, which is what killed that stage part way through
+####### nothing after this point needs to download anything
+
+TS="$(capture tailscale status)"
+
+if contains "$TS" "Logged out" || contains "$TS" "stopped"; then
+	flag "Tailscale is down, leaving lockdown mode off so you keep remote access"
+
+elif yesno "Turn on lockdown mode, nothing leaves outside the VPN" y; then
+	soft "lockdown mode on" $SUDO mullvad lockdown-mode set on
+	note "lockdown mode is on"
+	note "if anything loses network later, this is the first thing to check"
+	note "to undo: sudo mullvad lockdown-mode set off"
+else
+	note "lockdown mode left off"
+fi
+
+
+
 #    Verify
 
 

@@ -75,8 +75,10 @@ FAILLOG="$LOGDIR/failures.txt"
 
 touch "$FAILLOG"
 
+####### the tag is what separates "skipped this, carried on" from
+####### "this is where the script stopped"
 record_fail() {
-	printf '%-12s %s\n' "$STAGE" "$1" >> "$FAILLOG"
+	printf '%s\t%-12s %s\n' "${2:-soft}" "$STAGE" "$1" >> "$FAILLOG"
 }
 
 
@@ -186,38 +188,52 @@ soft() {
 ####### duplicates are collapsed, because re-running a stage appends again
 show_failures() {
 	local scope=${1:-all}
-	local lines
+	local raw softs stops title
 
 	[[ -s "$FAILLOG" ]] || return 0
 
 	if [[ "$scope" == stage ]]; then
-		lines="$(grep "^$STAGE " "$FAILLOG" 2>/dev/null | awk '!seen[$0]++' || true)"
+		raw="$(grep -P "\t$STAGE " "$FAILLOG" 2>/dev/null | awk '!seen[$0]++' || true)"
+		title="PROBLEMS IN $STAGE"
 	else
-		lines="$(awk '!seen[$0]++' "$FAILLOG" 2>/dev/null || true)"
+		raw="$(awk '!seen[$0]++' "$FAILLOG" 2>/dev/null || true)"
+		title="EVERYTHING THAT HAD A PROBLEM"
 	fi
 
-	[[ -n "${lines//[[:space:]]/}" ]] || return 0
+	[[ -n "${raw//[[:space:]]/}" ]] || return 0
+
+	softs="$(printf '%s\n' "$raw" | sed -n 's/^soft\t//p' || true)"
+	stops="$(printf '%s\n' "$raw" | sed -n 's/^stop\t//p' || true)"
 
 	printf '\n' >&2
 	printf '========================================\n' >&2
-	printf ' DID NOT WORK\n' >&2
-	printf '========================================\n\n' >&2
-	printf '%s\n' "$lines" | sed 's/^/  /' >&2
+	printf ' %s\n' "$title" >&2
+	printf '========================================\n' >&2
+
+	if [[ -n "${softs//[[:space:]]/}" ]]; then
+		printf '\n  SKIPPED, the run carried on\n\n' >&2
+		printf '%s\n' "$softs" | sed 's/^/    /' >&2
+	fi
+
+	if [[ -n "${stops//[[:space:]]/}" ]]; then
+		printf '\n  STOPPED THE SCRIPT\n\n' >&2
+		printf '%s\n' "$stops" | sed 's/^/    /' >&2
+	fi
+
 	printf '\n  full list  %s\n\n' "$FAILLOG" >&2
 }
-
-
-
-#    Packages
 
 
 ## Pacman
 
 ####### package installs stay visible, the download bar is the progress
+####### stderr is copied into the log while stdout stays a terminal
+####### the progress bar needs a real terminal, the error needs to be findable
+####### without this, a failed install left nothing in the log but its own name
 pac() {
 	printf '\n  packages   %s\n\n' "$*"
 	printf 'pacman -S %s\n' "$*" >&3
-	$SUDO pacman -S --needed --noconfirm "$@"
+	$SUDO pacman -S --needed --noconfirm "$@" 2> >(tee -a "$LOG" >&2)
 }
 
 
@@ -226,7 +242,7 @@ pac() {
 aur() {
 	printf '\n  aur build  %s\n\n' "$*"
 	printf 'yay -S %s\n' "$*" >&3
-	yay -S --needed --noconfirm "$@"
+	yay -S --needed --noconfirm "$@" 2> >(tee -a "$LOG" >&2)
 }
 
 
@@ -235,7 +251,7 @@ aur() {
 flat() {
 	printf '\n  flatpak    %s\n\n' "$*"
 	printf 'flatpak install %s\n' "$*" >&3
-	$SUDO flatpak install -y --noninteractive flathub "$@"
+	$SUDO flatpak install -y --noninteractive flathub "$@" 2> >(tee -a "$LOG" >&2)
 }
 
 
@@ -633,7 +649,7 @@ on_err() {
 	tail -n 15 "$LOG" 2>/dev/null | sed 's/^/    /' >&2 || true
 	printf '\n  full log  %s\n\n' "$LOG" >&2
 
-	record_fail "STOPPED HERE: $BASH_COMMAND"
+	record_fail "$BASH_COMMAND" stop
 
 	return "$rc"
 }

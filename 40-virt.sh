@@ -90,7 +90,17 @@ if [[ "$HAVE" =~ 192\.168\.([0-9]+)\.1/ ]]; then
 	note "virbr0 already on $SUBNET.0/24"
 else
 	REBUILD_NET=yes
-	soft "stop default net" $SUDO virsh net-destroy default
+
+	####### this only needs stopping if it is actually running
+	####### on a fresh install it never is, and reporting that as a failure
+	####### was pure noise in the list
+	RUNNING="$(capture $SUDO virsh net-list --name)"
+
+	if contains "$RUNNING" "default"; then
+		soft "stop default net" $SUDO virsh net-destroy default
+	else
+		note "default network is not running, nothing to stop"
+	fi
 
 	INUSE="$(capture ip -4 route show)$(capture ip -4 addr show)"
 

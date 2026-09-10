@@ -78,99 +78,6 @@ note "DNS working"
 
 
 
-#    Tailscale
-
-
-section "Tailscale"
-
-
-## Install
-
-pac tailscale inotify-tools
-
-
-## Exclude
-
-####### tailscale traffic has to leave outside the mullvad tunnel or the
-####### kill switch drops it, mullvad-exclude puts the daemon in a cgroup
-####### that is marked to bypass the tunnel
-
-TS_UNIT=/usr/lib/systemd/system/tailscaled.service
-TS_DROP=/etc/systemd/system/tailscaled.service.d/mullvad-exclude.conf
-
-if command -v mullvad-exclude > /dev/null; then
-
-	TS_EXEC="$(sed -n 's/^ExecStart=//p' "$TS_UNIT" | sed -n 1p)"
-	[[ -n "$TS_EXEC" ]] || { printf 'No ExecStart in %s\n' "$TS_UNIT" >&2; exit 1; }
-
-	$SUDO mkdir -p "$(dirname "$TS_DROP")"
-
-	$SUDO tee "$TS_DROP" > /dev/null << EOF
-[Unit]
-After=mullvad-daemon.service
-Wants=mullvad-daemon.service
-
-[Service]
-ExecStart=
-ExecStart=$(command -v mullvad-exclude) ${TS_EXEC}
-EOF
-
-	run "reload systemd" $SUDO systemctl daemon-reload
-else
-	flag "mullvad-exclude absent, tailscaled will run inside the tunnel"
-fi
-
-
-## Daemon
-
-run "enable tailscaled"  $SUDO systemctl enable tailscaled.service
-run "restart tailscaled" $SUDO systemctl restart tailscaled.service
-
-wait_for 30 test -S /run/tailscale/tailscaled.sock
-
-
-## Up
-
-tailnet_up() {
-	local s
-	s="$(capture tailscale status)"
-	! contains "$s" "Logged out" && ! contains "$s" "Tailscale is stopped"
-}
-
-####### accept-dns stays off, magicdns fights systemd-resolved and mullvad
-if tailnet_up; then
-	note "already logged in"
-	soft "keep dns local" $SUDO tailscale set --accept-dns=false
-else
-	printf '\n  A browser link prints below. Open it and approve this machine.\n\n'
-	$SUDO tailscale up --accept-dns=false --timeout=300s
-fi
-
-
-## Firewall
-
-if ip link show tailscale0 &> /dev/null; then
-	soft "allow ssh on tailnet" $SUDO ufw allow in on tailscale0 to any port 22 proto tcp
-else
-	flag "tailscale0 absent, ssh rule not added"
-fi
-
-
-## Lockdown
-
-####### lockdown mode blocks everything outside the tunnel even while Mullvad
-####### is disconnected, so it only goes on now, after Tailscale is up and
-####### excluded, otherwise remote access would be cut before it ever worked
-
-if tailnet_up; then
-	soft "lockdown mode on" $SUDO mullvad lockdown-mode set on
-	note "lockdown mode is on, nothing leaves outside the tunnel"
-else
-	flag "Tailscale is not up, leaving lockdown mode off so you keep access"
-fi
-
-
-
 #    SSH
 
 
@@ -187,7 +94,7 @@ if [[ -s "$HOME/.ssh/authorized_keys" ]]; then
 		| $SUDO tee -a /etc/ssh/sshd_config.d/10-harden.conf > /dev/null
 	note "key only auth enabled"
 else
-	flag "no authorized_keys yet, password auth left on"
+	note "no SSH keys yet, so password login stays on for now"
 fi
 
 run "generate host keys" $SUDO ssh-keygen -A
@@ -278,10 +185,19 @@ SNAPBOOT=no
 if pacman -Qi limine-snapper-sync &> /dev/null; then
 	SNAPBOOT=yes
 	note "already installed"
-elif aur limine-snapper-sync; then
-	SNAPBOOT=yes
 else
-	flag "limine-snapper-sync did not build, boot entry sync skipped"
+	####### the AUR name has a git variant, try both before giving up
+	for pkg in limine-snapper-sync limine-snapper-sync-git; do
+		if yay -S --needed --noconfirm "$pkg" >&3 2>&1; then
+			SNAPBOOT=yes
+			note "installed $pkg"
+			break
+		fi
+		printf '  ..     %s did not build, trying the next name\n' "$pkg"
+	done
+
+	[[ "$SNAPBOOT" == yes ]] \
+		|| flag "limine-snapper-sync would not build, snapshot boot entries skipped"
 fi
 
 
@@ -433,8 +349,6 @@ section "Verify"
 
 check "resolved active"    systemctl is-active --quiet systemd-resolved
 check "dns resolves"       resolves
-check "tailscaled active"  systemctl is-active --quiet tailscaled
-check "tailnet up"         tailnet_up
 check "sshd config valid"  $SUDO sshd -t
 check "sshd active"        systemctl is-active --quiet sshd
 check "snapper config"     test -f /etc/snapper/configs/root
@@ -450,8 +364,6 @@ check "entry still bootable" grep -q '^/Arch Linux' /boot/limine.conf
 check "entry not folder"   sh -c '! grep -q "^/+" /boot/limine.conf' 
 check "no stray conf"      sh -c '! test -f /boot/EFI/limine/limine.conf'
 
-warn  "tailscale excluded" sh -c 'systemctl show tailscaled -p ExecStart > /tmp/_ts; grep -q mullvad-exclude /tmp/_ts'
-warn  "ufw tailscale rule" sh -c 'sudo ufw status > /tmp/_u; grep -q tailscale0 /tmp/_u'
 warn  "snapshot entries"   sh -c 'limine-snapper-list > /dev/null'
 warn  "restore tool"       command -v limine-snapper-restore
 

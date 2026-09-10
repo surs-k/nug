@@ -231,8 +231,20 @@ for s in "${STAGES[@]}"; do
 		show_failures all
 
 		printf '  Every stage is safe to run again.\n'
-		printf '  Fix what you can, then run rebuild once more.\n'
+		printf '  rebuild carries on from here, it does not start over.\n'
 		printf '\n'
+
+		####### a stage already marked done is skipped, so anything that only
+		####### failed softly inside one needs its marker cleared to retry
+		BAD="$(cut -f2 "$FAILLOG" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
+
+		if [[ -n "${BAD//[[:space:]]/}" ]]; then
+			printf '  To also retry the skipped things above:\n\n'
+			printf '    rm -f'
+			for b in $BAD; do printf ' ~/.install-state/%s' "$b"; done
+			printf '\n    rebuild\n\n'
+		fi
+
 		exit 1
 	fi
 
@@ -279,3 +291,12 @@ printf '\n'
 
 ####### the last thing on screen is what still needs attention
 show_failures all
+
+BAD="$(cut -f2 "$FAILLOG" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
+
+if [[ -n "${BAD//[[:space:]]/}" ]]; then
+	printf '  Those were skipped, not fatal. To retry just those stages:\n\n' >&2
+	printf '    rm -f' >&2
+	for b in $BAD; do printf ' ~/.install-state/%s' "$b" >&2; done
+	printf '\n    rebuild\n\n' >&2
+fi
