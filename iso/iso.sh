@@ -530,18 +530,23 @@ printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvo
 ####### then hid the resulting failure, which is why the firmware handed back
 ####### a black screen with no message
 ####### limine already boots the first bootable entry on its own
+####### the entry is top level and directly bootable
+####### /+Name with a plus is a folder, and limine cannot auto boot a folder,
+####### it waits for someone to open it and choose
+####### that single character is why the menu never started on its own
+####### the snapshot marker is added later by 50-bkp-net, right before the
+####### sync tool that needs it, so first boot has exactly one entry and
+####### nothing ambiguous to choose between
 cat > /boot/limine.conf << ENTRYEOF
 timeout: $LIMINE_TIMEOUT
 
-/+Arch Linux
+/Arch Linux
     comment: machine-id=\$(cat /etc/machine-id)
-    //Linux
-        protocol: linux
-        path: boot():/vmlinuz-linux
-        module_path: boot():/intel-ucode.img
-        module_path: boot():/initramfs-linux.img
-        cmdline: rd.luks.name=\$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw
-    //Snapshots
+    protocol: linux
+    path: boot():/vmlinuz-linux
+    module_path: boot():/intel-ucode.img
+    module_path: boot():/initramfs-linux.img
+    cmdline: rd.luks.name=\$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw
 ENTRYEOF
 CHROOTEOF
 
@@ -599,6 +604,8 @@ check "root mounted"     mountpoint -q /mnt
 check "snapshots sib"    sh -c 'findmnt -no SOURCE /mnt/.snapshots | grep -q "@snapshots"'
 check "limine conf"      test -f /mnt/boot/limine.conf
 check "conf has entry"   grep -q 'protocol: linux' /mnt/boot/limine.conf
+check "entry top level"  grep -q '^/Arch Linux' /mnt/boot/limine.conf
+check "entry not folder" sh -c '! grep -q "^/+" /mnt/boot/limine.conf'
 check "conf has timeout" grep -q '^timeout:' /mnt/boot/limine.conf
 check "no default_entry" sh -c '! grep -q "^default_entry:" /mnt/boot/limine.conf'
 check "kernel present"   test -f /mnt/boot/vmlinuz-linux
