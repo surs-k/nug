@@ -302,10 +302,20 @@ ask() {
 
 ## Yes
 
+####### the capital letter is the default, that is the whole convention
 yesno() {
-	local prompt=$1 default=${2:-n} reply
-	read -rp "  $prompt (y/n) [$default]: " reply < /dev/tty
+	local prompt=$1 default=${2:-n} hint reply
+
+	if [[ "$default" == [yY]* ]]; then
+		hint="(Y/n)"
+	else
+		hint="(y/N)"
+	fi
+
+	read -rp "  $prompt $hint: " reply < /dev/tty
+
 	reply="${reply:-$default}"
+
 	[[ "$reply" == [yY]* ]]
 }
 
