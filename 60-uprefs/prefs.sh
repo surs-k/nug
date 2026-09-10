@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
@@ -9,149 +8,129 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 #    Check
 
 
-## Stage
+section "Check"
+
+sudo_keepalive
 
 require_stage 20-desktop
-
-
-## Tools
-
-command -v yay >/dev/null || { echo "yay missing - rerun 10-base" >&2; exit 1; }
-
-
-## HyDE
 
 LUA="$HOME/.config/hypr/hyprland.lua"
 BINDS="$HOME/.local/share/hypr/lua/key_binds.lua"
 MON="$HOME/.config/hypr/monitors.lua"
 
-export LUA MON
-
 [[ -f "$HOME/.local/share/hypr/hyde.lua" ]] \
-	|| { echo "hyde.lua missing - HyDE is pre-lua, run install.sh -r first" >&2; exit 1; }
-
-
-section_done "Check"
+	|| { printf 'hyde.lua missing, HyDE is pre-lua, run install.sh -r first\n' >&2; exit 1; }
 
 
 
 #    Repos
 
 
-## Multilib
+section "Repos"
 
 if grep -q '^\[multilib\]' /etc/pacman.conf; then
-
-	echo "multilib already enabled"
-
+	note "multilib already enabled"
 else
-	sudo cp /etc/pacman.conf /etc/pacman.conf.bak-multilib
-
-	sudo sed -i '/^#\[multilib\]$/,+1s/^#//' /etc/pacman.conf
-
+	$SUDO cp /etc/pacman.conf /etc/pacman.conf.bak-multilib
+	$SUDO sed -i '/^#\[multilib\]$/,+1s/^#//' /etc/pacman.conf
 	grep -q '^\[multilib\]' /etc/pacman.conf \
-		|| { echo "multilib uncomment failed - restore /etc/pacman.conf.bak-multilib" >&2; exit 1; }
+		|| { printf 'multilib uncomment failed, restore the .bak-multilib file\n' >&2; exit 1; }
 fi
 
-
-## Sync
-
-sudo pacman -Syu --noconfirm
-
-
-section_done "Repos"
+run "sync repos" $SUDO pacman -Syu --noconfirm
 
 
 
 #    Packages
 
 
+section "Packages"
+
+
 ## Repo
 
-sudo pacman -S --needed --noconfirm \
-	signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr
+pac signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
+
+
+## Keyring
+
+####### 1password and claude desktop both refuse to start without a secret
+####### service, this supplies one without touching pam
+pac gnome-keyring libsecret seahorse
 
 
 ## Purge
 
 for p in code firefox; do
-	if pacman -Qq "$p" &>/dev/null; then
-		sudo pacman -Rns --noconfirm "$p" \
-			|| echo "could not remove $p - something depends on it" >&2
+	if pacman -Qq "$p" &> /dev/null; then
+		soft "remove $p" $SUDO pacman -Rns --noconfirm "$p"
 	fi
 done
 
 
 ## Driver
 
-GPU="$(lspci)"
-
-if grep -qi nvidia <<< "$GPU"; then
-	sudo pacman -S --needed --noconfirm lib32-nvidia-utils
+if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
+	pac lib32-nvidia-utils
 else
-	sudo pacman -S --needed --noconfirm lib32-mesa
+	pac lib32-mesa
 fi
 
 
 ## Steam
 
-sudo pacman -S --needed --noconfirm steam
+pac steam
+
+
+
+#    Aur
+
+
+section "Aur"
 
 
 ## Key
 
 OP_KEY=3FEF9748469ADBE15DA7CA80AC2D62742012EA22
 
-if gpg --list-keys "$OP_KEY" &>/dev/null; then
-
-	echo "1password key already imported"
-
+if gpg --list-keys "$OP_KEY" &> /dev/null; then
+	note "1password key already imported"
 else
-	curl -fsSL -o /tmp/1password.asc https://downloads.1password.com/linux/keys/1password.asc
-
-	gpg --import /tmp/1password.asc
-
-	gpg --list-keys "$OP_KEY" &>/dev/null \
-		|| echo "1password key not in keyring - the AUR build will fail" >&2
+	run "fetch 1password key" curl -fsSL -o /tmp/1password.asc \
+		https://downloads.1password.com/linux/keys/1password.asc
+	soft "import 1password key" gpg --import /tmp/1password.asc
 fi
 
 
-## AUR
+## Builds
 
-yay -S --needed --noconfirm 1password \
-	|| echo "1password did not build - SUPER + P will do nothing" >&2
+soft "1password"      yay -S --needed --noconfirm 1password
+soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
+soft "vscodium"       yay -S --needed --noconfirm vscodium-bin
 
-yay -S --needed --noconfirm mullvad-browser-bin \
-	|| echo "mullvad-browser-bin did not build - SUPER + B will do nothing" >&2
-
-yay -S --needed --noconfirm vscodium-bin \
-	|| echo "vscodium-bin did not build - SUPER + C will do nothing" >&2
-
-
-section_done "Packages"
+if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
+	soft "librewolf" yay -S --needed --noconfirm librewolf-bin
+fi
 
 
 
 #    Flatpak
 
 
-## Remote
+section "Flatpak"
 
-sudo flatpak remote-add --if-not-exists flathub \
+run "add flathub" $SUDO flatpak remote-add --if-not-exists flathub \
 	https://dl.flathub.org/repo/flathub.flatpakrepo
 
-
-## FreeTube
-
-sudo flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube \
-	|| echo "FreeTube did not install - SUPER + V will do nothing" >&2
-
-
-section_done "Flatpak"
+soft "freetube" $SUDO flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube
+soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Vesktop
 
 
 
 #    Hyprland
+
+
+section "Hyprland"
 
 
 ## Survey
@@ -159,19 +138,17 @@ section_done "Flatpak"
 if [[ -f "$BINDS" ]]; then
 	for combo in "SUPER + C" "SUPER + P" "SUPER + B" "SUPER + V" "SUPER + S" "SUPER + E"; do
 		grep -qF "\"$combo\"" "$BINDS" \
-			|| echo "warn: HyDE no longer binds $combo - that unbind may pop an error" >&2
+			|| flag "HyDE no longer binds $combo, that unbind may pop an error"
 	done
 else
-	echo "warn: $BINDS absent - cannot confirm HyDE bind spellings" >&2
+	flag "$BINDS absent, cannot confirm HyDE bind spellings"
 fi
 
 
 ## Backup
 
 mkdir -p "$(dirname "$LUA")"
-
 touch "$LUA"
-
 [[ -f "$LUA.bak-prefs" ]] || cp "$LUA" "$LUA.bak-prefs"
 
 
@@ -184,6 +161,13 @@ sed -i '/^-- rebuild prefs start$/,/^-- rebuild prefs end$/d' "$LUA"
 
 cat >> "$LUA" << 'LUAEOF'
 -- rebuild prefs start
+
+hl.config({
+  input = {
+    kb_layout = "us",
+    kb_variant = "colemak"
+  }
+})
 
 hl.unbind("SUPER + C")
 hl.bind("SUPER + C", hl.dsp.exec_cmd("codium"), { description = "[Rebuild] codium" })
@@ -204,6 +188,8 @@ hl.bind("SUPER + D", hl.dsp.exec_cmd("signal-desktop"), { description = "[Rebuil
 
 hl.unbind("SUPER + E")
 hl.bind("SUPER + F", hl.dsp.exec_cmd("dolphin"), { description = "[Rebuild] dolphin" })
+
+hl.bind("SUPER + L", hl.dsp.exec_cmd("librewolf"), { description = "[Rebuild] librewolf local" })
 
 hl.window_rule({
 	name = "rebuild-mullvad-nomax",
@@ -226,36 +212,23 @@ LUAEOF
 ## Reload
 
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-
-	hyprctl reload || echo "hyprctl reload failed - log out and back in" >&2
-
-	hyde-shell keybinds_hint --reload &>/dev/null || true
-
+	soft "reload hyprland" hyprctl reload
+	hyde-shell keybinds_hint --reload &> /dev/null || true
 else
-	echo "not inside a Hyprland session - binds apply at next login"
+	note "not inside Hyprland, binds apply at next login"
 fi
-
-
-section_done "Hyprland"
 
 
 
 #    Monitors
 
 
-## Backup
+section "Monitors"
 
 [[ -f "$MON" ]] || touch "$MON"
-
 [[ -f "$MON.bak-prefs" ]] || cp "$MON" "$MON.bak-prefs"
 
-
-## Clear
-
 sed -i '/^-- rebuild monitors start$/,/^-- rebuild monitors end$/d' "$MON"
-
-
-## Write
 
 cat >> "$MON" << 'MONEOF'
 -- rebuild monitors start
@@ -290,28 +263,28 @@ MONEOF
 
 ## Greeter
 
-sudo mkdir -p /etc/sddm /etc/sddm.conf.d
+$SUDO mkdir -p /etc/sddm /etc/sddm.conf.d
 
-sudo tee /etc/sddm/Xsetup-rebuild >/dev/null << 'XEOF'
+$SUDO tee /etc/sddm/Xsetup-rebuild > /dev/null << 'XEOF'
 #!/bin/sh
 OUT=$(xrandr --query | awk '/ connected/{o=$1} o!="" && /^ +1920x1080/ && /\+/{print o; exit}')
 [ -n "$OUT" ] && xrandr --output "$OUT" --rotate left
 exit 0
 XEOF
 
-sudo chmod 755 /etc/sddm/Xsetup-rebuild
+$SUDO chmod 755 /etc/sddm/Xsetup-rebuild
 
-sudo tee /etc/sddm.conf.d/20-rebuild-rotate.conf >/dev/null << 'SEOF'
+$SUDO tee /etc/sddm.conf.d/20-rebuild-rotate.conf > /dev/null << 'SEOF'
 [X11]
 DisplayCommand=/etc/sddm/Xsetup-rebuild
 SEOF
 
 
-section_done "Monitors"
-
-
 
 #    Defaults
+
+
+section "Defaults"
 
 
 ## Editor
@@ -322,21 +295,13 @@ for d in vscodium-wayland.desktop vscodium.desktop codium.desktop; do
 	[[ -f "/usr/share/applications/$d" ]] && { CODE_DESKTOP="$d"; break; }
 done
 
-
-## Mime
-
 if [[ -n "$CODE_DESKTOP" ]]; then
-
 	xdg-mime default "$CODE_DESKTOP" text/plain
-
 	xdg-mime default "$CODE_DESKTOP" text/x-shellscript
-
 	xdg-mime default "$CODE_DESKTOP" text/markdown
-
-	echo "dolphin will open text with $CODE_DESKTOP"
-
+	note "text files open with $CODE_DESKTOP"
 else
-	echo "warn: no vscodium desktop file found - set the editor by hand in dolphin" >&2
+	flag "no vscodium desktop file found, set the editor by hand in dolphin"
 fi
 
 
@@ -349,35 +314,25 @@ for d in mullvad-browser.desktop mullvadbrowser.desktop; do
 done
 
 if [[ -n "$BROWSER_DESKTOP" ]]; then
-
-	xdg-settings set default-web-browser "$BROWSER_DESKTOP"
-
-	echo "default browser is $BROWSER_DESKTOP"
-
+	soft "set default browser" xdg-settings set default-web-browser "$BROWSER_DESKTOP"
 else
-	echo "warn: no mullvad-browser desktop file found - default browser unchanged" >&2
+	flag "no mullvad-browser desktop file found, default browser unchanged"
 fi
-
-
-section_done "Defaults"
 
 
 
 #    Configs
 
 
-## Source
+section "Configs"
 
-CFG="$(dirname "$(readlink -f "$0")")/config"
-
-
-## Dolphin
+####### this used to point at config, the directory is configs
+####### the block silently did nothing every single run
+CFG="$(dirname "$(readlink -f "$0")")/configs"
 
 if [[ -d "$CFG" ]]; then
 
-	if [[ -f "$CFG/dolphinrc" ]]; then
-		cp "$CFG/dolphinrc" "$HOME/.config/dolphinrc"
-	fi
+	[[ -f "$CFG/dolphinrc" ]] && cp "$CFG/dolphinrc" "$HOME/.config/dolphinrc"
 
 	if [[ -f "$CFG/user-places.xbel" ]]; then
 		mkdir -p "$HOME/.local/share"
@@ -390,85 +345,49 @@ if [[ -d "$CFG" ]]; then
 		cp -r "$CFG/view_properties" "$HOME/.local/share/dolphin/"
 	fi
 
+	note "dolphin settings applied"
 else
-	echo "no config/ directory - dolphin settings left alone"
+	flag "no configs directory at $CFG"
 fi
-
-
-section_done "Configs"
 
 
 
 #    Verify
 
 
-echo "VERIFY"
-echo
+section "Verify"
 
+check "multilib enabled"   grep -q '^\[multilib\]' /etc/pacman.conf
+check "signal-desktop"     command -v signal-desktop
+check "dolphin"            command -v dolphin
+check "steam"              command -v steam
+check "flatpak"            command -v flatpak
+check "keyring present"    command -v gnome-keyring-daemon
+check "prefs block"        grep -q 'rebuild prefs start' "$LUA"
+check "block closed"       grep -q 'rebuild prefs end' "$LUA"
+check "block written once" sh -c "test \"\$(grep -c 'rebuild prefs start' '$LUA')\" = 1"
+check "monitors block"     grep -q 'rebuild monitors start' "$MON"
+check "monitors once"      sh -c "test \"\$(grep -c 'rebuild monitors start' '$MON')\" = 1"
+check "dolphin config"     test -f "$HOME/.config/dolphinrc"
 
-check "multilib enabled"    grep -q '^\[multilib\]' /etc/pacman.conf
-
-check "signal-desktop"      command -v signal-desktop
-
-check "dolphin"             command -v dolphin
-
-check "steam"               command -v steam
-
-check "flatpak"             command -v flatpak
-
-check "prefs block"         grep -q 'rebuild prefs start' "$LUA"
-
-check "block closed"        grep -q 'rebuild prefs end' "$LUA"
-
-check "block written once"  sh -c 'test "$(grep -c "rebuild prefs start" "$LUA")" = 1'
-
-warn  "codium"              command -v codium
-
-warn  "1password"           command -v 1password
-
-warn  "mullvad-browser"     command -v mullvad-browser
-
-warn  "freetube"            flatpak info io.freetubeapp.FreeTube
-
-warn  "hyde key_binds"      test -f "$BINDS"
-
-warn  "firefox removed"     sh -c '! pacman -Qq firefox'
-
-warn  "mullvad rule"        grep -q 'rebuild-mullvad' "$LUA"
-
-warn  "mullvad nomax"       grep -q 'rebuild-mullvad-nomax' "$LUA"
-
-check "monitors block"      grep -q 'rebuild monitors start' "$MON"
-
-check "monitors once"       sh -c 'test "$(grep -c "rebuild monitors start" "$MON")" = 1'
-
-warn  "greeter rotate"      test -x /etc/sddm/Xsetup-rebuild
-
-warn  "no monitors.conf"    sh -c '! test -f "$HOME/.config/hypr/monitors.conf"'
-
-warn  "places installed"    test -f "$HOME/.local/share/user-places.xbel"
-
-warn  "editor default"      sh -c 'test -n "$(xdg-mime query default text/plain)"'
+warn  "codium"             command -v codium
+warn  "1password"          command -v 1password
+warn  "mullvad-browser"    command -v mullvad-browser
+warn  "librewolf"          command -v librewolf
+warn  "freetube"           flatpak info io.freetubeapp.FreeTube
+warn  "places installed"   test -f "$HOME/.local/share/user-places.xbel"
+warn  "greeter rotate"     test -x /etc/sddm/Xsetup-rebuild
 
 verify_done
 
-
-section_done "Verify"
+stage_done
 
 
 
 #    End
 
 
-stage_done 60-userprefs
+section "End"
 
-echo
-echo "Log out and back in if the binds did not take"
-echo
-echo "SUPER + slash lists every bind"
-echo
-echo "Rollback: restore $LUA.bak-prefs"
-echo
-
-
-section_done "End"
+printf '  Preferences applied.\n'
+printf '  SUPER + slash lists every keybind.\n\n'
