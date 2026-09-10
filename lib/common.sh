@@ -441,6 +441,7 @@ wait_for() {
 		n=$((n + 1))
 		if (( n >= tries )); then
 			printf '  timeout after %ss: %s\n' "$tries" "$*" >&2
+			printf 'TIMEOUT after %ss waiting for: %s\n' "$tries" "$*" >&3
 			return 1
 		fi
 		sleep 1
@@ -569,5 +570,20 @@ trap cleanup EXIT
 
 ## Error
 
-trap 'printf "\n  FAIL %s line %s\n  cmd  %s\n  log  %s\n" \
-	"${BASH_SOURCE##*/}" "$LINENO" "$BASH_COMMAND" "$LOG" >&2' ERR
+####### every failure path shows the error, not only the ones inside run()
+####### wait_for and plain commands were reaching this trap and printing a
+####### path to a log file instead of the reason
+on_err() {
+	local rc=$?
+
+	printf '\n  FAIL %s line %s\n' "${BASH_SOURCE[1]##*/}" "${BASH_LINENO[0]}" >&2
+	printf '  cmd  %s\n' "$BASH_COMMAND" >&2
+
+	printf '\n  what it actually said:\n\n' >&2
+	tail -n 15 "$LOG" 2>/dev/null | sed 's/^/    /' >&2 || true
+	printf '\n  full log  %s\n\n' "$LOG" >&2
+
+	return "$rc"
+}
+
+trap on_err ERR
