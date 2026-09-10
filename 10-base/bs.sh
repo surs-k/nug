@@ -107,16 +107,18 @@ CONF=/boot/limine.conf
 
 [[ -f "\$CONF" ]] || exit 0
 
+####### only the timeout is managed here
+####### default_entry and quiet are deliberately never written
+####### default_entry can land on a branch that cannot be booted, and quiet
+####### hides the failure when it does
+grep -q '^timeout:' "\$CONF" && exit 0
+
 TMP="\$(mktemp)"
 
-####### strip any existing global settings, then put ours back on top
-####### global directives must appear before the first entry
-grep -Ev '^(timeout|default_entry|quiet|verbose):' "\$CONF" > "\$TMP" || true
+cat "\$CONF" > "\$TMP"
 
 {
 	printf 'timeout: %s\n' "$LIMINE_TIMEOUT"
-	printf 'default_entry: 1\n'
-	printf 'quiet: yes\n'
 	cat "\$TMP"
 } > "\$CONF"
 
