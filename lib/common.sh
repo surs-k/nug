@@ -1,27 +1,203 @@
 #!/usr/bin/env bash
 
+####### Rebuild v4.0 shared library
+####### every stage sources this as its first action
+####### nothing here installs a package or writes to a disk
 
 
-#    Debugging
+set -Eeuo pipefail
 
 
-## Charguard
+#    Guard
 
-for f in "$0" "${BASH_SOURCE[0]}"; do
-	LC_ALL=C.UTF-8 grep -nP '[\x{201C}\x{201D}\x{2018}\x{2019}\x{2014}\x{2013}]' "$f" \
-		&& { echo "Smart punctuation in $f" >&2; exit 1; }
+
+## Punct
+
+for _f in "$0" "${BASH_SOURCE[0]}"; do
+	if LC_ALL=C.UTF-8 grep -nP '[\x{201C}\x{201D}\x{2018}\x{2019}\x{2014}\x{2013}]' "$_f"; then
+		printf 'Smart punctuation in %s\n' "$_f" >&2
+		exit 1
+	fi
 done
+unset _f
 
 
-## Logging
+## Shell
 
-STAGE="$(basename "$(dirname "$(readlink -f "$0")")")"
+[[ -n "${BASH_VERSINFO:-}" ]] || { printf 'Run with bash\n' >&2; exit 1; }
+
+
+
+#    Paths
+
+
+## Repo
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+if [[ -f "$ROOT/lib/common.sh" ]]; then
+	REPO="$ROOT"
+else
+	REPO="$(cd "$ROOT/.." && pwd)"
+fi
+
+STAGE="${STAGE:-$(basename "$ROOT")}"
+
+
+## Root
 
 SUDO=""
-	[[ $EUID -ne 0 ]] && SUDO="sudo"
-	$SUDO mkdir -p /var/log/install
+[[ $EUID -ne 0 ]] && SUDO="sudo"
 
-exec > >($SUDO tee -a "/var/log/install/$STAGE.log") 2>&1
+
+
+#    Logging
+
+
+## File
+
+LOGDIR="${LOGDIR:-$HOME/.rebuild/logs}"
+mkdir -p "$LOGDIR"
+
+LOG="$LOGDIR/$STAGE.log"
+
+####### fd 3 is the log
+####### stdout stays a real terminal so prompts and progress bars survive
+exec 3>>"$LOG"
+
+printf '\n===== %s  %s =====\n' "$STAGE" "$(date -Is)" >&3
+
+
+## Say
+
+say()  { printf '%s\n'   "$*"; printf '%s\n'   "$*" >&3; }
+
+note() { printf '  %s\n' "$*"; printf '  %s\n' "$*" >&3; }
+
+flag() { printf '  warn  %s\n' "$*" >&2; printf 'WARN %s\n' "$*" >&3; }
+
+blank() { printf '                                                            \r'; }
+
+
+
+#    Progress
+
+
+## Count
+
+STEPS="$(grep -c '^#    ' "$0" 2>/dev/null || true)"
+STEPS="${STEPS:-0}"
+STEP=0
+
+
+## Banner
+
+section() {
+	STEP=$((STEP + 1))
+	printf '\n'
+	printf '========================================\n'
+	printf ' %-28s %2s / %-2s\n' "$1" "$STEP" "$STEPS"
+	printf '========================================\n'
+	printf '\n'
+	printf '\n--- %s ---\n' "$1" >&3
+}
+
+
+
+#    Running
+
+
+## Verbose
+
+VERBOSE="${REBUILD_VERBOSE:-0}"
+
+
+## Quiet
+
+####### run hides output and shows one spinner line
+####### never give run an interactive command, it has no terminal
+run() {
+	local label=$1; shift
+	local rc=0
+
+	printf 'RUN %s\n' "$*" >&3
+
+	if [[ "$VERBOSE" == 1 ]]; then
+		printf '  ..     %s\n' "$label"
+		"$@" || rc=$?
+	else
+		local frames='|/-\' i=0 pid
+		"$@" >&3 2>&1 &
+		pid=$!
+		while kill -0 "$pid" 2>/dev/null; do
+			printf '\r  [%s]    %s' "${frames:i++%4:1}" "$label"
+			sleep 0.2
+		done
+		wait "$pid" || rc=$?
+		printf '\r'
+		blank
+	fi
+
+	if (( rc == 0 )); then
+		printf '  [ok]   %s\n' "$label"
+	else
+		printf '  [FAIL] %s   exit %s\n' "$label" "$rc" >&2
+		printf 'FAILED %s exit %s\n' "$*" "$rc" >&3
+		printf '  log    %s\n' "$LOG" >&2
+	fi
+
+	return "$rc"
+}
+
+
+## Soft
+
+####### same as run but a failure is advisory
+soft() {
+	local label=$1; shift
+	run "$label" "$@" || flag "$label did not succeed, continuing"
+}
+
+
+
+#    Packages
+
+
+## Pacman
+
+####### package installs stay visible, the download bar is the progress
+pac() {
+	printf '\n  packages   %s\n\n' "$*"
+	printf 'pacman -S %s\n' "$*" >&3
+	$SUDO pacman -S --needed --noconfirm "$@"
+}
+
+
+## Aur
+
+aur() {
+	printf '\n  aur build  %s\n\n' "$*"
+	printf 'yay -S %s\n' "$*" >&3
+	yay -S --needed --noconfirm "$@"
+}
+
+
+## Flatpak
+
+flat() {
+	printf '\n  flatpak    %s\n\n' "$*"
+	printf 'flatpak install %s\n' "$*" >&3
+	$SUDO flatpak install -y --noninteractive flathub "$@"
+}
+
+
+## Present
+
+installed() { pacman -Qq "$1" &>/dev/null; }
+
+
+
+#    State
 
 
 ## Markers
@@ -29,104 +205,156 @@ exec > >($SUDO tee -a "/var/log/install/$STAGE.log") 2>&1
 MARKERS="$HOME/.install-state"
 mkdir -p "$MARKERS"
 
-stage_done()    { touch "$MARKERS/$1"; }
-require_stage() { [[ -f "$MARKERS/$1" ]] || { echo "Run $1 first" >&2; exit 1; }; }
+####### marker name always equals the directory name, no hand typed strings
+stage_done()    { touch "$MARKERS/${1:-$STAGE}"; }
 
+stage_is_done() { [[ -f "$MARKERS/${1:-$STAGE}" ]]; }
 
-## Progress
-
-STEP=0
-STEPS="$(grep -c '^#    ' "$0" || true)"
-
-section_done() {
-	STEP=$((STEP + 1))
-	echo
-	echo "[ $STEP/$STEPS ] $1 done"
-	echo
+require_stage() {
+	[[ -f "$MARKERS/$1" ]] || { printf 'Run %s first\n' "$1" >&2; exit 1; }
 }
 
 
-## Trap
+## Sections
 
-trap 'echo "FAIL ${BASH_SOURCE##*/}:$LINENO: $BASH_COMMAND" >&2' ERR
+section_done() { touch "$MARKERS/$STAGE.$1"; }
+
+section_is_done() { [[ -f "$MARKERS/$STAGE.$1" ]]; }
 
 
 
 #    Config
 
 
+## Defaults
 
-## Identity
-
-HOSTNAME="${h:-CHANGEME}"
-USERNAME="${u:-CHANGEME}"
+####### HOSTNAME is also a bash variable, so it is set here and only
+####### overwritten by the config file, never by the environment
+HOSTNAME="CHANGEME"
+USERNAME="CHANGEME"
 KEYMAP="colemak"
 TIMEZONE="America/New_York"
 LOCALE="en_US.UTF-8"
+RETRY_LIMIT=10
+TUNNEL_MTU=1420
+LIMINE_TIMEOUT=2
 
 
-## Overrides
+## Load
 
 CONFIG="$HOME/.install-config"
-	[[ -f "$CONFIG" ]] && source "$CONFIG"
+
+[[ -f "$CONFIG" ]] && source "$CONFIG"
+
+export USERNAME
+
+
+## Save
+
+####### never save a password, a passphrase or an account number here
+save_cfg() {
+	local k=$1 v=$2
+	touch "$CONFIG"
+	chmod 600 "$CONFIG"
+	sed -i "/^$k=/d" "$CONFIG"
+	printf '%s=%q\n' "$k" "$v" >> "$CONFIG"
+}
 
 
 
-## Limits
-
-RETRY_LIMIT=10
+#    Text
 
 
+## Match
 
-#    Partitions
-
-
-## Suffix
-
-partsuffix() { [[ "$1" =~ [0-9]$ ]] && printf p || printf ''; }
+####### capture then match
+####### a pipeline into grep -q can take SIGPIPE and return 141 under pipefail
+contains() { [[ "$1" == *"$2"* ]]; }
 
 
-## Names
+## Capture
+
+capture() { "$@" 2>&1 || true; }
 
 
-partname() { printf '%s%s%s' "$1" "$(partsuffix "$1")" "$2"; }
 
+#    Asking
+
+
+## Line
+
+ask() {
+	local prompt=$1 default=${2:-} reply
+	if [[ -n "$default" ]]; then
+		read -rp "  $prompt [$default]: " reply < /dev/tty
+		printf '%s' "${reply:-$default}"
+	else
+		read -rp "  $prompt: " reply < /dev/tty
+		printf '%s' "$reply"
+	fi
+}
+
+
+## Yes
+
+yesno() {
+	local prompt=$1 default=${2:-n} reply
+	read -rp "  $prompt (y/n) [$default]: " reply < /dev/tty
+	reply="${reply:-$default}"
+	[[ "$reply" == [yY]* ]]
+}
+
+
+## Confirm
+
+confirm() {
+	local reply
+	read -rp "  Type YES to continue: " reply < /dev/tty
+	[[ "$reply" == YES ]] || exit 1
+}
+
+
+## Secret
+
+secret() {
+	local prompt=$1 reply
+	read -rsp "  $prompt: " reply < /dev/tty
+	printf '\n' > /dev/tty
+	printf '%s' "$reply"
+}
 
 
 
 #    Helpers
 
 
-## retry
+## Retry
 
 retry() {
-    local attempt=1
-    local answer
-    until "$@"; do
-        if (( attempt >= RETRY_LIMIT )); then
-            echo "" >&2
-            echo "Failed $RETRY_LIMIT times:" >&2
-            echo "  $*" >&2
-            read -rp "Continue anyway? YES or NO: " answer
-            [[ "$answer" == YES ]] && return 0
-            exit 1
-        fi
-        echo "Attempt $attempt failed. Retrying..." >&2
-        attempt=$(( attempt + 1 ))
-        sleep 2
-    done
+	local attempt=1 reply
+	until "$@"; do
+		if (( attempt >= RETRY_LIMIT )); then
+			printf '\n  failed %s times:\n    %s\n' "$RETRY_LIMIT" "$*" >&2
+			read -rp "  Continue anyway? YES or NO: " reply < /dev/tty
+			[[ "$reply" == YES ]] && return 0
+			exit 1
+		fi
+		printf '  attempt %s failed, retrying\n' "$attempt" >&2
+		attempt=$(( attempt + 1 ))
+		sleep 2
+	done
 }
 
 
-## wait_for
+## Wait
 
 wait_for() {
 	local tries=$1; shift
 	local n=0
 	until "$@"; do
-		n=$((n+1))
+		n=$((n + 1))
 		if (( n >= tries )); then
-			echo "TIMEOUT after ${tries}s: $*" >&2
+			printf '  timeout after %ss: %s\n' "$tries" "$*" >&2
 			return 1
 		fi
 		sleep 1
@@ -134,26 +362,49 @@ wait_for() {
 }
 
 
-## confirm
+## Sudo
 
-confirm() {
-    local answer
-    read -rp "Type YES to continue: " answer
-    [[ "$answer" == YES ]] || exit 1
+KEEPALIVE_PID=""
+
+sudo_keepalive() {
+	[[ -n "$SUDO" ]] || return 0
+	sudo -v
+	(
+		while true; do
+			sudo -n true 2>/dev/null || true
+			sleep 50
+			kill -0 "$$" 2>/dev/null || exit 0
+		done
+	) &
+	KEEPALIVE_PID=$!
 }
 
 
-## pick_disk
+
+#    Disks
+
+
+## Suffix
+
+partsuffix() { [[ "$1" =~ [0-9]$ ]] && printf p || printf ''; }
+
+
+## Name
+
+partname() { printf '%s%s%s' "$1" "$(partsuffix "$1")" "$2"; }
+
+
+## Pick
 
 pick_disk() {
 	local prompt=$1 dev
 	while true; do
-		read -rp "$prompt" dev || { echo "No input" >&2; exit 1; }
+		read -rp "  $prompt" dev < /dev/tty || { printf 'No input\n' >&2; exit 1; }
 		[[ "$dev" == /dev/* ]] || dev="/dev/$dev"
 		if [[ ! -b "$dev" ]]; then
-			echo "Not a block device: $dev" >&2
+			printf '  not a block device: %s\n' "$dev" >&2
 		elif [[ "$(lsblk -dno TYPE "$dev")" != disk ]]; then
-			echo "Not a whole disk: $dev" >&2
+			printf '  not a whole disk: %s\n' "$dev" >&2
 		else
 			printf '%s' "$dev"
 			return 0
@@ -162,37 +413,75 @@ pick_disk() {
 }
 
 
-## require_disk
+## Require
 
 require_disk() {
-    [[ -b "$1" ]] || { echo "Not a block device: $1" >&2; exit 1; }
+	[[ -b "$1" ]] || { printf 'Not a block device: %s\n' "$1" >&2; exit 1; }
 }
 
 
 
+#    Verify
 
-## check
+
+## State
 
 FAILED=0
+
+
+## Check
+
 check() {
 	local label=$1; shift
-	if "$@" &>/dev/null; then
-		echo "  ok    $label"
+	if "$@" >&3 2>&1; then
+		printf '  ok    %s\n' "$label"
 	else
-		echo "  FAIL  $label" >&2
+		printf '  FAIL  %s\n' "$label" >&2
 		FAILED=1
 	fi
 }
-verify_done() { (( FAILED == 0 )) || { echo "verification failed" >&2; exit 1; }; }
 
 
-## warn
+## Warn
 
 warn() {
 	local label=$1; shift
-	if "$@" &>/dev/null; then
-		echo "  ok    $label"
+	if "$@" >&3 2>&1; then
+		printf '  ok    %s\n' "$label"
 	else
-		echo "  warn  $label" >&2
+		printf '  warn  %s\n' "$label" >&2
 	fi
 }
+
+
+## Done
+
+verify_done() {
+	if (( FAILED == 0 )); then
+		printf '\n  all checks passed\n\n'
+	else
+		printf '\n  verification failed\n  log %s\n\n' "$LOG" >&2
+		exit 1
+	fi
+}
+
+
+
+#    Traps
+
+
+## Exit
+
+cleanup() {
+	if [[ -n "$KEEPALIVE_PID" ]]; then
+		kill "$KEEPALIVE_PID" 2>/dev/null || true
+	fi
+}
+
+trap cleanup EXIT
+
+
+## Error
+
+trap 'printf "\n  FAIL %s line %s\n  cmd  %s\n  log  %s\n" \
+	"${BASH_SOURCE##*/}" "$LINENO" "$BASH_COMMAND" "$LOG" >&2' ERR
