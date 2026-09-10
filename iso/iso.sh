@@ -1,34 +1,28 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 
-#    Check
+#    Answers
 
 
-set -Eeuo pipefail
+section "Answers"
 
+####### every question in the whole install lives in this one block
+####### after the last confirm nothing else is asked until the end
 
-## Config
-
-if [[ ! -f "$CONFIG" ]]; then
-	read -rp "Hostname: " h
-	read -rp "Username: " u
-	[[ -n "$h" && -n "$u" ]] || { echo "Both required" >&2; exit 1; }
-	printf 'HOSTNAME="%s"\nUSERNAME="%s"\n' "$h" "$u" > "$CONFIG"
-	source "$CONFIG"
-fi
-
-
-	
+note "Everything you need to type is in this section."
+note "After the final confirm the install runs on its own."
+printf '\n'
 
 
 ## Firmware
 
-if [[ "$(cat /sys/firmware/efi/fw_platform_size 2>/dev/null)" != "64" ]]; then
-    echo "Not booted in UEFI (64-bit) mode - this script requires UEFI. Aborting."
-    exit 1
+if [[ "$(cat /sys/firmware/efi/fw_platform_size 2>/dev/null || true)" != "64" ]]; then
+	printf 'Not booted in 64 bit UEFI mode. Aborting.\n' >&2
+	exit 1
 fi
 
 
@@ -41,60 +35,90 @@ timedatectl set-ntp true
 
 ## Network
 
-ping -c2 google.com
+retry ping -c2 archlinux.org
 
-read -rp "Type YES to continue: " CONFIRM
-	[[ "$CONFIRM" == "YES" ]] || exit 1
+
+## Names
+
+if [[ "$HOSTNAME" == CHANGEME || "$USERNAME" == CHANGEME ]]; then
+	HOSTNAME="$(ask 'Hostname')"
+	USERNAME="$(ask 'Username')"
+	[[ -n "$HOSTNAME" && -n "$USERNAME" ]] || { printf 'Both required\n' >&2; exit 1; }
+	save_cfg HOSTNAME "$HOSTNAME"
+	save_cfg USERNAME "$USERNAME"
+fi
+
+export USERNAME
 
 
 ## Disks
 
+printf '\n'
 lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS
-
-echo
+printf '\n'
 
 SYSTEM_DISK="$(pick_disk 'System disk: ')"
 DATA_DISK="$(pick_disk 'Data disk: ')"
 
-[[ "$SYSTEM_DISK" != "$DATA_DISK" ]] || { echo "Disks must differ" >&2; exit 1; }
-
-echo
-echo =============================
-echo
-
-echo "System disk (WILL BE WIPED): $SYSTEM_DISK $(lsblk -dno SIZE "$SYSTEM_DISK")"
-
-echo "Data disk   (WILL BE WIPED): $DATA_DISK $(lsblk -dno SIZE "$DATA_DISK")"
-
-read -rp "Type YES to continue: " CONFIRM
-[[ "$CONFIRM" == "YES" ]] || exit 1
-
-
-section_done "Check"
-
-
-#    Partitions
-
-
-## Verify
+[[ "$SYSTEM_DISK" != "$DATA_DISK" ]] || { printf 'Disks must differ\n' >&2; exit 1; }
 
 require_disk "$SYSTEM_DISK"
 require_disk "$DATA_DISK"
 
 
+## Passwords
+
+printf '\n'
+note "Four secrets. Nothing is written to disk in plain text."
+printf '\n'
+
+LUKS_PASS="$(secret 'LUKS passphrase        ')"
+LUKS_CONF="$(secret 'LUKS passphrase again  ')"
+[[ "$LUKS_PASS" == "$LUKS_CONF" ]] || { printf 'Passphrases differ\n' >&2; exit 1; }
+[[ -n "$LUKS_PASS" ]] || { printf 'Empty passphrase\n' >&2; exit 1; }
+unset LUKS_CONF
+
+ROOT_PASS="$(secret 'Root password          ')"
+USER_PASS="$(secret "Password for $USERNAME ")"
+[[ -n "$ROOT_PASS" && -n "$USER_PASS" ]] || { printf 'Both required\n' >&2; exit 1; }
+
+
+## Review
+
+printf '\n'
+printf '  hostname     %s\n' "$HOSTNAME"
+printf '  username     %s\n' "$USERNAME"
+printf '  system disk  %s  %s  WILL BE WIPED\n' "$SYSTEM_DISK" "$(lsblk -dno SIZE "$SYSTEM_DISK")"
+printf '  data disk    %s  %s  WILL BE WIPED\n' "$DATA_DISK" "$(lsblk -dno SIZE "$DATA_DISK")"
+printf '\n'
+
+confirm
+
+printf '\n'
+note "Hands off from here."
+printf '\n'
+
+
+
+#    Partitions
+
+
+section "Partitions"
+
+
 ## System
 
-sgdisk --zap-all "$SYSTEM_DISK"
-sgdisk -n1:0:+4G -t1:EF00 -c1:"EFI"         "$SYSTEM_DISK"
-sgdisk -n2:0:0   -t2:8300 -c2:"cryptsystem" "$SYSTEM_DISK"
+run "wipe system disk"  sgdisk --zap-all "$SYSTEM_DISK"
+run "efi partition"     sgdisk -n1:0:+4G -t1:EF00 -c1:"EFI"         "$SYSTEM_DISK"
+run "root partition"    sgdisk -n2:0:0   -t2:8300 -c2:"cryptsystem" "$SYSTEM_DISK"
 
 
 ## Data
 
-sgdisk --zap-all "$DATA_DISK"
-sgdisk -n1:0:0 -t1:8300 -c1:"cryptdata" "$DATA_DISK"
+run "wipe data disk"    sgdisk --zap-all "$DATA_DISK"
+run "data partition"    sgdisk -n1:0:0   -t1:8300 -c1:"cryptdata"   "$DATA_DISK"
 
-partprobe "$SYSTEM_DISK" "$DATA_DISK"
+run "reread tables"     partprobe "$SYSTEM_DISK" "$DATA_DISK"
 
 
 ## Names
@@ -111,105 +135,119 @@ wait_for 10 test -b "$DATA_PART"
 
 
 
-## Encrypt
+#    Encrypt
 
-clear
-echo SYS Encryption setup
-echo Set Password
-retry cryptsetup luksFormat --type luks2 "$SYS_ROOT"
 
-clear
-echo SYS Encryption open
-echo Retype Password
-retry cryptsetup open "$SYS_ROOT" cryptsystem
+section "Encrypt"
 
-clear
-echo Data Encryption setup
-echo Set Password
-retry cryptsetup luksFormat --type luks2 "$DATA_PART"
+####### the passphrase goes to a file on /run, which is a tmpfs and never
+####### touches a disk, so nothing has to be retyped four times
+####### it is not passed on stdin because a backgrounded job cannot
+####### reliably inherit a pipe, and it is not passed as an argument
+####### because arguments are visible in the process table
 
-clear
-echo Data Encryption open
-echo Retype Password
-retry cryptsetup open "$DATA_PART" cryptdata
-clear
+KEYTMP=/run/rebuild.key
+
+( umask 077; printf '%s' "$LUKS_PASS" > "$KEYTMP" )
+
+run "format system luks" cryptsetup luksFormat --type luks2 --batch-mode \
+	--key-file "$KEYTMP" "$SYS_ROOT"
+
+run "open system luks"   cryptsetup open --key-file "$KEYTMP" "$SYS_ROOT" cryptsystem
+
+run "format data luks"   cryptsetup luksFormat --type luks2 --batch-mode \
+	--key-file "$KEYTMP" "$DATA_PART"
+
+run "open data luks"     cryptsetup open --key-file "$KEYTMP" "$DATA_PART" cryptdata
+
+
+
+#    Filesystems
+
+
+section "Filesystems"
 
 
 ## Format
 
-mkfs.fat -F32 "$SYS_ESP"
-mkfs.btrfs -L system /dev/mapper/cryptsystem
-mkfs.btrfs -L data   /dev/mapper/cryptdata
+run "format esp"         mkfs.fat -F32 "$SYS_ESP"
+run "format system"      mkfs.btrfs -f -L system /dev/mapper/cryptsystem
+run "format data"        mkfs.btrfs -f -L data   /dev/mapper/cryptdata
 
 
-## Subvols
+## System subvols
 
-mount /dev/mapper/cryptsystem /mnt
-btrfs subvolume create /mnt/@
-btrfs subvolume create /mnt/@snapshots
-umount /mnt
+####### @snapshots is a sibling of @, never nested inside it
+####### nested snapshots are destroyed by their own rollback
+run "mount system top"   mount /dev/mapper/cryptsystem /mnt
+run "create @"           btrfs subvolume create /mnt/@
+run "create @snapshots"  btrfs subvolume create /mnt/@snapshots
+run "unmount system top" umount /mnt
 
-mount /dev/mapper/cryptdata /mnt
-btrfs subvolume create /mnt/@home
-btrfs subvolume create /mnt/@games
-btrfs subvolume create /mnt/@vms
-btrfs subvolume create /mnt/@docker
-btrfs subvolume create /mnt/@ai
-umount /mnt
+
+## Data subvols
+
+run "mount data top"     mount /dev/mapper/cryptdata /mnt
+run "create @home"       btrfs subvolume create /mnt/@home
+run "create @games"      btrfs subvolume create /mnt/@games
+run "create @vms"        btrfs subvolume create /mnt/@vms
+run "create @docker"     btrfs subvolume create /mnt/@docker
+run "create @ai"         btrfs subvolume create /mnt/@ai
+run "unmount data top"   umount /mnt
 
 
 ## Mount
 
-mount -o compress=zstd:1,noatime,subvol=@ /dev/mapper/cryptsystem /mnt
+OPTS="compress=zstd:1,noatime"
 
-mount --mkdir -o compress=zstd:1,noatime,subvol=@snapshots /dev/mapper/cryptsystem /mnt/.snapshots
+mount -o "$OPTS,subvol=@" /dev/mapper/cryptsystem /mnt
+
+mount --mkdir -o "$OPTS,subvol=@snapshots" /dev/mapper/cryptsystem /mnt/.snapshots
 
 mount --mkdir "$SYS_ESP" /mnt/boot
 
-mount --mkdir -o compress=zstd:1,noatime,subvol=@home  /dev/mapper/cryptdata /mnt/home
-mount --mkdir -o compress=zstd:1,noatime,subvol=@games /dev/mapper/cryptdata /mnt/games
+mount --mkdir -o "$OPTS,subvol=@home"  /dev/mapper/cryptdata /mnt/home
+mount --mkdir -o "$OPTS,subvol=@games" /dev/mapper/cryptdata /mnt/games
 
+####### vm images get no copy on write and no compression
 mkdir -p /mnt/var/lib/libvirt/images
 mount -o noatime,subvol=@vms /dev/mapper/cryptdata /mnt/var/lib/libvirt/images
 chattr +C /mnt/var/lib/libvirt/images
 
 mkdir -p /mnt/var/lib/docker
-mount -o compress=zstd:1,noatime,subvol=@docker /dev/mapper/cryptdata /mnt/var/lib/docker
+mount -o "$OPTS,subvol=@docker" /dev/mapper/cryptdata /mnt/var/lib/docker
 
 mkdir -p /mnt/home/ai
-mount -o compress=zstd:1,noatime,subvol=@ai /dev/mapper/cryptdata /mnt/home/ai
+mount -o "$OPTS,subvol=@ai" /dev/mapper/cryptdata /mnt/home/ai
 
+####### the whole data disk gets an fstab entry in 50-bkp-net so btrbk can
+####### snapshot @home, it is deliberately not mounted here because genfstab
+####### would record it without nofail and a missing data disk would then
+####### stop the machine booting at all
 
-## Review
-
-clear
-lsblk
-
-echo
-echo
-echo =============================
-echo
-echo
-
-findmnt -R /mnt
-
-read -rp "Type YES to continue: " CONFIRM
-[[ "$CONFIRM" == "YES" ]] || exit 1
-
-
-section_done "Partitions"
+findmnt -R /mnt >&3
 
 
 
-#    Installs
+#    Install
+
+
+section "Install"
 
 
 ## Mirrors
 
-reflector --latest 10 --protocol https --age 12 --sort rate --save /etc/pacman.d/mirrorlist
+run "rank mirrors" reflector --latest 10 --protocol https --age 12 \
+	--sort rate --save /etc/pacman.d/mirrorlist
 
 
-## Pacstrap
+## Pacman
+
+sed -i 's/^#Color$/Color/'                       /etc/pacman.conf
+sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
+
+
+## Base
 
 pacstrap -K /mnt base linux linux-firmware intel-ucode
 
@@ -219,7 +257,7 @@ pacstrap -K /mnt zram-generator snapper snap-pac tpm2-tools
 
 pacstrap -K /mnt limine efibootmgr dosfstools mtools
 
-pacstrap -K /mnt nano bash-completion openssh gobject-introspection
+pacstrap -K /mnt nano vim bash-completion openssh gobject-introspection reflector
 
 
 ## Fstab
@@ -227,57 +265,67 @@ pacstrap -K /mnt nano bash-completion openssh gobject-introspection
 genfstab -U /mnt > /mnt/etc/fstab
 
 
-section_done "Installs"
+
+#    System
 
 
-
-#    Chroot
-
-
-## Verify
-
-arch-chroot /mnt pacman -Q limine efibootmgr btrfs-progs cryptsetup
-
-arch-chroot /mnt ls /usr/lib/initcpio/install/sd-encrypt
+section "System"
 
 
 ## Console
 
-arch-chroot /mnt sh -c "echo 'KEYMAP=colemak' > /etc/vconsole.conf"
+arch-chroot /mnt sh -c "printf 'KEYMAP=%s\n' '$KEYMAP' > /etc/vconsole.conf"
+
+arch-chroot /mnt sh -c "printf 'LANG=%s\n' '$LOCALE' > /etc/locale.conf"
+
+arch-chroot /mnt sed -i "s/^#\($LOCALE\)/\1/" /etc/locale.gen
+
+run "generate locale" arch-chroot /mnt locale-gen
+
+
+## Time
+
+arch-chroot /mnt ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+
+run "sync clock" arch-chroot /mnt hwclock --systohc
+
+
+## Host
+
+arch-chroot /mnt hostnamectl --static set-hostname "$HOSTNAME" 2>/dev/null \
+	|| printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
+
+cat > /mnt/etc/hosts << EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+EOF
 
 
 ## Hooks
 
 arch-chroot /mnt sed -i \
-  's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)/' \
-  /etc/mkinitcpio.conf
+	's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)/' \
+	/etc/mkinitcpio.conf
 
-arch-chroot /mnt mkinitcpio -P
+run "build initramfs" arch-chroot /mnt mkinitcpio -P
 
 
 ## Network
 
-arch-chroot /mnt systemctl enable NetworkManager
-
-
-section_done "Chroot"
+run "enable networkmanager" arch-chroot /mnt systemctl enable NetworkManager
 
 
 
 #    Users
 
 
-## Names
-
-[[ "$HOSTNAME" != CHANGEME ]] || { echo "Set a hostname" >&2; exit 1; }
-
-[[ "$USERNAME" != CHANGEME ]] || { echo "Set a username" >&2; exit 1; }
+section "Users"
 
 
 ## Root
 
-echo Set Root Passwd
-retry arch-chroot /mnt passwd
+printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd
 
 
 ## User
@@ -286,69 +334,88 @@ if ! arch-chroot /mnt id -u "$USERNAME" &>/dev/null; then
 	arch-chroot /mnt useradd -m -G wheel "$USERNAME"
 fi
 
-clear
-echo Set User Passwd
-retry arch-chroot /mnt passwd "$USERNAME"
+printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd
 
-clear
-echo ENTER ENCRYPTION PASSWD
+unset ROOT_PASS USER_PASS
 
 
 ## Sudo
 
-arch-chroot /mnt sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-
-
-section_done "Users"
+printf '%%wheel ALL=(ALL:ALL) ALL\n' > /mnt/etc/sudoers.d/10-wheel
+chmod 440 /mnt/etc/sudoers.d/10-wheel
 
 
 
 #    Bootloader
 
 
-## Script
+section "Bootloader"
+
+
+## Keyfile
 
 cat > /mnt/root/_setup.sh << CHROOTEOF
 set -euo pipefail
 
-retry() {
-    until "\$@"; do
-        echo "That attempt failed. Trying again." >&2
-    done
-}
-
 mkdir -p /etc/cryptsetup-keys.d
 
-dd if=/dev/urandom of=/etc/cryptsetup-keys.d/data.key bs=1024 count=4
+dd if=/dev/urandom of=/etc/cryptsetup-keys.d/data.key bs=1024 count=4 status=none
 
 chmod 600 /etc/cryptsetup-keys.d/data.key
 
-retry cryptsetup luksAddKey $DATA_PART /etc/cryptsetup-keys.d/data.key
+####### arch-chroot bind mounts /run, so the tmpfs keyfile is visible here
+cryptsetup luksAddKey --key-file /run/rebuild.key \\
+	$DATA_PART /etc/cryptsetup-keys.d/data.key
 
 DATA_UUID=\$(blkid -s UUID -o value $DATA_PART)
 
-echo "cryptdata UUID=\$DATA_UUID /etc/cryptsetup-keys.d/data.key luks" >> /etc/crypttab
+printf 'cryptdata UUID=%s /etc/cryptsetup-keys.d/data.key luks\n' "\$DATA_UUID" >> /etc/crypttab
 
-mkdir -p /boot/EFI/limine
-mkdir -p /boot/EFI/BOOT
+
+####### limine ships no deploy hook of its own, both copies are ours to keep current
+
+mkdir -p /boot/EFI/limine /boot/EFI/BOOT
 
 cp /usr/share/limine/BOOTX64.EFI /boot/EFI/limine/limine_x64.efi
-
 cp /usr/share/limine/BOOTX64.EFI /boot/EFI/BOOT/BOOTX64.EFI
 
+mkdir -p /etc/pacman.d/hooks
 
-find /boot -iname "*.efi"
+cat > /etc/pacman.d/hooks/99-limine-deploy.hook << 'HOOKEOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = limine
 
-efibootmgr --create --disk $SYSTEM_DISK --part 1 \
-    --label "Arch Linux Limine Boot Loader" --loader '\EFI\limine\limine_x64.efi' --unicode
-efibootmgr -v
+[Action]
+Description = Deploying Limine to the ESP...
+When = PostTransaction
+Exec = /bin/sh -c "cp /usr/share/limine/BOOTX64.EFI /boot/EFI/limine/limine_x64.efi && cp /usr/share/limine/BOOTX64.EFI /boot/EFI/BOOT/BOOTX64.EFI"
+HOOKEOF
+
+
+####### limine reads the directory holding its own efi binary first
+####### any limine.conf there silently outranks /boot/limine.conf
+rm -f /boot/EFI/limine/limine.conf /boot/EFI/BOOT/limine.conf
+
+
+efibootmgr --create --disk $SYSTEM_DISK --part 1 \\
+	--label "Arch Linux Limine Boot Loader" \\
+	--loader '\\EFI\\limine\\limine_x64.efi' --unicode
 
 LUKS_UUID=\$(blkid -s UUID -o value $SYS_ROOT)
 
 systemd-machine-id-setup
 
+printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw\n' \\
+	"\$LUKS_UUID" > /etc/kernel/cmdline
+
 cat > /boot/limine.conf << ENTRYEOF
-timeout: 3
+timeout: $LIMINE_TIMEOUT
+default_entry: 1
+quiet: yes
+
 /+Arch Linux
     comment: machine-id=\$(cat /etc/machine-id)
     //Linux
@@ -359,43 +426,87 @@ timeout: 3
         cmdline: rd.luks.name=\$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw
     //Snapshots
 ENTRYEOF
-
-rm -f /boot/EFI/limine/limine.conf
 CHROOTEOF
 
 
 ## Run
 
 arch-chroot /mnt bash /root/_setup.sh
-rm /mnt/root/_setup.sh
+
+rm -f /mnt/root/_setup.sh
+
+shred -u "$KEYTMP" 2>/dev/null || rm -f "$KEYTMP"
+
+unset LUKS_PASS
 
 
-section_done "Bootloader"
+
+#    Handover
+
+
+section "Handover"
+
+
+## Repo
+
+####### the whole repo travels with the install so the next stages are local
+install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/Rebuild"
+
+cp -r "$REPO/." "/mnt/home/$USERNAME/Rebuild/"
+
+chown -R 1000:1000 "/mnt/home/$USERNAME/Rebuild"
+
+find "/mnt/home/$USERNAME/Rebuild" -name '*.sh' -exec chmod +x {} +
+
+
+## Config
+
+install -o 1000 -g 1000 -m 600 "$CONFIG" "/mnt/home/$USERNAME/.install-config"
+
+
+## Logs
+
+install -d /mnt/var/log/install
+
+cp "$LOG" /mnt/var/log/install/ 2>/dev/null || true
+
+
+
+#    Verify
+
+
+section "Verify"
+
+check "esp mounted"      mountpoint -q /mnt/boot
+check "root mounted"     mountpoint -q /mnt
+check "snapshots sib"    sh -c 'findmnt -no SOURCE /mnt/.snapshots | grep -q "@snapshots"'
+check "limine conf"      test -f /mnt/boot/limine.conf
+check "no efi conf"      sh -c '! test -f /mnt/boot/EFI/limine/limine.conf'
+check "deploy hook"      test -f /mnt/etc/pacman.d/hooks/99-limine-deploy.hook
+check "efi binary"       test -f /mnt/boot/EFI/limine/limine_x64.efi
+check "fallback binary"  test -f /mnt/boot/EFI/BOOT/BOOTX64.EFI
+check "crypttab"         grep -q cryptdata /mnt/etc/crypttab
+check "repo copied"      test -f "/mnt/home/$USERNAME/Rebuild/run.sh"
+
+verify_done
+
+stage_done iso
 
 
 
 #    End
 
 
-## Logs
-
-cp /var/log/install/iso.log /mnt/var/log/
-
-cp "$CONFIG" /mnt/home/"$USERNAME"/.install-config
-	sudo chown 1000:1000 /mnt/home/"$USERNAME"/.install-config
-
-
-## Unmount
+section "End"
 
 umount -R /mnt
 
 lsblk
 
-echo
-echo "Reboot"
-echo
-echo "Run bs.sh after"
-echo
-
-
-section_done "End"
+printf '\n'
+printf '  Remove the USB and reboot.\n'
+printf '\n'
+printf '  Then log in and run:\n'
+printf '\n'
+printf '    cd ~/Rebuild && ./run.sh\n'
+printf '\n'
