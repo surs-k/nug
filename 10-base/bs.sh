@@ -135,21 +135,51 @@ CONF=/boot/limine.conf
 
 [[ -f "\$CONF" ]] || exit 0
 
-####### only the timeout is managed here
-####### default_entry and quiet are deliberately never written
-####### default_entry can land on a branch that cannot be booted, and quiet
-####### hides the failure when it does
+TIMEOUT="\${LIMINE_TIMEOUT:-$LIMINE_TIMEOUT}"
 
-####### the timeout is rewritten every time rather than only added when
-####### missing, otherwise a value written by the snapshot sync is never
-####### corrected and the setting silently stops being ours
+####### refuse to touch anything without a real cmdline to write back
+CMDLINE="\$(cat /etc/kernel/cmdline 2>/dev/null || true)"
+
+if [[ -z "\$CMDLINE" ]]; then
+	printf 'no /etc/kernel/cmdline, refusing to rewrite limine.conf\n' >&2
+	exit 1
+fi
+
+MID="\$(cat /etc/machine-id 2>/dev/null || true)"
 
 TMP="\$(mktemp)"
 
-grep -v '^timeout:' "\$CONF" > "\$TMP" || true
+####### keep everything from the SECOND top level entry onward
+####### a top level entry starts with one slash, a sub entry with two
+####### this is what preserves snapshot entries while the main one is rebuilt
+awk '/^\/[^\/]/ { n++ } n >= 2' "\$CONF" > "\$TMP" || true
 
 {
-	printf 'timeout: %s\n' "$LIMINE_TIMEOUT"
+	printf 'timeout: %s\n\n' "\$TIMEOUT"
+
+	####### top level and directly bootable
+	####### /+Name with a plus is a folder, and limine will not auto boot a
+	####### folder, it sits waiting for someone to open it and choose
+	printf '/Arch Linux\n'
+
+	if [[ -n "\$MID" ]]; then
+		printf '    comment: machine-id=%s\n' "\$MID"
+	fi
+
+	printf '    protocol: linux\n'
+	printf '    path: boot():/vmlinuz-linux\n'
+
+	if [[ -f /boot/intel-ucode.img ]]; then
+		printf '    module_path: boot():/intel-ucode.img\n'
+	fi
+
+	if [[ -f /boot/amd-ucode.img ]]; then
+		printf '    module_path: boot():/amd-ucode.img\n'
+	fi
+
+	printf '    module_path: boot():/initramfs-linux.img\n'
+	printf '    cmdline: %s\n\n' "\$CMDLINE"
+
 	cat "\$TMP"
 } > "\$CONF"
 
@@ -161,6 +191,8 @@ $SUDO chmod 755 /usr/local/bin/limine-header-fix
 
 ## Apply
 
+####### this also repairs an existing install, it flattens a /+Arch Linux
+####### folder into a bootable top level entry and keeps snapshot entries
 run "set boot to auto start" $SUDO /usr/local/bin/limine-header-fix
 
 
@@ -246,6 +278,9 @@ check "zram config"      test -f /etc/systemd/zram-generator.conf
 check "limine conf"      test -f /boot/limine.conf
 check "no stray conf"    sh -c '! test -f /boot/EFI/limine/limine.conf'
 check "auto start set"   grep -q '^timeout:' /boot/limine.conf
+check "entry top level"  grep -q '^/Arch Linux' /boot/limine.conf
+check "entry not folder" sh -c '! grep -q "^/+" /boot/limine.conf'
+check "entry bootable"   grep -q 'protocol: linux' /boot/limine.conf
 check "deploy hook"      test -f /etc/pacman.d/hooks/99-limine-deploy.hook
 check "header enforcer"  test -x /usr/local/bin/limine-header-fix
 check "yay present"      command -v yay
