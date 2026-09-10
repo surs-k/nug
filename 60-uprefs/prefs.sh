@@ -112,6 +112,10 @@ if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
 	soft "librewolf" yay -S --needed --noconfirm librewolf-bin
 fi
 
+####### unofficial repackaging of the official build, so it warns and
+####### carries on rather than stopping the run when it breaks
+soft "claude desktop" yay -S --needed --noconfirm claude-desktop-native
+
 
 
 #    Flatpak
@@ -374,6 +378,7 @@ warn  "codium"             command -v codium
 warn  "1password"          command -v 1password
 warn  "mullvad-browser"    command -v mullvad-browser
 warn  "librewolf"          command -v librewolf
+warn  "claude desktop"     command -v claude-desktop
 warn  "freetube"           flatpak info io.freetubeapp.FreeTube
 warn  "places installed"   test -f "$HOME/.local/share/user-places.xbel"
 warn  "greeter rotate"     test -x /etc/sddm/Xsetup-rebuild
