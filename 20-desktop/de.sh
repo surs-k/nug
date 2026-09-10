@@ -125,11 +125,54 @@ fi
 
 section "Keyboard"
 
-run "set console keymap" $SUDO localectl set-keymap "$KEYMAP"
+####### this used to only land in 60-uprefs, which runs after the reboot into
+####### the desktop, so the first desktop boot was always qwerty
+####### the console half also only wrote a config file, and the terminal you
+####### were already sitting in never reloaded it, which is why reboot was
+####### hard to type
 
-run "set x11 keymap"     $SUDO localectl set-x11-keymap us pc105 "$KEYMAP"
 
-####### the hyprland layout is written by 60-uprefs into its managed block
+## Console
+
+printf 'KEYMAP=%s\n' "$KEYMAP" | $SUDO tee /etc/vconsole.conf > /dev/null
+
+####### apply to the tty right now, not at the next boot
+soft "apply console keymap" $SUDO loadkeys "$KEYMAP"
+
+soft "persist console keymap" $SUDO localectl set-keymap "$KEYMAP"
+
+soft "set x11 keymap" $SUDO localectl set-x11-keymap us pc105 "$KEYMAP"
+
+####### the passphrase prompt at boot comes from the initramfs, which bakes
+####### in vconsole.conf at build time
+run "rebuild initramfs" $SUDO mkinitcpio -P
+
+
+## Hyprland
+
+LUA="$HOME/.config/hypr/hyprland.lua"
+
+mkdir -p "$(dirname "$LUA")"
+touch "$LUA"
+
+[[ -f "$LUA.bak-keyboard" ]] || cp "$LUA" "$LUA.bak-keyboard"
+
+sed -i '/^-- rebuild keyboard start$/,/^-- rebuild keyboard end$/d' "$LUA"
+
+cat >> "$LUA" << LUAEOF
+-- rebuild keyboard start
+
+hl.config({
+  input = {
+    kb_layout = "us",
+    kb_variant = "$KEYMAP"
+  }
+})
+
+-- rebuild keyboard end
+LUAEOF
+
+note "colemak written for the desktop, active at next login"
 
 
 
@@ -141,6 +184,8 @@ section "Verify"
 check "hyde config dir"   test -d "$HOME/.config/hypr"
 check "hyprland present"  command -v Hyprland
 check "firelink"          test -d "$HOME/firelink"
+check "console keymap"    grep -q "KEYMAP=$KEYMAP" /etc/vconsole.conf
+check "desktop keymap"    grep -q 'kb_variant' "$HOME/.config/hypr/hyprland.lua"
 
 if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 	check "nvidia driver"  pacman -Qq nvidia-open-dkms
