@@ -73,9 +73,11 @@ $SUDO tee /usr/local/bin/rebuild-headless > /dev/null << 'EOF'
 set -euo pipefail
 
 ####### create the virtual output only if one is not already there
-if hyprctl monitors all | grep -q HEADLESS; then
-	exit 0
-fi
+MONS="$(hyprctl monitors all 2>&1 || true)"
+
+case "$MONS" in
+	*HEADLESS*) exit 0 ;;
+esac
 
 hyprctl output create headless
 EOF
