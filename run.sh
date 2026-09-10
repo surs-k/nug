@@ -136,12 +136,6 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 	rule
 
-	{
-		printf '\n  HyDE adds chaotic-aur, a large third party package repo.\n'
-		printf '  Removing it means packages come only from official Arch\n'
-		printf '  repos and the AUR you build yourself.\n\n'
-	} > /dev/tty
-
 	if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
 		save_cfg WANT_CHAOTIC_REMOVE yes
 	else
@@ -153,11 +147,6 @@ if [[ -z "${ANSWERED:-}" ]]; then
 	## Hosting
 
 	rule
-
-	{
-		printf '\n  Self hosting runs services on this PC instead of using\n'
-		printf '  someone elses servers.\n\n'
-	} > /dev/tty
 
 	if yesno "Set up Docker and self hosted services" y; then
 		save_cfg WANT_DOCKER yes
@@ -174,11 +163,6 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 	rule
 
-	{
-		printf '\n  Ollama runs AI language models on your own GPU, offline.\n'
-		printf '  Models are large, they go on the data disk.\n\n'
-	} > /dev/tty
-
 	if yesno "Install Ollama for local AI models" y; then
 		save_cfg WANT_OLLAMA yes
 	else
@@ -190,11 +174,6 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 	rule
 
-	{
-		printf '\n  Sunshine streams this PC to your laptop over Tailscale,\n'
-		printf '  so the laptop acts as a screen for this machine.\n\n'
-	} > /dev/tty
-
 	if yesno "Set up Sunshine so the laptop can drive this PC" y; then
 		save_cfg WANT_SUNSHINE yes
 	else
@@ -205,12 +184,6 @@ if [[ -z "${ANSWERED:-}" ]]; then
 	## Librewolf
 
 	rule
-
-	{
-		printf '\n  Mullvad Browser stays your default. LibreWolf is a second\n'
-		printf '  browser for your own services, which Mullvad Browser\n'
-		printf '  deliberately refuses to stay logged into.\n\n'
-	} > /dev/tty
 
 	if yesno "Install LibreWolf as a second browser for local services" y; then
 		save_cfg WANT_LIBREWOLF yes
@@ -230,18 +203,6 @@ else
 	note "Answers already saved in $CONFIG"
 fi
 
-
-## Secrets
-
-####### account numbers and passwords are never written to the config file
-####### the stages that need them prompt at the moment they are used
-printf '\n'
-note "Two logins happen later and cannot be pre-answered:"
-note "  Mullvad wants an account number"
-note "  Tailscale opens a browser link"
-printf '\n'
-
-confirm
 
 
 
