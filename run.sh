@@ -134,6 +134,8 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 	## Chaotic
 
+	rule
+
 	{
 		printf '\n  HyDE adds chaotic-aur, a large third party package repo.\n'
 		printf '  Removing it means packages come only from official Arch\n'
@@ -145,9 +147,12 @@ if [[ -z "${ANSWERED:-}" ]]; then
 	else
 		save_cfg WANT_CHAOTIC_REMOVE no
 	fi
+	printf '\n' > /dev/tty
 
 
 	## Hosting
+
+	rule
 
 	{
 		printf '\n  Self hosting runs services on this PC instead of using\n'
@@ -167,6 +172,8 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 	## Ollama
 
+	rule
+
 	{
 		printf '\n  Ollama runs AI language models on your own GPU, offline.\n'
 		printf '  Models are large, they go on the data disk.\n\n'
@@ -181,6 +188,8 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 	## Sunshine
 
+	rule
+
 	{
 		printf '\n  Sunshine streams this PC to your laptop over Tailscale,\n'
 		printf '  so the laptop acts as a screen for this machine.\n\n'
@@ -194,6 +203,8 @@ if [[ -z "${ANSWERED:-}" ]]; then
 
 
 	## Librewolf
+
+	rule
 
 	{
 		printf '\n  Mullvad Browser stays your default. LibreWolf is a second\n'
