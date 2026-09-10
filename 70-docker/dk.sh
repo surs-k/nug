@@ -198,6 +198,14 @@ ln -sfn "$STACKS_DIR" "$HOME/firelink/stacks"
 
 WANT="${WANT_STACKS:-searxng}"
 
+####### accept the shorthand even if it reached the config by hand
+case "$WANT" in
+	all|ALL)   WANT="searxng,portainer,invidious,comfyui" ;;
+	none|NONE) WANT="" ;;
+esac
+
+note "stacks: ${WANT:-none}"
+
 
 ## Searxng
 
