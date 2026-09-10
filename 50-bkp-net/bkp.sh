@@ -25,6 +25,13 @@ done
 
 section "Resolver"
 
+####### this used to force resolv.conf at the systemd-resolved stub no matter
+####### what, but 30-security has already connected Mullvad by now, and
+####### Mullvad owns DNS inside its tunnel
+####### pointing resolv.conf somewhere else left resolved with an upstream the
+####### kill switch blocks, so name resolution died and the stage timed out
+####### when Mullvad is up it keeps DNS, and this only verifies it works
+
 $SUDO mkdir -p /etc/NetworkManager/conf.d
 
 $SUDO tee /etc/NetworkManager/conf.d/dns.conf > /dev/null << 'EOF'
@@ -32,14 +39,42 @@ $SUDO tee /etc/NetworkManager/conf.d/dns.conf > /dev/null << 'EOF'
 dns=systemd-resolved
 EOF
 
-run "enable resolved"  $SUDO systemctl enable --now systemd-resolved.service
+run "enable resolved" $SUDO systemctl enable --now systemd-resolved.service
 
-$SUDO ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+MV="$(capture $SUDO mullvad status)"
 
-run "restart networkmanager" $SUDO systemctl restart NetworkManager.service
-run "restart resolved"       $SUDO systemctl restart systemd-resolved.service
+if contains "$MV" "Connected"; then
+	note "Mullvad is connected and owns DNS, leaving resolv.conf alone"
+else
+	note "Mullvad is not connected, pointing resolv.conf at resolved"
+	$SUDO ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+	run "restart networkmanager" $SUDO systemctl restart NetworkManager.service
+	run "restart resolved"       $SUDO systemctl restart systemd-resolved.service
+fi
 
-wait_for 60 resolves
+
+## Confirm
+
+####### routing and name resolution are reported separately, because a stage
+####### that just says timeout tells you nothing about which half broke
+
+if ! wait_for 60 resolves; then
+
+	if routed; then
+		flag "routing works but DNS does not"
+		flag "Mullvad handles DNS in its tunnel, check: mullvad status"
+		flag "then: resolvectl status"
+	else
+		flag "no route out at all, the VPN or the adapter is down"
+		flag "check: mullvad status"
+	fi
+
+	printf '\n  DNS is required for the rest of this stage.\n' >&2
+	printf '  Fix it, then run ./run.sh again.\n\n' >&2
+	exit 1
+fi
+
+note "DNS working"
 
 
 
