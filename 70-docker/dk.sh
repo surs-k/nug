@@ -218,6 +218,34 @@ if contains "$WANT" "searxng"; then
 fi
 
 
+## Invidious
+
+####### a local youtube backend for freetube
+####### freetube can only talk to invidious, not piped, so this is the one
+####### the companion key must be exactly 16 characters or invidious refuses
+
+if contains "$WANT" "invidious"; then
+
+	IV="$STACKS_DIR/invidious"
+
+	if [[ -f "$IV/.env" ]]; then
+		note "invidious secrets already set"
+	else
+		{
+			printf 'DB_PASSWORD=%s\n'   "$(openssl rand -hex 16)"
+			printf 'COMPANION_KEY=%s\n' "$(openssl rand -hex 8)"
+			printf 'HMAC_KEY=%s\n'      "$(openssl rand -hex 16)"
+		} > "$IV/.env"
+		chmod 600 "$IV/.env"
+	fi
+
+	run "start invidious" $SUDO docker compose -f "$IV/compose.yaml" --env-file "$IV/.env" up -d
+
+	note "invidious at http://127.0.0.1:3000"
+	note "point FreeTube at it, see Guides/Selfhost.md"
+fi
+
+
 ## Comfyui
 
 if contains "$WANT" "comfyui"; then
@@ -237,7 +265,10 @@ fi
 
 if contains "$WANT" "portainer"; then
 
-	if $SUDO docker ps -a --format '{{.Names}}' | grep -qx portainer; then
+	####### capture then match, same SIGPIPE reason as everywhere else
+	NAMES="$(capture $SUDO docker ps -a --format '{{.Names}}')"
+
+	if contains "$NAMES" "portainer"; then
 		note "portainer already exists"
 	else
 		run "start portainer" $SUDO docker run -d \
@@ -277,6 +308,10 @@ fi
 
 if contains "$WANT" "searxng"; then
 	warn "searxng running" sh -c 'sudo docker ps --format "{{.Names}}" > /tmp/_dp; grep -q searxng /tmp/_dp'
+fi
+
+if contains "$WANT" "invidious"; then
+	warn "invidious running" sh -c 'sudo docker ps --format "{{.Names}}" > /tmp/_di; grep -q invidious /tmp/_di'
 fi
 
 verify_done
