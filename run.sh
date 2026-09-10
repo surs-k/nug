@@ -75,29 +75,138 @@ printf '\n'
 
 ## Ask
 
+STACK_ALL="searxng,portainer,invidious,comfyui"
+
+####### everything this prints goes to the terminal, not to stdout, because
+####### the caller captures stdout to get the answer back
+pick_stacks() {
+	local reply t bad out parts
+
+	while true; do
+		{
+			printf '\n  Available services. All of them run on this PC only,\n'
+			printf '  reachable from this machine and nowhere else.\n\n'
+			printf '    searxng     private search engine, replaces Google\n'
+			printf '    portainer   web dashboard for managing Docker\n'
+			printf '    invidious   private YouTube backend, feeds FreeTube\n'
+			printf '    comfyui     AI image generation, uses your GPU\n\n'
+			printf '    all         every one of them\n'
+			printf '    none        skip self hosting\n\n'
+		} > /dev/tty
+
+		reply="$(ask 'Which ones, comma separated' 'searxng,portainer,invidious')"
+		reply="${reply// /}"
+
+		case "$reply" in
+			all|ALL)   printf '%s' "$STACK_ALL"; return 0 ;;
+			none|NONE) printf 'none';            return 0 ;;
+		esac
+
+		bad=0
+		out=""
+		IFS=',' read -ra parts <<< "$reply"
+
+		for t in "${parts[@]}"; do
+			case "$t" in
+				searxng|portainer|invidious|comfyui)
+					out="${out:+$out,}$t" ;;
+				"") ;;
+				*)
+					printf '  not a service: %s\n' "$t" > /dev/tty
+					bad=1 ;;
+			esac
+		done
+
+		if (( bad == 0 )) && [[ -n "$out" ]]; then
+			printf '%s' "$out"
+			return 0
+		fi
+
+		printf '  try again\n' > /dev/tty
+	done
+}
+
+
 if [[ -z "${ANSWERED:-}" ]]; then
 
 	note "A few choices. Press enter to take the default."
-	printf '\n'
 
-	yesno "Remove the chaotic-aur repo after HyDE installs" y \
-		&& save_cfg WANT_CHAOTIC_REMOVE yes || save_cfg WANT_CHAOTIC_REMOVE no
 
-	yesno "Set up Docker and self hosted services" y \
-		&& save_cfg WANT_DOCKER yes || save_cfg WANT_DOCKER no
+	## Chaotic
 
-	####### portainer is the docker gui, it is on by default
-	STACKS="$(ask 'Self host which stacks (searxng,portainer,invidious,comfyui,none)' 'searxng,portainer,invidious')"
-	save_cfg WANT_STACKS "$STACKS"
+	{
+		printf '\n  HyDE adds chaotic-aur, a large third party package repo.\n'
+		printf '  Removing it means packages come only from official Arch\n'
+		printf '  repos and the AUR you build yourself.\n\n'
+	} > /dev/tty
 
-	yesno "Install Ollama for local AI models" y \
-		&& save_cfg WANT_OLLAMA yes || save_cfg WANT_OLLAMA no
+	if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
+		save_cfg WANT_CHAOTIC_REMOVE yes
+	else
+		save_cfg WANT_CHAOTIC_REMOVE no
+	fi
 
-	yesno "Set up Sunshine so the laptop can drive this PC" y \
-		&& save_cfg WANT_SUNSHINE yes || save_cfg WANT_SUNSHINE no
 
-	yesno "Install LibreWolf as a second browser for local services" y \
-		&& save_cfg WANT_LIBREWOLF yes || save_cfg WANT_LIBREWOLF no
+	## Hosting
+
+	{
+		printf '\n  Self hosting runs services on this PC instead of using\n'
+		printf '  someone elses servers.\n\n'
+	} > /dev/tty
+
+	if yesno "Set up Docker and self hosted services" y; then
+		save_cfg WANT_DOCKER yes
+		STACKS="$(pick_stacks)"
+		save_cfg WANT_STACKS "$STACKS"
+		printf '  chosen: %s\n' "$STACKS" > /dev/tty
+	else
+		save_cfg WANT_DOCKER no
+		save_cfg WANT_STACKS none
+	fi
+
+
+	## Ollama
+
+	{
+		printf '\n  Ollama runs AI language models on your own GPU, offline.\n'
+		printf '  Models are large, they go on the data disk.\n\n'
+	} > /dev/tty
+
+	if yesno "Install Ollama for local AI models" y; then
+		save_cfg WANT_OLLAMA yes
+	else
+		save_cfg WANT_OLLAMA no
+	fi
+
+
+	## Sunshine
+
+	{
+		printf '\n  Sunshine streams this PC to your laptop over Tailscale,\n'
+		printf '  so the laptop acts as a screen for this machine.\n\n'
+	} > /dev/tty
+
+	if yesno "Set up Sunshine so the laptop can drive this PC" y; then
+		save_cfg WANT_SUNSHINE yes
+	else
+		save_cfg WANT_SUNSHINE no
+	fi
+
+
+	## Librewolf
+
+	{
+		printf '\n  Mullvad Browser stays your default. LibreWolf is a second\n'
+		printf '  browser for your own services, which Mullvad Browser\n'
+		printf '  deliberately refuses to stay logged into.\n\n'
+	} > /dev/tty
+
+	if yesno "Install LibreWolf as a second browser for local services" y; then
+		save_cfg WANT_LIBREWOLF yes
+	else
+		save_cfg WANT_LIBREWOLF no
+	fi
+
 
 	save_cfg ANSWERED yes
 
