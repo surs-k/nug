@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -7,130 +8,126 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 #    Check
 
 
-set -Eeuo pipefail
+section "Check"
+
+sudo_keepalive
 
 require_stage 20-desktop
-
-if [[ -r /sys/module/nvidia_drm/parameters/modeset ]]; then
-	echo "nvidia modeset: $(cat /sys/module/nvidia_drm/parameters/modeset)"
-else
-	echo "nvidia_drm not loaded"
-fi
-
-
-section_done "Check"
 
 
 
 #    Mullvad
 
 
+section "Mullvad"
+
+
 ## Install
 
-sudo pacman -S --needed --noconfirm mullvad-vpn
+pac mullvad-vpn
 
+run "enable daemon" $SUDO systemctl enable --now mullvad-daemon
 
-sudo systemctl enable --now mullvad-daemon
-
-wait_for 60 sudo mullvad status
+wait_for 60 $SUDO mullvad status
 
 
 ## Login
 
-
 logged_in() {
 	local state
-	state="$(sudo mullvad account get 2>&1)" || true
-	[[ "$state" != *"Not logged in"* ]]
+	state="$(capture $SUDO mullvad account get)"
+	! contains "$state" "Not logged in"
 }
 
-attempt=1
+if logged_in; then
+	note "already logged in"
+else
+	attempt=1
+	until logged_in; do
+		if (( attempt > RETRY_LIMIT )); then
+			printf 'Login failed %s times\n' "$RETRY_LIMIT" >&2
+			exit 1
+		fi
+		ACCT="$(secret 'Mullvad account number')"
+		$SUDO mullvad account login "$ACCT" || printf '  rejected, try again\n' >&2
+		unset ACCT
+		attempt=$(( attempt + 1 ))
+	done
+fi
 
-until logged_in; do
-	if (( attempt > RETRY_LIMIT )); then
-		echo "Login failed $RETRY_LIMIT times" >&2
-		exit 1
-	fi
-	printf 'Mullvad account number: ' > /dev/tty
-	read -rs ACCT < /dev/tty
-	echo > /dev/tty
-	sudo mullvad account login "$ACCT" || echo "Rejected, try again" > /dev/tty
-	unset ACCT
-	attempt=$(( attempt + 1 ))
-done
+
+## Settings
+
+####### local network sharing has to be on or the vm bridge, docker bridge
+####### and tailscale all get cut off by the kill switch
+run "allow local network" $SUDO mullvad lan set allow
+
+run "auto connect on"     $SUDO mullvad auto-connect set on
+
+run "reconnect on boot"   $SUDO mullvad lockdown-mode set off
+
+####### dns level blocking, this is the biggest privacy win for daily use
+soft "block ads and trackers" $SUDO mullvad dns set default \
+	--block-ads --block-trackers --block-malware
 
 
 ## Connect
 
-echo "Connecting"
+connected() {
+	local s
+	s="$(capture $SUDO mullvad status)"
+	contains "$s" "Connected"
+}
 
-sudo mullvad connect
-
-wait_for 120 sh -c 'sudo mullvad status | grep -q Connected'
-
-echo "Connected"
-
-## Settings
-
-sudo mullvad lan set allow
-
-
-section_done "Mullvad"
+if connected; then
+	note "already connected"
+else
+	run "connect" $SUDO mullvad connect
+	wait_for 120 connected || flag "did not report Connected within 120s"
+fi
 
 
 
-#    UFW
+#    Firewall
 
 
-## Install
+section "Firewall"
 
-sudo pacman -S --needed --noconfirm ufw
+####### mullvad already drops everything that is not in the tunnel, so ufw
+####### is here for inbound only, outbound filtering would be duplicate work
 
-sudo systemctl enable ufw
+pac ufw
 
-
-## Rules
-
-sudo ufw default deny incoming
-
-sudo ufw default allow outgoing
-
-
-## Enable
-
-sudo ufw --force enable
-
-
-section_done "UFW"
+run "deny incoming"   $SUDO ufw default deny incoming
+run "allow outgoing"  $SUDO ufw default allow outgoing
+run "enable ufw"      $SUDO ufw --force enable
+run "enable at boot"  $SUDO systemctl enable ufw
 
 
 
 #    Verify
 
 
-echo "verify:"
-
-check "ufw active"            sh -c 'sudo ufw status | grep -q "Status: active"'
+section "Verify"
 
 check "mullvad daemon"    systemctl is-active --quiet mullvad-daemon
+check "mullvad logged in" logged_in
+check "mullvad connected" connected
+check "lan sharing on"    sh -c 'sudo mullvad lan get > /tmp/_lan; grep -qi allow /tmp/_lan'
+check "ufw active"        sh -c 'sudo ufw status > /tmp/_ufw; grep -q "Status: active" /tmp/_ufw'
 
-check "mullvad logged in"  logged_in
-
-check "mullvad responds"  sudo mullvad status
+warn  "dns blocking"      sh -c 'sudo mullvad dns get > /tmp/_dns; grep -qi "block" /tmp/_dns'
 
 verify_done
 
-stage_done 30-security
-
-
-section_done "Verify"
+stage_done
 
 
 
 #    End
 
 
-echo "Run virt.sh"
+section "End"
 
-
-section_done "End"
+printf '  VPN and firewall up.\n'
+printf '  Check yourself any time at https://mullvad.net/check\n\n'
