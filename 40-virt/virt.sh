@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -7,97 +8,118 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 #    Check
 
 
-set -Eeuo pipefail
+section "Check"
+
+sudo_keepalive
 
 require_stage 30-security
 
+CPU="$(capture cat /proc/cpuinfo)"
 
-section_done "Check"
+if ! contains "$CPU" "vmx" && ! contains "$CPU" "svm"; then
+	printf 'No hardware virtualisation found in /proc/cpuinfo\n' >&2
+	exit 1
+fi
 
 
 
 #    Libvirt
 
 
-## Support
-
-if ! grep -E -q '(vmx|svm)' /proc/cpuinfo; then
-    echo "No hardware virtualization (vmx/svm) found in /proc/cpuinfo - aborting." >&2
-    exit 1
-fi
+section "Libvirt"
 
 
 ## Install
 
-sudo pacman -S --needed --noconfirm qemu-full virt-manager libvirt dnsmasq ebtables iptables-nft edk2-ovmf swtpm
+####### ebtables is no longer needed, libvirt uses its own private nftables
+####### table and does not go through the system filter table at all
+pac qemu-full virt-manager libvirt dnsmasq iptables-nft edk2-ovmf swtpm
 
-sudo systemctl enable --now libvirtd
+
+## Backend
+
+$SUDO mkdir -p /etc/libvirt
+
+if grep -q '^firewall_backend' /etc/libvirt/network.conf 2>/dev/null; then
+	note "firewall backend already pinned"
+else
+	$SUDO cp /etc/libvirt/network.conf /etc/libvirt/network.conf.bak-rebuild 2>/dev/null || true
+	printf 'firewall_backend = "nftables"\n' | $SUDO tee -a /etc/libvirt/network.conf > /dev/null
+	note "pinned libvirt to the nftables backend"
+fi
 
 
-## Ready
+## Service
 
-wait_for 20 sudo virsh version
+run "enable libvirtd" $SUDO systemctl enable --now libvirtd
+
+wait_for 20 $SUDO virsh version
 
 
 ## Groups
 
-sudo usermod -aG libvirt,kvm "$USERNAME"
+run "add user to groups" $SUDO usermod -aG libvirt,kvm "$USERNAME"
 
 
 ## Ordering
 
-sudo mkdir -p /etc/systemd/system/libvirtd.service.d
-sudo tee /etc/systemd/system/libvirtd.service.d/after-ufw.conf > /dev/null << EOF
+$SUDO mkdir -p /etc/systemd/system/libvirtd.service.d
+
+$SUDO tee /etc/systemd/system/libvirtd.service.d/after-ufw.conf > /dev/null << 'EOF'
 [Unit]
 After=ufw.service
 EOF
 
-sudo systemctl daemon-reload
-
-
-section_done "Libvirt"
+run "reload systemd" $SUDO systemctl daemon-reload
 
 
 
 #    Network
 
 
+section "Network"
+
+
 ## Subnet
 
-have="$(ip -br -4 addr show virbr0 2>/dev/null)" || true
+HAVE="$(capture ip -br -4 addr show virbr0)"
 
-if [[ "$have" =~ 192\.168\.([0-9]+)\.1/ ]]; then
-
+if [[ "$HAVE" =~ 192\.168\.([0-9]+)\.1/ ]]; then
 	SUBNET="192.168.${BASH_REMATCH[1]}"
-	REBUILD=no
-	echo "virbr0 already up on $SUBNET.0/24"
-
+	REBUILD_NET=no
+	note "virbr0 already on $SUBNET.0/24"
 else
+	REBUILD_NET=yes
+	soft "stop default net" $SUDO virsh net-destroy default
 
-	REBUILD=yes
-	sudo virsh net-destroy default 2>/dev/null || true
-
-	inuse="$(ip -4 route show; ip -4 addr show)"
+	INUSE="$(capture ip -4 route show)$(capture ip -4 addr show)"
 
 	for n in 122 133 144 155; do
-		[[ "$inuse" == *"192.168.$n."* ]] || { SUBNET="192.168.$n"; break; }
+		contains "$INUSE" "192.168.$n." || { SUBNET="192.168.$n"; break; }
 	done
 
-	[[ -n "${SUBNET:-}" ]] || { echo "No free subnet" >&2; exit 1; }
-
-	echo "virbr0 subnet: $SUBNET.0/24"
+	[[ -n "${SUBNET:-}" ]] || { printf 'No free subnet\n' >&2; exit 1; }
+	note "virbr0 will use $SUBNET.0/24"
 fi
 
 
 ## Define
 
-if [[ "$REBUILD" == yes ]]; then
+####### the element is <name>, not <n>
+####### libvirt silently refuses to define a network without a real name tag,
+####### which is why the default network kept coming back missing
+####### the mtu tag is the fix for guests that connect but hang on anything
+####### large, mullvad wireguard runs about 1420 and a 1500 byte guest packet
+####### is dropped with no error anywhere
 
-cat > /tmp/virbr0.xml << EOF
+if [[ "$REBUILD_NET" == yes ]]; then
+
+	cat > /tmp/virbr0.xml << EOF
 <network>
   <name>default</name>
   <forward mode='nat'/>
   <bridge name='virbr0' stp='on' delay='0'/>
+  <mtu size='$TUNNEL_MTU'/>
   <ip address='$SUBNET.1' netmask='255.255.255.0'>
     <dhcp>
       <range start='$SUBNET.2' end='$SUBNET.254'/>
@@ -106,94 +128,57 @@ cat > /tmp/virbr0.xml << EOF
 </network>
 EOF
 
-	sudo virsh net-undefine default 2>/dev/null || true
-	sudo virsh net-define /tmp/virbr0.xml
-	sudo virsh net-start default
+	soft "undefine old net"  $SUDO virsh net-undefine default
+	run  "define default"    $SUDO virsh net-define /tmp/virbr0.xml
+	run  "start default"     $SUDO virsh net-start default
 fi
 
-
-## Autostart
-
-sudo virsh net-autostart default
-
+run "autostart default" $SUDO virsh net-autostart default
 
 
 ## Firewall
 
-if ip link show virbr0 &>/dev/null; then
+if ip link show virbr0 &> /dev/null; then
 
-	# Guest DHCP reaches host dnsmasq
-	sudo ufw allow in on virbr0 to any port 67 proto udp
+	####### guests reach the host dnsmasq for dhcp and dns
+	soft "allow guest dhcp" $SUDO ufw allow in on virbr0 to any port 67 proto udp
+	soft "allow guest dns"  $SUDO ufw allow in on virbr0 to any port 53
 
-	# Guest DNS reaches host dnsmasq
-	sudo ufw allow in on virbr0 to any port 53
+	####### guests must not reach the rest of the lan
+	soft "block lan 10"     $SUDO ufw route deny in on virbr0 to 10.0.0.0/8
+	soft "block lan 172"    $SUDO ufw route deny in on virbr0 to 172.16.0.0/12
+	soft "block lan 192"    $SUDO ufw route deny in on virbr0 to 192.168.0.0/16
 
-	sudo ufw route deny in on virbr0 to 10.0.0.0/8
-
-	sudo ufw route deny in on virbr0 to 172.16.0.0/12
-
-	sudo ufw route deny in on virbr0 to 192.168.0.0/16
-
-	# Interface agnostic, survives reconnects
-	sudo ufw route allow in on virbr0
+	soft "allow guest out"  $SUDO ufw route allow in on virbr0
+else
+	flag "virbr0 absent, firewall rules skipped"
 fi
-
-
-## Show
-
-sudo ufw status numbered
-
-sudo nft list tables
-
-ip -br addr show virbr0
-
-sysctl net.ipv4.ip_forward
-
-mullvad lan get || true
-
-
-section_done "Network"
 
 
 
 #    Verify
 
 
-echo "VERIFY"
-echo
+section "Verify"
 
+check "kvm device"       test -c /dev/kvm
+check "user in libvirt"  sh -c "id -nG $USERNAME > /tmp/_grp; grep -qw libvirt /tmp/_grp"
+check "default defined"  sh -c 'sudo virsh net-list --all --name > /tmp/_net; grep -qx default /tmp/_net'
+check "default running"  sh -c 'sudo virsh net-list --name > /tmp/_run; grep -qx default /tmp/_run'
+check "virbr0 gateway"   sh -c "ip -br addr show virbr0 > /tmp/_br; grep -q $SUBNET.1 /tmp/_br"
+check "virbr0 mtu"       sh -c "ip -br link show virbr0 > /tmp/_mtu; grep -q 'mtu $TUNNEL_MTU' /tmp/_mtu || ip link show virbr0 | grep -q 'mtu $TUNNEL_MTU'"
 
-check "kvm device"        test -c /dev/kvm
-
-check "user in libvirt"   sh -c "id -nG $USERNAME | grep -qw libvirt"
-
-check "default net up"    sh -c 'sudo virsh net-list --name | grep -qx default'
-
-check "virbr0 gateway"    sh -c "ip -br addr show virbr0 | grep -q $SUBNET.1"
-
-
-check "libvirt nft rules" sh -c 'sudo nft list table ip libvirt_network'
-
+warn  "libvirt nft table" sh -c 'sudo nft list table ip libvirt_network'
 
 verify_done
 
-
-section_done "Verify"
+stage_done
 
 
 
 #    End
 
 
-stage_done 40-virt
+section "End"
 
-echo
-echo "Reboot to enable VM groups"
-echo
-echo "REBOOT"
-echo
-echo "Run bkp.sh after"
-echo
-
-
-section_done "End"
+printf '  Virtualisation ready.\n\n'
