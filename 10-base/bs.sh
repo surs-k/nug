@@ -241,6 +241,51 @@ fi
 
 
 
+#    Update
+
+
+section "Update"
+
+####### one command that refreshes the repo without ever hitting the
+####### "local changes would be overwritten" wall
+####### it throws away local edits on purpose, the repo is the source of truth
+
+$SUDO tee /usr/local/bin/rebuild-update > /dev/null << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="$HOME/Rebuild"
+
+cd "$REPO"
+
+####### the executable bit counts as a change to git, so ignore modes
+git config core.fileMode false
+
+git fetch origin
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+####### discard local edits and match the remote exactly
+git reset --hard "origin/$BRANCH"
+
+find . -name '*.sh' -exec chmod +x {} +
+
+printf '
+Updated to %s
+' "$(git rev-parse --short HEAD)"
+printf 'Now run: ./run.sh
+
+'
+EOF
+
+$SUDO chmod 755 /usr/local/bin/rebuild-update
+
+if [[ -d "$HOME/Rebuild/.git" ]]; then
+	soft "let git ignore file modes" git -C "$HOME/Rebuild" config core.fileMode false
+fi
+
+
+
 #    Yay
 
 
@@ -284,6 +329,7 @@ check "entry bootable"   grep -q 'protocol: linux' /boot/limine.conf
 check "deploy hook"      test -f /etc/pacman.d/hooks/99-limine-deploy.hook
 check "header enforcer"  test -x /usr/local/bin/limine-header-fix
 check "yay present"      command -v yay
+check "update helper"    test -x /usr/local/bin/rebuild-update
 
 warn  "tpm2 enrolled"    sh -c 'sudo cryptsetup luksDump /dev/disk/by-partlabel/cryptsystem > /tmp/_lk; grep -q systemd-tpm2 /tmp/_lk'
 
