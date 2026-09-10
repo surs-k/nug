@@ -2,7 +2,7 @@
 
 ___
 
-Automated Arch install, v4.0. Runs itself once you answer the questions at the start.
+Automated Arch install, v4.3. Runs itself once you answer the questions at the start.
 
 
 # Start
@@ -62,6 +62,7 @@ ___
 	• **60-uprefs:** apps, keybinds, monitors
 	• **70-docker:** self hosted services
 	• **80-remote:** Sunshine for the laptop
+	• **90-health:** alerts when things break
 
 
 # Reading

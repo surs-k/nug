@@ -25,6 +25,7 @@ STAGES=(
 	60-uprefs
 	70-docker
 	80-remote
+	90-health
 )
 
 
@@ -39,6 +40,7 @@ declare -A SCRIPT=(
 	[60-uprefs]=prefs.sh
 	[70-docker]=dk.sh
 	[80-remote]=rem.sh
+	[90-health]=hl.sh
 )
 
 
@@ -84,9 +86,9 @@ if [[ -z "${ANSWERED:-}" ]]; then
 	yesno "Set up Docker and self hosted services" y \
 		&& save_cfg WANT_DOCKER yes || save_cfg WANT_DOCKER no
 
-	if [[ "$(ask 'Self host which stacks, comma separated (searxng,comfyui,portainer,none)' 'searxng')" =~ ^(.*)$ ]]; then
-		save_cfg WANT_STACKS "${BASH_REMATCH[1]}"
-	fi
+	####### portainer is the docker gui, it is on by default
+	STACKS="$(ask 'Self host which stacks (searxng,portainer,invidious,comfyui,none)' 'searxng,portainer,invidious')"
+	save_cfg WANT_STACKS "$STACKS"
 
 	yesno "Install Ollama for local AI models" y \
 		&& save_cfg WANT_OLLAMA yes || save_cfg WANT_OLLAMA no
