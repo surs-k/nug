@@ -143,7 +143,12 @@ run() {
 	else
 		printf '  [FAIL] %s   exit %s\n' "$label" "$rc" >&2
 		printf 'FAILED %s exit %s\n' "$*" "$rc" >&3
-		printf '  log    %s\n' "$LOG" >&2
+
+		####### put the error on screen
+		####### a path to a log file is not a message, it is homework
+		printf '\n  what it actually said:\n\n' >&2
+		tail -n 15 "$LOG" 2>/dev/null | sed 's/^/    /' >&2 || true
+		printf '\n  full log  %s\n\n' "$LOG" >&2
 	fi
 
 	return "$rc"
@@ -324,8 +329,69 @@ secret() {
 }
 
 
+## Twice
+
+####### every password is typed twice, a typo you cannot see is a reinstall
+secret_twice() {
+	local label=$1 a b
+	while true; do
+		a="$(secret "$label")"
+		b="$(secret "$label again")"
+
+		if [[ -z "$a" ]]; then
+			printf '  empty, try again\n' >&2
+			continue
+		fi
+
+		if [[ "$a" == "$b" ]]; then
+			printf '%s' "$a"
+			return 0
+		fi
+
+		printf '  those did not match, try again\n' >&2
+	done
+}
+
+
 
 #    Helpers
+
+
+## Online
+
+####### a slow ping in a VM is almost never the internet
+####### ping resolves AAAA first and then sits waiting on an ipv6 route that
+####### does not exist, so ipv4 is forced and every probe gets a deadline
+####### routing and name resolution are tested separately, because they break
+####### for different reasons and need different fixes
+
+PING_HOSTS=(1.1.1.1 9.9.9.9 8.8.8.8)
+
+DNS_HOST="${DNS_HOST:-archlinux.org}"
+
+routed() {
+	local h
+	for h in "${PING_HOSTS[@]}"; do
+		ping -4 -c1 -W2 "$h" &> /dev/null && return 0
+	done
+	return 1
+}
+
+resolves() { getent ahostsv4 "$DNS_HOST" &> /dev/null; }
+
+online() {
+	if ! routed; then
+		printf '  no route out, check the network adapter\n' >&2
+		return 1
+	fi
+
+	if ! resolves; then
+		printf '  routing works but DNS does not, check /etc/resolv.conf\n' >&2
+		return 1
+	fi
+
+	return 0
+}
 
 
 ## Retry
