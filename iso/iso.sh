@@ -304,17 +304,55 @@ sed -i 's/^#Color$/Color/'                       /etc/pacman.conf
 sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
 
 
+## Keyring
+
+####### an ISO older than a package signature reads as a bad signature
+####### refreshing the live keyring first removes that whole class of failure
+run "refresh package db"  pacman -Sy --noconfirm
+
+soft "update keyring"     pacman -S --noconfirm --needed archlinux-keyring
+
+
 ## Base
 
-pacstrap -K /mnt base linux linux-firmware intel-ucode
+####### a corrupt download is cached, so a plain retry reuses the same bad
+####### file forever and fails identically every time
+####### the cache is purged and the mirrors re-ranked between attempts, so a
+####### single bad mirror cannot end the run
 
-pacstrap -K /mnt btrfs-progs cryptsetup networkmanager sudo base-devel git
+pacstrap_retry() {
+	local attempt=1
 
-pacstrap -K /mnt zram-generator snapper snap-pac tpm2-tools
+	until pacstrap -K /mnt "$@"; do
 
-pacstrap -K /mnt limine efibootmgr dosfstools mtools
+		if (( attempt >= 3 )); then
+			printf '\n  pacstrap failed %s times for: %s\n' "$attempt" "$*" >&2
+			printf '  the mirror may be broken, try again later\n\n' >&2
+			return 1
+		fi
 
-pacstrap -K /mnt nano vim bash-completion openssh gobject-introspection reflector
+		flag "download was corrupt, purging the cache and switching mirrors"
+
+		rm -f /mnt/var/cache/pacman/pkg/*.pkg.tar.zst 2>/dev/null || true
+		rm -f /var/cache/pacman/pkg/*.pkg.tar.zst     2>/dev/null || true
+
+		reflector --latest 20 --protocol https --sort rate \
+			--save /etc/pacman.d/mirrorlist 2>/dev/null || true
+
+		attempt=$(( attempt + 1 ))
+		sleep 3
+	done
+}
+
+pacstrap_retry base linux linux-firmware intel-ucode
+
+pacstrap_retry btrfs-progs cryptsetup networkmanager sudo base-devel git
+
+pacstrap_retry zram-generator snapper snap-pac tpm2-tools
+
+pacstrap_retry limine efibootmgr dosfstools mtools
+
+pacstrap_retry nano vim bash-completion openssh gobject-introspection reflector
 
 
 ## Fstab
@@ -468,10 +506,14 @@ systemd-machine-id-setup
 printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw\n' \\
 	"\$LUKS_UUID" > /etc/kernel/cmdline
 
+####### only a timeout goes here
+####### default_entry was pointing at something that is not bootable, because
+####### /+Arch Linux is a collapsible branch rather than an entry, and quiet
+####### then hid the resulting failure, which is why the firmware handed back
+####### a black screen with no message
+####### limine already boots the first bootable entry on its own
 cat > /boot/limine.conf << ENTRYEOF
 timeout: $LIMINE_TIMEOUT
-default_entry: 1
-quiet: yes
 
 /+Arch Linux
     comment: machine-id=\$(cat /etc/machine-id)
@@ -538,6 +580,15 @@ check "esp mounted"      mountpoint -q /mnt/boot
 check "root mounted"     mountpoint -q /mnt
 check "snapshots sib"    sh -c 'findmnt -no SOURCE /mnt/.snapshots | grep -q "@snapshots"'
 check "limine conf"      test -f /mnt/boot/limine.conf
+check "conf has entry"   grep -q 'protocol: linux' /mnt/boot/limine.conf
+check "conf has timeout" grep -q '^timeout:' /mnt/boot/limine.conf
+check "no default_entry" sh -c '! grep -q "^default_entry:" /mnt/boot/limine.conf'
+check "kernel present"   test -f /mnt/boot/vmlinuz-linux
+check "initramfs present" test -f /mnt/boot/initramfs-linux.img
+check "microcode present" test -f /mnt/boot/intel-ucode.img
+check "cmdline has root"  grep -q 'root=/dev/mapper/cryptsystem' /mnt/boot/limine.conf
+check "cmdline has luks"  grep -q 'rd.luks.name=' /mnt/boot/limine.conf
+check "efi entry made"    sh -c 'efibootmgr | grep -q Limine'
 check "no efi conf"      sh -c '! test -f /mnt/boot/EFI/limine/limine.conf'
 check "deploy hook"      test -f /mnt/etc/pacman.d/hooks/99-limine-deploy.hook
 check "efi binary"       test -f /mnt/boot/EFI/limine/limine_x64.efi
