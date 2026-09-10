@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -7,128 +8,156 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 #    Check
 
 
-set -Eeuo pipefail
+section "Check"
+
+sudo_keepalive
 
 require_stage 10-base
-
-
-section_done "Check"
 
 
 
 #    Firelink
 
 
-## Links
+section "Firelink"
 
-mkdir -p ~/firelink
-ln -sfn /var/lib/libvirt/images ~/firelink/vms
-ln -sfn /var/lib/docker         ~/firelink/docker
-ln -sfn /home/ai                ~/firelink/ai
-ln -sfn /games                  ~/firelink/games
+####### one folder of shortcuts to everything that lives off the root disk
 
+mkdir -p "$HOME/firelink"
 
-## Owner
+ln -sfn /var/lib/libvirt/images "$HOME/firelink/vms"
+ln -sfn /var/lib/docker         "$HOME/firelink/docker"
+ln -sfn /home/ai                "$HOME/firelink/ai"
+ln -sfn /games                  "$HOME/firelink/games"
 
-sudo chown "$USERNAME:$USERNAME" /games /home/ai
-
-
-section_done "Firelink"
-
+for d in /games /home/ai; do
+	[[ -d "$d" ]] && $SUDO chown "$USERNAME:$USERNAME" "$d"
+done
 
 
-#    Nvidia
+
+#    Graphics
 
 
-## Driver
+section "Graphics"
 
-if lspci | grep -qi nvidia; then
-    sudo pacman -S --needed --noconfirm nvidia-open-dkms nvidia-utils linux-headers
+####### capture then match
+####### lspci | grep -q can take SIGPIPE and return 141, and under pipefail
+####### that reads as failure, so the branch gets skipped exactly when it
+####### should have run
 
-	sudo sed -i 's/^MODULES=.*/MODULES=(i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
+PCI="$(capture lspci)"
 
-    sudo mkinitcpio -P
+if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia"; then
 
+	note "NVIDIA detected"
+
+	pac nvidia-open-dkms nvidia-utils linux-headers
+
+	$SUDO sed -i 's/^MODULES=.*/MODULES=(i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' \
+		/etc/mkinitcpio.conf
+
+	####### wayland compositors need this, and so does sunshine later
+	if ! grep -q 'nvidia_drm.modeset=1' /etc/kernel/cmdline 2>/dev/null; then
+		$SUDO sed -i 's/$/ nvidia_drm.modeset=1/' /etc/kernel/cmdline
+		note "added nvidia_drm.modeset=1 to the kernel cmdline"
+	fi
+
+	run "rebuild initramfs" $SUDO mkinitcpio -P
+
+	save_cfg HAS_NVIDIA yes
+
+else
+	note "no NVIDIA card, using mesa"
+	pac mesa vulkan-icd-loader
+	save_cfg HAS_NVIDIA no
 fi
 
 
-section_done "Nvidia"
+
+#    Desktop
 
 
-
-#    HyDE
+section "Desktop"
 
 
 ## Deps
 
-sudo pacman -S --needed --noconfirm luarocks gobject-introspection
-    # both discovered missing mid-install last time - pre-installed now
+####### both of these were found missing mid install before, so they go first
+pac luarocks gobject-introspection archlinux-keyring
 
 
 ## Clone
 
-git clone --depth 1 https://github.com/HyDE-Project/HyDE ~/HyDE
-
-cd ~/HyDE/Scripts
+if [[ -d "$HOME/HyDE" ]]; then
+	note "HyDE already cloned"
+else
+	run "clone HyDE" git clone --depth 1 https://github.com/HyDE-Project/HyDE "$HOME/HyDE"
+fi
 
 
 ## Install
 
-sudo pacman -S archlinux-keyring
+####### this one stays loud, it is long and silence looks like a hang
+printf '\n  HyDE installer starts now. This takes a while.\n\n'
 
-./install.sh -n > /dev/tty 2>&1
-
-
-section_done "HyDE"
+( cd "$HOME/HyDE/Scripts" && ./install.sh -n )
 
 
 
-#    Chaotic
+#    Repos
 
 
-## Remove
+section "Repos"
 
-read -rp "Remove chaotic-aur now? (y/N): " REMOVE_CHAOTIC
-if [[ "$REMOVE_CHAOTIC" == "y" ]]; then
-    sudo sed -i '/\[chaotic-aur\]/,+1d' /etc/pacman.conf
-    sudo pacman -Rns --noconfirm chaotic-keyring chaotic-mirrorlist
-    sudo pacman -Syu
+if [[ "${WANT_CHAOTIC_REMOVE:-no}" == yes ]] && grep -q '\[chaotic-aur\]' /etc/pacman.conf; then
+	$SUDO sed -i '/\[chaotic-aur\]/,+1d' /etc/pacman.conf
+	soft "remove chaotic keyring" $SUDO pacman -Rns --noconfirm chaotic-keyring chaotic-mirrorlist
+	run  "resync repos" $SUDO pacman -Syu --noconfirm
+else
+	note "leaving chaotic-aur alone"
 fi
-
-
-section_done "Chaotic"
 
 
 
 #    Keyboard
 
 
-## Hyprland
+section "Keyboard"
 
-grep -q colemak ~/.config/hypr/hyprland.lua || cat >> ~/.config/hypr/hyprland.lua <<- 'EOF'
-hl.config({
-  input = {
-    kb_variant = "colemak"
-  }
-})
-EOF
+run "set console keymap" $SUDO localectl set-keymap "$KEYMAP"
+
+run "set x11 keymap"     $SUDO localectl set-x11-keymap us pc105 "$KEYMAP"
+
+####### the hyprland layout is written by 60-uprefs into its managed block
 
 
-## Console
 
-sudo localectl set-x11-keymap us pc105 colemak
+#    Verify
 
 
-section_done "Keyboard"
+section "Verify"
+
+check "hyde config dir"   test -d "$HOME/.config/hypr"
+check "hyprland present"  command -v Hyprland
+check "firelink"          test -d "$HOME/firelink"
+
+if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
+	check "nvidia driver"  pacman -Qq nvidia-open-dkms
+	check "modeset in cmdline" grep -q 'nvidia_drm.modeset=1' /etc/kernel/cmdline
+fi
+
+warn  "sddm enabled"      systemctl is-enabled sddm
+
+verify_done
+
+stage_done
 
 
 
 #    End
 
 
-stage_done 20-desktop
+section "End"
 
-echo "Reboot"
-
-
-section_done "End"
+printf '  Desktop installed.\n\n'
