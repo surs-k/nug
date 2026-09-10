@@ -580,6 +580,14 @@ chown -R 1000:1000 "/mnt/home/$USERNAME/Rebuild"
 
 find "/mnt/home/$USERNAME/Rebuild" -name '*.sh' -exec chmod +x {} +
 
+####### git records the executable bit, so the chmod above shows up as a local
+####### change to every script, and git pull then refuses to overwrite them
+####### telling git to ignore modes makes pulls clean from here on
+if [[ -d "/mnt/home/$USERNAME/Rebuild/.git" ]]; then
+	arch-chroot /mnt sudo -u "$USERNAME" \
+		git -C "/home/$USERNAME/Rebuild" config core.fileMode false || true
+fi
+
 
 ## Config
 
