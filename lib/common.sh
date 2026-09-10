@@ -300,6 +300,16 @@ ask() {
 }
 
 
+## Divider
+
+####### a question needs room around it or it reads as part of the last answer
+rule() {
+	printf '\n' > /dev/tty
+	printf '  ----------------------------------------\n' > /dev/tty
+	printf '\n' > /dev/tty
+}
+
+
 ## Yes
 
 ####### the capital letter is the default, that is the whole convention
