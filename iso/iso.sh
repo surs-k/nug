@@ -387,8 +387,11 @@ run "sync clock" arch-chroot /mnt hwclock --systohc
 
 ## Host
 
-arch-chroot /mnt hostnamectl --static set-hostname "$HOSTNAME" 2>/dev/null \
-	|| printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
+####### written directly, never through hostnamectl
+####### arch-chroot bind mounts /run, so hostnamectl in the chroot reaches the
+####### live ISO's systemd over dbus, renames the ISO instead of the install,
+####### and exits 0, so the fallback that writes this file never ran
+printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
 
 cat > /mnt/etc/hosts << EOF
 127.0.0.1   localhost
