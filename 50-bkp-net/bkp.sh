@@ -39,7 +39,7 @@ $SUDO ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 run "restart networkmanager" $SUDO systemctl restart NetworkManager.service
 run "restart resolved"       $SUDO systemctl restart systemd-resolved.service
 
-wait_for 60 getent hosts archlinux.org
+wait_for 60 resolves
 
 
 
@@ -373,7 +373,7 @@ run "enable daily snapshots" $SUDO systemctl enable --now btrbk.timer
 section "Verify"
 
 check "resolved active"    systemctl is-active --quiet systemd-resolved
-check "dns resolves"       getent hosts archlinux.org
+check "dns resolves"       resolves
 check "tailscaled active"  systemctl is-active --quiet tailscaled
 check "tailnet up"         tailnet_up
 check "sshd config valid"  $SUDO sshd -t
