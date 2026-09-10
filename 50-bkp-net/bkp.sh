@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
@@ -9,94 +8,69 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 #    Check
 
 
-## Stage
+section "Check"
+
+sudo_keepalive
 
 require_stage 40-virt
 
-
-## Tools
-
-command -v yay >/dev/null || { echo "yay missing - rerun 10-base" >&2; exit 1; }
-
-for c in mullvad ufw snapper btrfs mountpoint; do
-	command -v "$c" >/dev/null || { echo "missing command: $c" >&2; exit 1; }
+for c in mullvad ufw snapper btrfs mountpoint yay; do
+	command -v "$c" > /dev/null || { printf 'missing command: %s\n' "$c" >&2; exit 1; }
 done
-
-
-## Mullvad
-
-MV_STATE="$(mullvad status 2>&1 || true)"
-
-if [[ "$MV_STATE" == *Connected* ]]; then
-	echo "mullvad connected"
-else
-	echo "mullvad NOT connected - tailscale will still be configured" >&2
-fi
-
-
-section_done "Check"
 
 
 
 #    Resolver
 
 
-## Backend
+section "Resolver"
 
-sudo mkdir -p /etc/NetworkManager/conf.d
+$SUDO mkdir -p /etc/NetworkManager/conf.d
 
-sudo tee /etc/NetworkManager/conf.d/dns.conf > /dev/null << 'EOF'
+$SUDO tee /etc/NetworkManager/conf.d/dns.conf > /dev/null << 'EOF'
 [main]
 dns=systemd-resolved
 EOF
 
+run "enable resolved"  $SUDO systemctl enable --now systemd-resolved.service
 
-## Service
+$SUDO ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
-sudo systemctl enable --now systemd-resolved.service
-
-sudo ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-
-
-## Reload
-
-if systemctl cat NetworkManager.service &>/dev/null; then
-	sudo systemctl restart NetworkManager.service
-fi
-
-sudo systemctl restart systemd-resolved.service
-
-
-## Test
+run "restart networkmanager" $SUDO systemctl restart NetworkManager.service
+run "restart resolved"       $SUDO systemctl restart systemd-resolved.service
 
 wait_for 60 getent hosts archlinux.org
-
-
-section_done "Resolver"
 
 
 
 #    Tailscale
 
 
+section "Tailscale"
+
+
 ## Install
 
-sudo pacman -S --needed --noconfirm tailscale inotify-tools
+pac tailscale inotify-tools
 
 
 ## Exclude
 
+####### tailscale traffic has to leave outside the mullvad tunnel or the
+####### kill switch drops it, mullvad-exclude puts the daemon in a cgroup
+####### that is marked to bypass the tunnel
+
 TS_UNIT=/usr/lib/systemd/system/tailscaled.service
 TS_DROP=/etc/systemd/system/tailscaled.service.d/mullvad-exclude.conf
 
-if command -v mullvad-exclude >/dev/null; then
+if command -v mullvad-exclude > /dev/null; then
 
 	TS_EXEC="$(sed -n 's/^ExecStart=//p' "$TS_UNIT" | sed -n 1p)"
-	[[ -n "$TS_EXEC" ]] || { echo "No ExecStart in $TS_UNIT" >&2; exit 1; }
+	[[ -n "$TS_EXEC" ]] || { printf 'No ExecStart in %s\n' "$TS_UNIT" >&2; exit 1; }
 
-	sudo mkdir -p "$(dirname "$TS_DROP")"
+	$SUDO mkdir -p "$(dirname "$TS_DROP")"
 
-	sudo tee "$TS_DROP" > /dev/null << EOF
+	$SUDO tee "$TS_DROP" > /dev/null << EOF
 [Unit]
 After=mullvad-daemon.service
 Wants=mullvad-daemon.service
@@ -106,18 +80,16 @@ ExecStart=
 ExecStart=$(command -v mullvad-exclude) ${TS_EXEC}
 EOF
 
-	sudo systemctl daemon-reload
-
+	run "reload systemd" $SUDO systemctl daemon-reload
 else
-	echo "mullvad-exclude absent - tailscaled will run unwrapped" >&2
+	flag "mullvad-exclude absent, tailscaled will run inside the tunnel"
 fi
 
 
 ## Daemon
 
-sudo systemctl enable tailscaled.service
-
-sudo systemctl restart tailscaled.service
+run "enable tailscaled"  $SUDO systemctl enable tailscaled.service
+run "restart tailscaled" $SUDO systemctl restart tailscaled.service
 
 wait_for 30 test -S /run/tailscale/tailscaled.sock
 
@@ -126,128 +98,107 @@ wait_for 30 test -S /run/tailscale/tailscaled.sock
 
 tailnet_up() {
 	local s
-	s="$(tailscale status 2>&1 || true)"
-	[[ "$s" != *"Logged out"* && "$s" != *"Tailscale is stopped"* ]]
+	s="$(capture tailscale status)"
+	! contains "$s" "Logged out" && ! contains "$s" "Tailscale is stopped"
 }
 
+####### accept-dns stays off, magicdns fights systemd-resolved and mullvad
 if tailnet_up; then
-	echo "tailscale already logged in"
-	sudo tailscale set --accept-dns=false
+	note "already logged in"
+	soft "keep dns local" $SUDO tailscale set --accept-dns=false
 else
-	echo "Browser login needed - the URL prints on the terminal"
-	sudo tailscale up --accept-dns=false --timeout=300s > /dev/tty 2>&1
+	printf '\n  A browser link prints below. Open it and approve this machine.\n\n'
+	$SUDO tailscale up --accept-dns=false --timeout=300s
 fi
 
 
 ## Firewall
 
-if ip link show tailscale0 &>/dev/null; then
-	sudo ufw allow in on tailscale0 to any port 22 proto tcp
+if ip link show tailscale0 &> /dev/null; then
+	soft "allow ssh on tailnet" $SUDO ufw allow in on tailscale0 to any port 22 proto tcp
 else
-	echo "tailscale0 absent - SSH rule not added" >&2
+	flag "tailscale0 absent, ssh rule not added"
 fi
-
-
-section_done "Tailscale"
 
 
 
 #    SSH
 
 
-## Harden
+section "SSH"
 
-sudo mkdir -p /etc/ssh/sshd_config.d
+$SUDO mkdir -p /etc/ssh/sshd_config.d
 
-sudo tee /etc/ssh/sshd_config.d/10-harden.conf > /dev/null << 'EOF'
+$SUDO tee /etc/ssh/sshd_config.d/10-harden.conf > /dev/null << 'EOF'
 PermitRootLogin no
 EOF
 
 if [[ -s "$HOME/.ssh/authorized_keys" ]]; then
 	printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' \
-		| sudo tee -a /etc/ssh/sshd_config.d/10-harden.conf > /dev/null
+		| $SUDO tee -a /etc/ssh/sshd_config.d/10-harden.conf > /dev/null
+	note "key only auth enabled"
 else
-	echo "no authorized_keys - password auth left enabled"
+	flag "no authorized_keys yet, password auth left on"
 fi
 
-
-## Start
-
-sudo ssh-keygen -A
-
-sudo sshd -t
-
-sudo systemctl enable --now sshd.service
-
-sudo systemctl try-reload-or-restart sshd.service
-
-
-section_done "SSH"
+run "generate host keys" $SUDO ssh-keygen -A
+run "test sshd config"   $SUDO sshd -t
+run "enable sshd"        $SUDO systemctl enable --now sshd.service
 
 
 
 #    Snapper
 
 
+section "Snapper"
+
+
 ## Config
 
 if [[ -f /etc/snapper/configs/root ]]; then
-
-	echo "snapper root config already set"
-
+	note "root config already present"
 else
-	mountpoint -q /.snapshots && sudo umount /.snapshots
-
-	sudo rm -rf /.snapshots
-
-	sudo snapper -c root create-config /
-
-	sudo btrfs subvolume delete /.snapshots
-
-	sudo mkdir -p /.snapshots
+	mountpoint -q /.snapshots && $SUDO umount /.snapshots
+	$SUDO rm -rf /.snapshots
+	run "create root config" $SUDO snapper -c root create-config /
+	####### snapper makes a nested .snapshots, we want the sibling instead
+	soft "remove nested subvol" $SUDO btrfs subvolume delete /.snapshots
+	$SUDO mkdir -p /.snapshots
 fi
 
 
 ## Fstab
 
-SNAP_RE='^[^#]*[[:space:]]/\.snapshots[[:space:]]'
-
-if grep -Eq "$SNAP_RE" /etc/fstab; then
-
-	echo "/.snapshots already in fstab"
-
+if grep -Eq '^[^#]*[[:space:]]/\.snapshots[[:space:]]' /etc/fstab; then
+	note "/.snapshots already in fstab"
 else
-	SYS_UUID="$(sudo blkid -s UUID -o value /dev/mapper/cryptsystem)"
-	[[ -n "$SYS_UUID" ]] || { echo "no cryptsystem UUID" >&2; exit 1; }
+	SYS_UUID="$($SUDO blkid -s UUID -o value /dev/mapper/cryptsystem)"
+	[[ -n "$SYS_UUID" ]] || { printf 'no cryptsystem UUID\n' >&2; exit 1; }
 
-	sudo cp /etc/fstab /etc/fstab.bak-snapshots
+	$SUDO cp /etc/fstab /etc/fstab.bak-snapshots
 
-	echo "UUID=$SYS_UUID /.snapshots btrfs subvol=@snapshots,compress=zstd:1,noatime 0 0" \
-		| sudo tee -a /etc/fstab > /dev/null
+	printf 'UUID=%s /.snapshots btrfs subvol=@snapshots,compress=zstd:1,noatime 0 0\n' "$SYS_UUID" \
+		| $SUDO tee -a /etc/fstab > /dev/null
 
-	echo "added /.snapshots to fstab - backup at /etc/fstab.bak-snapshots"
+	note "added /.snapshots, backup at /etc/fstab.bak-snapshots"
 fi
 
-sudo systemctl daemon-reload
+run "reload systemd" $SUDO systemctl daemon-reload
 
-mountpoint -q /.snapshots || sudo mount /.snapshots
+mountpoint -q /.snapshots || $SUDO mount /.snapshots
 
+SNAP_SRC="$(capture findmnt -no SOURCE /.snapshots)"
 
-## Subvol
+contains "$SNAP_SRC" "[/@snapshots]" \
+	|| { printf '/.snapshots is not @snapshots, got: %s\n' "$SNAP_SRC" >&2; exit 1; }
 
-SNAP_SRC="$(findmnt -no SOURCE /.snapshots || true)"
-
-[[ "$SNAP_SRC" == *"[/@snapshots]"* ]] \
-	|| { echo "/.snapshots is not @snapshots - got: $SNAP_SRC" >&2; exit 1; }
-
-sudo chmod 750 /.snapshots
-
-sudo chown root:wheel /.snapshots
+$SUDO chmod 750 /.snapshots
+$SUDO chown root:wheel /.snapshots
 
 
 ## Retention
 
-sudo snapper -c root set-config \
+run "set retention" $SUDO snapper -c root set-config \
 	TIMELINE_CREATE=yes \
 	TIMELINE_CLEANUP=yes \
 	TIMELINE_LIMIT_HOURLY=5 \
@@ -260,50 +211,50 @@ sudo snapper -c root set-config \
 	ALLOW_GROUPS=wheel \
 	SYNC_ACL=yes
 
-
-## Timers
-
-sudo systemctl enable --now snapper-timeline.timer
-
-sudo systemctl enable --now snapper-cleanup.timer
-
-
-section_done "Snapper"
+run "enable timeline timer" $SUDO systemctl enable --now snapper-timeline.timer
+run "enable cleanup timer"  $SUDO systemctl enable --now snapper-cleanup.timer
 
 
 
 #    Snapboot
 
 
+section "Snapboot"
+
+
 ## Install
 
 SNAPBOOT=no
 
-if pacman -Qi limine-snapper-sync &>/dev/null; then
+if pacman -Qi limine-snapper-sync &> /dev/null; then
 	SNAPBOOT=yes
-elif yay -S --needed --noconfirm limine-snapper-sync; then
+	note "already installed"
+elif aur limine-snapper-sync; then
 	SNAPBOOT=yes
 else
-	echo "limine-snapper-sync did not build - boot entry sync skipped" >&2
+	flag "limine-snapper-sync did not build, boot entry sync skipped"
 fi
 
 
 ## Defaults
 
+####### commands_after_save runs the header enforcer, which is what keeps
+####### the boot menu from going back to waiting for a keypress every time
+####### a snapshot is added
+
 if [[ "$SNAPBOOT" == yes ]]; then
 
-	LUKS_UUID="$(sudo blkid -s UUID -o value /dev/disk/by-partlabel/cryptsystem)"
-	[[ -n "$LUKS_UUID" ]] || { echo "no cryptsystem UUID" >&2; exit 1; }
+	LUKS_UUID="$($SUDO blkid -s UUID -o value /dev/disk/by-partlabel/cryptsystem)"
+	[[ -n "$LUKS_UUID" ]] || { printf 'no cryptsystem UUID\n' >&2; exit 1; }
 
-	sudo tee /etc/default/limine > /dev/null << EOF
+	$SUDO tee /etc/default/limine > /dev/null << EOF
 ESP_PATH="/boot"
 TARGET_OS_NAME="Arch Linux"
-SNAPPER_CONFIG_NAME="root"
-ROOT_SUBVOLUME_PATH="/@"
 ROOT_SNAPSHOTS_PATH="/@snapshots"
 MAX_SNAPSHOT_ENTRIES=10
 LIMIT_USAGE_PERCENT=80
-KERNEL_CMDLINE[default]="rd.luks.name=$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw"
+KERNEL_CMDLINE[default]="rd.luks.name=$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw nvidia_drm.modeset=1"
+COMMANDS_AFTER_SAVE="/usr/local/bin/limine-header-fix"
 EOF
 fi
 
@@ -312,135 +263,147 @@ fi
 
 if [[ "$SNAPBOOT" == yes ]]; then
 
-	if [[ -f /boot/EFI/limine/limine.conf ]]; then
-		sudo mv /boot/EFI/limine/limine.conf /boot/EFI/limine/limine.conf.off
-		echo "moved /boot/EFI/limine/limine.conf aside - it outranks /boot/limine.conf"
-	fi
+	for c in /boot/EFI/limine/limine.conf /boot/EFI/BOOT/limine.conf; do
+		if [[ -f "$c" ]]; then
+			$SUDO mv "$c" "$c.disabled"
+			flag "moved $c aside, it outranked /boot/limine.conf"
+		fi
+	done
 
 	[[ -f /boot/limine.conf ]] \
-		|| { echo "/boot/limine.conf missing - do not reboot" >&2; exit 1; }
+		|| { printf '/boot/limine.conf missing, do not reboot\n' >&2; exit 1; }
 
-	sudo snapper -c root create --description "stage 50 baseline"
+	soft "baseline snapshot" $SUDO snapper -c root create --description "rebuild baseline"
 
-	sudo limine-snapper-sync || echo "limine-snapper-sync reported errors" >&2
+	soft "sync boot entries" $SUDO limine-snapper-sync
 
-	sudo systemctl enable --now limine-snapper-sync.service \
-		|| echo "limine-snapper-sync.service did not start" >&2
+	soft "enable sync watcher" $SUDO systemctl enable --now limine-snapper-sync.service
+
+	####### re-assert the header in case the sync rewrote it
+	run "restore auto start" $SUDO /usr/local/bin/limine-header-fix
 fi
 
 
-section_done "Snapboot"
+
+#    Homesnaps
 
 
+section "Homesnaps"
 
-#    btrbk
+####### root snapshots do not cover /home, it lives on the other disk
+####### btrbk snapshots @home and @ai in place, which costs almost nothing
+####### and is the difference between losing a file and losing an afternoon
+
+pac btrbk
+
+$SUDO mkdir -p /etc/btrbk /mnt/data-root
 
 
-## Install
+## Mount
 
-sudo pacman -S --needed --noconfirm btrbk
+if grep -q '/mnt/data-root' /etc/fstab; then
+	note "data root already in fstab"
+else
+	DATA_UUID="$($SUDO blkid -s UUID -o value /dev/mapper/cryptdata)"
+	[[ -n "$DATA_UUID" ]] || { printf 'no cryptdata UUID\n' >&2; exit 1; }
 
-sudo mkdir -p /etc/btrbk
+	$SUDO cp /etc/fstab /etc/fstab.bak-btrbk
+
+	printf 'UUID=%s /mnt/data-root btrfs subvolid=5,noatime,nofail 0 0\n' "$DATA_UUID" \
+		| $SUDO tee -a /etc/fstab > /dev/null
+
+	run "reload systemd" $SUDO systemctl daemon-reload
+fi
+
+mountpoint -q /mnt/data-root || $SUDO mount /mnt/data-root
 
 
 ## Config
 
-if [[ -f /etc/btrbk/btrbk.conf ]]; then
-
-	echo "btrbk.conf already present"
-
+if [[ -f /etc/btrbk/btrbk.conf ]] && grep -q 'rebuild managed' /etc/btrbk/btrbk.conf; then
+	note "btrbk.conf already managed"
 else
-	sudo tee /etc/btrbk/btrbk.conf > /dev/null << 'EOF'
-####### Stub only. No volume is defined, so btrbk run is a no-op.
-####### Fill this in once 45-backup-disk mounts the internal HDD.
-#######
-####### snapshot_preserve_min   2d
-####### snapshot_preserve       14d
-####### target_preserve_min     no
-####### target_preserve         20d 10w
-#######
-####### volume /
-#######   subvolume @
-#######     target /mnt/backup/machineherald
+	[[ -f /etc/btrbk/btrbk.conf ]] && $SUDO cp /etc/btrbk/btrbk.conf /etc/btrbk/btrbk.conf.bak-rebuild
+
+	$SUDO tee /etc/btrbk/btrbk.conf > /dev/null << 'EOF'
+####### rebuild managed
+####### snapshots only, on the same disk
+####### this is not a backup, it is an undo button
+####### for a real backup, plug in a second disk and fill in the target below
+
+transaction_log            /var/log/btrbk.log
+lockfile                   /var/lock/btrbk.lock
+timestamp_format           long
+
+snapshot_preserve_min      2d
+snapshot_preserve          14d 8w
+
+target_preserve_min        no
+target_preserve            20d 10w 6m
+
+snapshot_dir               .btrbk
+
+volume /mnt/data-root
+  subvolume @home
+  subvolume @ai
+
+####### uncomment after mounting a second disk at /mnt/backup
+####### volume /mnt/data-root
+#######   subvolume @home
+#######     target /mnt/backup/home
+#######   subvolume @ai
+#######     target /mnt/backup/ai
 EOF
 fi
 
+$SUDO mkdir -p /mnt/data-root/.btrbk
 
-section_done "btrbk"
+
+## Timer
+
+run "dry run btrbk" $SUDO btrbk -n run
+
+run "enable daily snapshots" $SUDO systemctl enable --now btrbk.timer
 
 
 
 #    Verify
 
 
-echo "VERIFY"
-echo
+section "Verify"
 
+check "resolved active"    systemctl is-active --quiet systemd-resolved
+check "dns resolves"       getent hosts archlinux.org
+check "tailscaled active"  systemctl is-active --quiet tailscaled
+check "tailnet up"         tailnet_up
+check "sshd config valid"  $SUDO sshd -t
+check "sshd active"        systemctl is-active --quiet sshd
+check "snapper config"     test -f /etc/snapper/configs/root
+check "snapshots mounted"  mountpoint -q /.snapshots
+check "snapshots sibling"  sh -c 'findmnt -no SOURCE /.snapshots > /tmp/_s; grep -q "@snapshots" /tmp/_s'
+check "snapshots listable" sh -c 'snapper -c root list > /dev/null'
+check "timeline timer"     systemctl is-enabled --quiet snapper-timeline.timer
+check "data root mounted"  mountpoint -q /mnt/data-root
+check "btrbk timer"        systemctl is-enabled --quiet btrbk.timer
+check "limine conf"        test -f /boot/limine.conf
+check "auto start intact"  grep -q '^timeout:' /boot/limine.conf
+check "no stray conf"      sh -c '! test -f /boot/EFI/limine/limine.conf'
 
-check "resolved active"     systemctl is-active --quiet systemd-resolved
-
-check "resolv.conf stub"    sh -c '[ "$(readlink -f /etc/resolv.conf)" = /run/systemd/resolve/stub-resolv.conf ]'
-
-check "dns resolves"        getent hosts archlinux.org
-
-check "tailscaled active"   systemctl is-active --quiet tailscaled
-
-check "tailscale excluded"  sh -c 'systemctl show tailscaled -p ExecStart | grep -q mullvad-exclude'
-
-check "tailnet up"          tailnet_up
-
-check "ufw tailscale rule"  sh -c 'sudo ufw status | grep -q tailscale0'
-
-check "sshd config valid"   sudo sshd -t
-
-check "sshd active"         systemctl is-active --quiet sshd
-
-check "snapper config"      test -f /etc/snapper/configs/root
-
-check "snapshots mounted"   mountpoint -q /.snapshots
-
-check "snapshots is sibling" sh -c 'findmnt -no SOURCE /.snapshots | grep -q "@snapshots"'
-
-check "snapshots listable"  sh -c 'snapper -c root list >/dev/null'
-
-check "timeline timer"      systemctl is-enabled --quiet snapper-timeline.timer
-
-check "cleanup timer"       systemctl is-enabled --quiet snapper-cleanup.timer
-
-check "btrbk installed"     command -v btrbk
-
-check "inotifywait present" command -v inotifywait
-
-check "limine conf on esp"  test -f /boot/limine.conf
-
-check "no efi conf override" sh -c '! test -f /boot/EFI/limine/limine.conf'
-
-warn  "snapshot entries"    sh -c 'limine-snapper-list | grep -q .'
-
-warn  "sync watcher active" systemctl is-active --quiet limine-snapper-sync
-
-warn  "restore tool"        command -v limine-snapper-restore
+warn  "tailscale excluded" sh -c 'systemctl show tailscaled -p ExecStart > /tmp/_ts; grep -q mullvad-exclude /tmp/_ts'
+warn  "ufw tailscale rule" sh -c 'sudo ufw status > /tmp/_u; grep -q tailscale0 /tmp/_u'
+warn  "snapshot entries"   sh -c 'limine-snapper-list > /dev/null'
+warn  "restore tool"       command -v limine-snapper-restore
 
 verify_done
 
-
-section_done "Verify"
+stage_done
 
 
 
 #    End
 
 
-stage_done 50-backup-net
+section "End"
 
-echo
-echo "REBOOT"
-echo
-echo "Then rerun this stage - every block is idempotent"
-echo
-echo "Rollback: boot a Snapshots entry, then run limine-snapper-restore"
-echo "Manual fallback is in Rollback.md"
-echo
-
-
-section_done "End"
+printf '  Backups and networking configured.\n'
+printf '  Read Guides/Backups.md before you need it, not after.\n\n'
