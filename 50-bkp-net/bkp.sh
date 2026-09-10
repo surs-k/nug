@@ -273,6 +273,16 @@ if [[ "$SNAPBOOT" == yes ]]; then
 	[[ -f /boot/limine.conf ]] \
 		|| { printf '/boot/limine.conf missing, do not reboot\n' >&2; exit 1; }
 
+	####### single slash puts snapshot entries at the top level, beside the
+	####### main entry rather than inside a folder
+	####### the main entry stays first, so auto boot still picks the system
+	if grep -q '^/Snapshots' /boot/limine.conf; then
+		note "snapshot marker already present"
+	else
+		printf '\n/Snapshots\n' | $SUDO tee -a /boot/limine.conf > /dev/null
+		note "added the snapshot marker"
+	fi
+
 	soft "baseline snapshot" $SUDO snapper -c root create --description "rebuild baseline"
 
 	soft "sync boot entries" $SUDO limine-snapper-sync
@@ -387,6 +397,8 @@ check "data root mounted"  mountpoint -q /mnt/data-root
 check "btrbk timer"        systemctl is-enabled --quiet btrbk.timer
 check "limine conf"        test -f /boot/limine.conf
 check "auto start intact"  grep -q '^timeout:' /boot/limine.conf
+check "entry still bootable" grep -q '^/Arch Linux' /boot/limine.conf
+check "entry not folder"   sh -c '! grep -q "^/+" /boot/limine.conf' 
 check "no stray conf"      sh -c '! test -f /boot/EFI/limine/limine.conf'
 
 warn  "tailscale excluded" sh -c 'systemctl show tailscaled -p ExecStart > /tmp/_ts; grep -q mullvad-exclude /tmp/_ts'
