@@ -26,6 +26,22 @@ if [[ "$(cat /sys/firmware/efi/fw_platform_size 2>/dev/null || true)" != "64" ]]
 fi
 
 
+## Leftovers
+
+####### if an earlier attempt stopped partway it left mappers open and /mnt
+####### mounted, and the retry would then fail on device busy rather than
+####### simply starting over
+
+mountpoint -q /mnt && umount -R /mnt
+
+for m in cryptsystem cryptdata; do
+	if [[ -e "/dev/mapper/$m" ]]; then
+		cryptsetup close "$m" 2>/dev/null || true
+		note "closed a leftover $m from an earlier attempt"
+	fi
+done
+
+
 ## Console
 
 loadkeys "$KEYMAP"
@@ -35,7 +51,7 @@ timedatectl set-ntp true
 
 ## Network
 
-retry ping -c2 archlinux.org
+retry online
 
 
 ## Names
@@ -69,18 +85,15 @@ require_disk "$DATA_DISK"
 ## Passwords
 
 printf '\n'
-note "Four secrets. Nothing is written to disk in plain text."
+note "Three passwords, each typed twice."
+note "The disk passphrase unlocks both disks. You only set it once."
 printf '\n'
 
-LUKS_PASS="$(secret 'LUKS passphrase        ')"
-LUKS_CONF="$(secret 'LUKS passphrase again  ')"
-[[ "$LUKS_PASS" == "$LUKS_CONF" ]] || { printf 'Passphrases differ\n' >&2; exit 1; }
-[[ -n "$LUKS_PASS" ]] || { printf 'Empty passphrase\n' >&2; exit 1; }
-unset LUKS_CONF
+LUKS_PASS="$(secret_twice 'Disk passphrase, both disks')"
 
-ROOT_PASS="$(secret 'Root password          ')"
-USER_PASS="$(secret "Password for $USERNAME ")"
-[[ -n "$ROOT_PASS" && -n "$USER_PASS" ]] || { printf 'Both required\n' >&2; exit 1; }
+ROOT_PASS="$(secret_twice 'Root password              ')"
+
+USER_PASS="$(secret_twice "Password for $USERNAME       ")"
 
 
 ## Review
@@ -140,25 +153,69 @@ wait_for 10 test -b "$DATA_PART"
 
 section "Encrypt"
 
-####### the passphrase goes to a file on /run, which is a tmpfs and never
-####### touches a disk, so nothing has to be retyped four times
-####### it is not passed on stdin because a backgrounded job cannot
-####### reliably inherit a pipe, and it is not passed as an argument
-####### because arguments are visible in the process table
+####### one passphrase unlocks both disks
+####### it goes to a file on /run, which is a tmpfs and never touches a disk
+####### not on stdin, because a backgrounded job cannot reliably inherit a pipe
+####### not as an argument, because arguments are visible in the process table
 
 KEYTMP=/run/rebuild.key
 
 ( umask 077; printf '%s' "$LUKS_PASS" > "$KEYTMP" )
 
-run "format system luks" cryptsetup luksFormat --type luks2 --batch-mode \
-	--key-file "$KEYTMP" "$SYS_ROOT"
+KEYSUM="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
 
-run "open system luks"   cryptsetup open --key-file "$KEYTMP" "$SYS_ROOT" cryptsystem
 
-run "format data luks"   cryptsetup luksFormat --type luks2 --batch-mode \
-	--key-file "$KEYTMP" "$DATA_PART"
+## Cost
 
-run "open data luks"     cryptsetup open --key-file "$KEYTMP" "$DATA_PART" cryptdata
+####### the argon2 memory cost is pinned rather than benchmarked
+####### left to benchmark, luksFormat sizes the cost against whatever RAM is
+####### free at that instant, and every later unlock has to allocate that same
+####### amount again
+####### the second disk is formatted after the first one is already open, so it
+####### can be handed a cost the machine can no longer satisfy, and a keyslot
+####### that cannot be derived reads as a wrong passphrase
+####### 256 MiB is strong for a disk passphrase and fits any machine you will
+####### run this on, including a small test VM
+
+LUKSFMT=(
+	--type luks2
+	--batch-mode
+	--pbkdf argon2id
+	--pbkdf-memory 262144
+	--iter-time 2000
+)
+
+
+## Guard
+
+####### confirm the key file is byte for byte what we wrote, before each use
+keyguard() {
+	local now
+	now="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
+	[[ "$now" == "$KEYSUM" ]] \
+		|| { printf 'The key file changed underneath us, stopping\n' >&2; exit 1; }
+}
+
+
+## Disks
+
+encrypt_disk() {
+	local part=$1 name=$2
+
+	keyguard
+
+	run "format $name"  cryptsetup luksFormat "${LUKSFMT[@]}" --key-file "$KEYTMP" "$part"
+
+	####### prove the passphrase actually opens it before going further, so a
+	####### mismatch surfaces at the step that caused it rather than later
+	run "verify $name"  cryptsetup open --test-passphrase --key-file "$KEYTMP" "$part"
+
+	run "open $name"    cryptsetup open --batch-mode --key-file "$KEYTMP" "$part" "$name"
+}
+
+encrypt_disk "$SYS_ROOT"  cryptsystem
+
+encrypt_disk "$DATA_PART" cryptdata
 
 
 
