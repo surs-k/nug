@@ -506,6 +506,21 @@ LUKS_UUID=\$(blkid -s UUID -o value $SYS_ROOT)
 
 systemd-machine-id-setup
 
+
+####### the TPM is enrolled here, not later
+####### this is the only point in the whole run where the passphrase is
+####### already in hand, so nothing has to stop and ask for it
+####### a mismatch later just falls back to the passphrase prompt, which is a
+####### safe failure rather than a lockout, and the passphrase slot always stays
+if [[ -e /dev/tpmrm0 ]]; then
+	systemd-cryptenroll --unlock-key-file=/run/rebuild.key \\
+		--tpm2-device=auto --tpm2-pcrs=7 $SYS_ROOT \\
+		&& echo "TPM enrolled" \\
+		|| echo "TPM enrolment failed, the passphrase still works"
+else
+	echo "no TPM device, skipping"
+fi
+
 printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw\n' \\
 	"\$LUKS_UUID" > /etc/kernel/cmdline
 
