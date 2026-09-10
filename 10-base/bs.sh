@@ -43,6 +43,34 @@ run "full system upgrade" $SUDO pacman -Syu --noconfirm
 
 
 
+#    Host
+
+
+section "Host"
+
+####### this stage runs on the real booted system, where hostnamectl works
+####### properly, so it is also the place that can repair a bad hostname
+
+CURRENT="$(capture hostnamectl --static)"
+
+if [[ "$CURRENT" == "$HOSTNAME" ]]; then
+	note "hostname already $HOSTNAME"
+else
+	run "set hostname" $SUDO hostnamectl --static set-hostname "$HOSTNAME"
+
+	printf '%s\n' "$HOSTNAME" | $SUDO tee /etc/hostname > /dev/null
+
+	$SUDO tee /etc/hosts > /dev/null << EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+EOF
+
+	note "hostname set to $HOSTNAME"
+fi
+
+
+
 #    Locale
 
 
@@ -195,8 +223,19 @@ if command -v yay > /dev/null; then
 	note "yay already installed"
 else
 	pac git base-devel
-	run "clone yay-bin"  git clone --depth 1 https://aur.archlinux.org/yay-bin.git /tmp/yay-bin
-	run "build yay-bin"  bash -c 'cd /tmp/yay-bin && makepkg -si --noconfirm'
+
+	rm -rf /tmp/yay-bin
+
+	run "clone yay-bin" git clone --depth 1 https://aur.archlinux.org/yay-bin.git /tmp/yay-bin
+
+	####### makepkg calls sudo itself to install what it built
+	####### run() puts the command in the background where it has no terminal,
+	####### so sudo cannot reuse the unlocked session and prompts instead, and
+	####### that prompt lands in the middle of the spinner line
+	####### package work is visible anyway, so this stays in the foreground
+	printf '\n  building yay-bin, this takes a minute\n\n'
+
+	( cd /tmp/yay-bin && makepkg -si --noconfirm )
 fi
 
 
