@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+STAGE=run
+
+source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+
+
+#    Order
+
+
+section "Order"
+
+
+## Stages
+
+####### run in this order, marker name always equals the directory name
+STAGES=(
+	10-base
+	20-desktop
+	30-security
+	40-virt
+	50-bkp-net
+	60-uprefs
+	70-docker
+	80-remote
+)
+
+
+## Scripts
+
+declare -A SCRIPT=(
+	[10-base]=bs.sh
+	[20-desktop]=de.sh
+	[30-security]=sec.sh
+	[40-virt]=virt.sh
+	[50-bkp-net]=bkp.sh
+	[60-uprefs]=prefs.sh
+	[70-docker]=dk.sh
+	[80-remote]=rem.sh
+)
+
+
+## Reboots
+
+####### a reboot is required after these, everything else chains straight on
+declare -A REBOOT=(
+	[20-desktop]="the desktop and the graphics driver only load after a restart"
+	[40-virt]="your user was added to the libvirt and kvm groups"
+)
+
+
+
+#    Answers
+
+
+section "Answers"
+
+####### every question for every remaining stage is asked here, once
+####### after this block the run is hands off until a reboot or the end
+
+
+## Sudo
+
+note "Your password unlocks sudo for the whole run."
+printf '\n'
+
+sudo_keepalive
+
+printf '\n'
+
+
+## Ask
+
+if [[ -z "${ANSWERED:-}" ]]; then
+
+	note "A few choices. Press enter to take the default."
+	printf '\n'
+
+	yesno "Remove the chaotic-aur repo after HyDE installs" y \
+		&& save_cfg WANT_CHAOTIC_REMOVE yes || save_cfg WANT_CHAOTIC_REMOVE no
+
+	yesno "Set up Docker and self hosted services" y \
+		&& save_cfg WANT_DOCKER yes || save_cfg WANT_DOCKER no
+
+	if [[ "$(ask 'Self host which stacks, comma separated (searxng,comfyui,portainer,none)' 'searxng')" =~ ^(.*)$ ]]; then
+		save_cfg WANT_STACKS "${BASH_REMATCH[1]}"
+	fi
+
+	yesno "Install Ollama for local AI models" y \
+		&& save_cfg WANT_OLLAMA yes || save_cfg WANT_OLLAMA no
+
+	yesno "Set up Sunshine so the laptop can drive this PC" y \
+		&& save_cfg WANT_SUNSHINE yes || save_cfg WANT_SUNSHINE no
+
+	yesno "Install LibreWolf as a second browser for local services" y \
+		&& save_cfg WANT_LIBREWOLF yes || save_cfg WANT_LIBREWOLF no
+
+	save_cfg ANSWERED yes
+
+	printf '\n'
+	note "Saved. Later runs will not ask again."
+	note "Edit $CONFIG to change any answer."
+	printf '\n'
+
+else
+	note "Answers already saved in $CONFIG"
+fi
+
+
+## Secrets
+
+####### account numbers and passwords are never written to the config file
+####### the stages that need them prompt at the moment they are used
+printf '\n'
+note "Two logins happen later and cannot be pre-answered:"
+note "  Mullvad wants an account number"
+note "  Tailscale opens a browser link"
+printf '\n'
+
+confirm
+
+
+
+#    Running
+
+
+section "Running"
+
+DID=0
+
+for s in "${STAGES[@]}"; do
+
+	if stage_is_done "$s"; then
+		printf '  done   %s\n' "$s"
+		continue
+	fi
+
+	SH="$REPO/$s/${SCRIPT[$s]}"
+
+	if [[ ! -f "$SH" ]]; then
+		flag "$s missing ${SCRIPT[$s]}, skipping"
+		continue
+	fi
+
+	printf '\n'
+	printf '########################################\n'
+	printf '  starting %s\n' "$s"
+	printf '########################################\n'
+	printf '\n'
+
+	chmod +x "$SH"
+
+	if ! "$SH"; then
+		printf '\n'
+		printf '  %s failed.\n' "$s"
+		printf '  log  %s/%s.log\n' "$LOGDIR" "$s"
+		printf '\n'
+		printf '  Every stage is safe to run again.\n'
+		printf '  Fix the cause, then run ./run.sh once more.\n'
+		printf '\n'
+		exit 1
+	fi
+
+	DID=$((DID + 1))
+
+	if [[ -n "${REBOOT[$s]:-}" ]]; then
+		printf '\n'
+		printf '========================================\n'
+		printf '  REBOOT NOW\n'
+		printf '========================================\n'
+		printf '\n'
+		printf '  Why   %s\n' "${REBOOT[$s]}"
+		printf '\n'
+		printf '  After the restart, run this again:\n'
+		printf '\n'
+		printf '    cd ~/Rebuild && ./run.sh\n'
+		printf '\n'
+		printf '  It picks up exactly where it stopped.\n'
+		printf '\n'
+		exit 0
+	fi
+done
+
+
+
+#    End
+
+
+section "End"
+
+if (( DID == 0 )); then
+	printf '  Nothing left to do. Every stage is complete.\n\n'
+else
+	printf '  Finished %s stage(s). Every stage is complete.\n\n' "$DID"
+fi
+
+printf '  Read next:\n'
+printf '    Guides/Backups.md   snapshots and rollback\n'
+printf '    Guides/Network.md   what to do when the internet breaks\n'
+printf '    Guides/Selfhost.md  starting and stopping your services\n'
+printf '\n'
+printf '  Reboot once more to land on a fully settled system.\n'
+printf '\n'
