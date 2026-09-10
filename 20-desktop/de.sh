@@ -41,14 +41,22 @@ done
 
 section "Graphics"
 
+####### lspci lives in pciutils, which was not installed until 60-uprefs
+####### so this ran with no lspci at all, matched nothing, and quietly chose
+####### mesa on a machine with an NVIDIA card in it
+pac pciutils
+
+####### sysfs is the fallback, 0x10de is NVIDIA's PCI vendor id
+####### it needs no packages and cannot go missing
+VENDORS="$(capture cat /sys/bus/pci/devices/*/vendor)"
+
 ####### capture then match
 ####### lspci | grep -q can take SIGPIPE and return 141, and under pipefail
 ####### that reads as failure, so the branch gets skipped exactly when it
 ####### should have run
-
 PCI="$(capture lspci)"
 
-if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia"; then
+if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia" || contains "$VENDORS" "0x10de"; then
 
 	note "NVIDIA detected"
 
@@ -68,7 +76,11 @@ if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia"; then
 	save_cfg HAS_NVIDIA yes
 
 else
-	note "no NVIDIA card, using mesa"
+	####### mesa is the open driver stack for Intel and AMD
+	####### seeing this on a machine with an NVIDIA card means detection
+	####### failed, not that the card is unsupported
+	note "no NVIDIA card found, using mesa"
+	note "if this machine has an NVIDIA card, stop and say so"
 	pac mesa vulkan-icd-loader
 	save_cfg HAS_NVIDIA no
 fi
