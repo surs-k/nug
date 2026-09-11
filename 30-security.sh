@@ -84,39 +84,28 @@ soft "block social media" $SUDO mullvad dns set default --block-ads --block-trac
 
 ## Tunnel
 
-####### multihop sends traffic in through one country and out another
-####### the CLI wording has moved between releases, so the known spellings are
-####### tried in turn rather than assuming one of them is current
-multihop() {
-	local ok=no
+####### multihop is not a toggle, it is the entry location
+####### setting one turns it on, setting none turns it off
+####### the previous version never named a country, so it could not have
+####### worked under any spelling
+####### mullvad.net/en/help/cli-command-wg
 
-	$SUDO mullvad relay set tunnel wireguard --use-multihop on >&3 2>&1 && ok=yes
-	[[ "$ok" == yes ]] || $SUDO mullvad relay set tunnel wireguard --use-multihop=on >&3 2>&1 && ok=yes
-	[[ "$ok" == yes ]] || $SUDO mullvad relay set tunnel wireguard --use-multihop true >&3 2>&1 && ok=yes
+ENTRY="${MULLVAD_ENTRY:-none}"
 
-	if [[ "$ok" == yes ]]; then
-		printf '  [ok]   multihop on\n'
+if [[ "$ENTRY" == none ]]; then
+	note "multihop off, no entry country chosen"
+else
+	if $SUDO mullvad relay set entry location "$ENTRY" >&3 2>&1; then
+		printf '  [ok]   multihop via %s\n' "$ENTRY"
 	else
-		flag "multihop needs turning on by hand in the app, WireGuard settings"
+		flag "multihop entry '$ENTRY' was rejected, check the country code"
 	fi
-}
+fi
 
-multihop
 
-ipv6() {
-	local ok=no
+## Ipv6
 
-	$SUDO mullvad tunnel set ipv6 on >&3 2>&1 && ok=yes
-	[[ "$ok" == yes ]] || $SUDO mullvad tunnel ipv6 set on >&3 2>&1 && ok=yes
-
-	if [[ "$ok" == yes ]]; then
-		printf '  [ok]   in tunnel ipv6\n'
-	else
-		flag "in tunnel IPv6 needs turning on by hand in the app"
-	fi
-}
-
-ipv6
+soft "in tunnel ipv6" $SUDO mullvad tunnel set ipv6 on
 
 
 ## Autostart
@@ -297,7 +286,12 @@ warn  "auto connect"      sh -c 'sudo mullvad auto-connect get > /tmp/_ac; grep 
 warn  "app autostart"     sh -c 'ls ~/.config/autostart/mullvad* >/dev/null 2>&1'
 check "tailscaled active"  systemctl is-active --quiet tailscaled
 check "tailnet up"         tailnet_up
-warn  "tailscale excluded" sh -c 'systemctl show tailscaled -p ExecStart > /tmp/_ts; grep -q mullvad-exclude /tmp/_ts' 
+warn  "tailscale excluded" sh -c 'systemctl show tailscaled -p ExecStart > /tmp/_ts; grep -q mullvad-exclude /tmp/_ts'
+
+####### the via line is the only real proof multihop is active
+if [[ "${MULLVAD_ENTRY:-none}" != none ]]; then
+	warn "multihop active"   sh -c 'sudo mullvad status -v > /tmp/_mh; grep -q " via " /tmp/_mh'
+fi
 
 verify_done
 
