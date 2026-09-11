@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
+      - "${BIND_SEARXNG:-127.0.0.1}:8080:8080"
     volumes:
       - ./config:/etc/searxng:rw
     environment:
@@ -19,6 +20,9 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
 
   valkey:
     image: docker.io/valkey/valkey:8-alpine
@@ -33,6 +37,9 @@ services:
       - SETGID
       - SETUID
       - DAC_OVERRIDE
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
 
 volumes:
   valkey-data:
