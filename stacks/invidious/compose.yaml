@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
+      - "${BIND_INVIDIOUS:-127.0.0.1}:3000:3000"
     environment:
       INVIDIOUS_CONFIG: |
         db:
