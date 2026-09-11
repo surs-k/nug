@@ -265,12 +265,14 @@ if [[ -z "${ANSWERED:-}" ]]; then
 	## Multihop
 
 	{
-		printf '\n  Multihop enters the VPN in one country and leaves in another.\n'
-		printf '  It needs an entry country. A two letter code, or none.\n'
-		printf '  se Sweden, ch Switzerland, de Germany, nl Netherlands\n\n'
+		printf '\n  Multihop enters the VPN at one location and leaves at another.\n'
+		printf '  Give a country, or a country and a city, or none.\n\n'
+		printf '    us atl   Atlanta        us lax   Los Angeles\n'
+		printf '    se       Sweden         ch       Switzerland\n\n'
+		printf '  Full list later with: mullvad relay list\n\n'
 	} > /dev/tty
 
-	save_cfg MULLVAD_ENTRY "$(ask 'Multihop entry country' 'se')"
+	save_cfg MULLVAD_ENTRY "$(ask 'Multihop entry location' 'us atl')"
 
 
 	## Ollama

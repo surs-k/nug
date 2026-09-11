@@ -227,12 +227,50 @@ show_failures() {
 ## Pacman
 
 ####### package installs stay visible, the download bar is the progress
+## Refresh
+
+####### never called on a schedule, only when an install has already failed
+####### -Sy on its own is the thing that causes partial upgrades, so the
+####### refresh has to be a full -Syu or it makes the system worse
+####### a kernel upgrade mid run removes the running kernel's modules, which
+####### breaks anything that loads one until a reboot, so that gets flagged
+
+refresh_db() {
+	local before after
+
+	before="$(pacman -Q linux 2>/dev/null || true)"
+
+	$SUDO pacman -Syu --noconfirm 2> >(tee -a "$LOG" >&2) \
+		|| flag "database refresh did not finish cleanly"
+
+	after="$(pacman -Q linux 2>/dev/null || true)"
+
+	if [[ -n "$before" && "$before" != "$after" ]]; then
+		flag "the kernel was upgraded during this run"
+		flag "reboot before continuing, module loading will fail until you do"
+	fi
+}
+
+
+## Pacman
+
 ####### stderr is copied into the log while stdout stays a terminal
 ####### the progress bar needs a real terminal, the error needs to be findable
-####### without this, a failed install left nothing in the log but its own name
 pac() {
 	printf '\n  packages   %s\n\n' "$*"
 	printf 'pacman -S %s\n' "$*" >&3
+
+	if $SUDO pacman -S --needed --noconfirm "$@" 2> >(tee -a "$LOG" >&2); then
+		return 0
+	fi
+
+	####### every mirror answering 404 for one filename means the local
+	####### database is older than the mirrors, not that the network is down
+	####### retrying the same request cannot fix that, only a refresh can
+	flag "install failed, refreshing the database once and trying again"
+
+	refresh_db
+
 	$SUDO pacman -S --needed --noconfirm "$@" 2> >(tee -a "$LOG" >&2)
 }
 

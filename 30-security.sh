@@ -93,12 +93,15 @@ soft "block social media" $SUDO mullvad dns set default --block-ads --block-trac
 ENTRY="${MULLVAD_ENTRY:-none}"
 
 if [[ "$ENTRY" == none ]]; then
-	note "multihop off, no entry country chosen"
+	note "multihop off, no entry location chosen"
 else
-	if $SUDO mullvad relay set entry location "$ENTRY" >&3 2>&1; then
-		printf '  [ok]   multihop via %s\n' "$ENTRY"
+	####### deliberately unquoted, the location is one to three words
+	####### country, or country and city, or country city and server
+	if $SUDO mullvad relay set entry location $ENTRY >&3 2>&1; then
+		printf '  [ok]   multihop entering via %s\n' "$ENTRY"
 	else
-		flag "multihop entry '$ENTRY' was rejected, check the country code"
+		flag "multihop entry '$ENTRY' was rejected, check the location code"
+		flag "list them with: mullvad relay list"
 	fi
 fi
 
