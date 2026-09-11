@@ -87,6 +87,25 @@ fi
 section "Order"
 
 
+## Depends
+
+####### what each stage actually needs, rather than just the one before it
+####### the old chain was a straight line, so a failed 40-virt blocked your
+####### apps and your self hosting for no real reason
+####### 60-uprefs only needs a desktop, it has nothing to do with VMs
+declare -A DEPENDS=(
+	[10-base]=""
+	[20-desktop]="10-base"
+	[30-security]="10-base"
+	[40-virt]="30-security"
+	[50-bkp-net]="30-security"
+	[60-uprefs]="20-desktop"
+	[70-docker]="20-desktop 30-security"
+	[80-remote]="20-desktop 30-security"
+	[90-health]="10-base"
+)
+
+
 ## Reboots
 
 ####### only one reboot in the whole run
@@ -228,95 +247,106 @@ pick_stacks() {
 }
 
 
-if [[ -z "${ANSWERED:-}" ]]; then
+####### each answer is checked on its own rather than behind one flag
+####### a single ANSWERED gate meant any question added later was skipped
+####### forever on a machine that had already answered the earlier ones,
+####### which is why the multihop location was never asked for
+need() { [[ -z "${!1:-}" ]]; }
+
+if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
+	|| need MULLVAD_ENTRY || need WANT_OLLAMA || need WANT_SUNSHINE \
+	|| need WANT_LIBREWOLF; then
 
 	note "A few choices. Press enter to take the default."
 
 
 	## Chaotic
 
-	rule
-
-	if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
-		save_cfg WANT_CHAOTIC_REMOVE yes
-	else
-		save_cfg WANT_CHAOTIC_REMOVE no
+	if need WANT_CHAOTIC_REMOVE; then
+		rule
+		if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
+			save_cfg WANT_CHAOTIC_REMOVE yes
+		else
+			save_cfg WANT_CHAOTIC_REMOVE no
+		fi
 	fi
-	printf '\n' > /dev/tty
 
 
 	## Hosting
 
-	rule
-
-	if yesno "Set up Docker and self hosted services" y; then
-		save_cfg WANT_DOCKER yes
-		STACKS="$(pick_stacks)"
-		save_cfg WANT_STACKS "$STACKS"
-		printf '  chosen: %s\n' "$STACKS" > /dev/tty
-	else
-		save_cfg WANT_DOCKER no
-		save_cfg WANT_STACKS none
+	if need WANT_DOCKER; then
+		rule
+		if yesno "Set up Docker and self hosted services" y; then
+			save_cfg WANT_DOCKER yes
+			STACKS="$(pick_stacks)"
+			save_cfg WANT_STACKS "$STACKS"
+			printf '  chosen: %s\n' "$STACKS" > /dev/tty
+		else
+			save_cfg WANT_DOCKER no
+			save_cfg WANT_STACKS none
+		fi
 	fi
 
 
-	rule
-
 	## Multihop
 
-	{
-		printf '\n  Multihop enters the VPN at one location and leaves at another.\n'
-		printf '  Give a country, or a country and a city, or none.\n\n'
-		printf '    us atl   Atlanta        us lax   Los Angeles\n'
-		printf '    se       Sweden         ch       Switzerland\n\n'
-		printf '  Full list later with: mullvad relay list\n\n'
-	} > /dev/tty
+	if need MULLVAD_ENTRY; then
+		rule
+		{
+			printf '\n  Multihop enters the VPN at one location and leaves at another.\n'
+			printf '  Give a country, or a country and a city, or none.\n\n'
+			printf '    us atl   Atlanta        us lax   Los Angeles\n'
+			printf '    se       Sweden         ch       Switzerland\n\n'
+			printf '  Full list later with: mullvad relay list\n\n'
+		} > /dev/tty
 
-	save_cfg MULLVAD_ENTRY "$(ask 'Multihop entry location' 'us atl')"
+		save_cfg MULLVAD_ENTRY "$(ask 'Multihop entry location' 'us atl')"
+	fi
 
 
 	## Ollama
 
-	rule
-
-	if yesno "Install Ollama for local AI models" y; then
-		save_cfg WANT_OLLAMA yes
-	else
-		save_cfg WANT_OLLAMA no
+	if need WANT_OLLAMA; then
+		rule
+		if yesno "Install Ollama for local AI models" y; then
+			save_cfg WANT_OLLAMA yes
+		else
+			save_cfg WANT_OLLAMA no
+		fi
 	fi
 
 
 	## Sunshine
 
-	rule
-
-	if yesno "Set up Sunshine so the laptop can drive this PC" y; then
-		save_cfg WANT_SUNSHINE yes
-	else
-		save_cfg WANT_SUNSHINE no
+	if need WANT_SUNSHINE; then
+		rule
+		if yesno "Set up Sunshine so the laptop can drive this PC" y; then
+			save_cfg WANT_SUNSHINE yes
+		else
+			save_cfg WANT_SUNSHINE no
+		fi
 	fi
 
 
 	## Librewolf
 
-	rule
-
-	if yesno "Install LibreWolf as a second browser for local services" y; then
-		save_cfg WANT_LIBREWOLF yes
-	else
-		save_cfg WANT_LIBREWOLF no
+	if need WANT_LIBREWOLF; then
+		rule
+		if yesno "Install LibreWolf as a second browser for local services" y; then
+			save_cfg WANT_LIBREWOLF yes
+		else
+			save_cfg WANT_LIBREWOLF no
+		fi
 	fi
 
 
-	save_cfg ANSWERED yes
-
 	printf '\n'
-	note "Saved. Later runs will not ask again."
+	note "Saved. Only questions without an answer are asked."
 	note "Edit $CONFIG to change any answer."
 	printf '\n'
 
 else
-	note "Answers already saved in $CONFIG"
+	note "Every question already has an answer in $CONFIG"
 fi
 
 
@@ -329,12 +359,36 @@ section "Running"
 
 DID=0
 
+BROKEN=""
+
+####### a stage is blocked when anything it depends on failed, directly or
+####### further back up the chain
+blocked_by() {
+	local stage=$1 dep
+	for dep in ${DEPENDS[$stage]:-}; do
+		if contains " $BROKEN " " $dep "; then
+			printf '%s' "$dep"
+			return 0
+		fi
+		local up
+		up="$(blocked_by "$dep")" && { printf '%s' "$up"; return 0; }
+	done
+	return 1
+}
+
 for s in "${STAGES[@]}"; do
 
 	if stage_is_done "$s"; then
-		printf '  done   %s\n' "$s"
+		printf '  %s[ok]%s   %s already done\n' "$C_OK" "$C_OFF" "$s"
 		continue
 	fi
+
+	BLOCKER="$(blocked_by "$s")" && {
+		printf '  %s[skip]%s %s needs %s, which failed\n' \
+			"$C_DIM" "$C_OFF" "$s" "$BLOCKER"
+		record_fail "skipped, $BLOCKER failed first"
+		continue
+	}
 
 	SH="$REPO/$s.sh"
 
@@ -344,48 +398,34 @@ for s in "${STAGES[@]}"; do
 	fi
 
 	printf '\n'
-	printf '########################################\n'
-	printf '  starting %s\n' "$s"
-	printf '########################################\n'
+	printf '%s########################################%s\n' "$C_HEAD" "$C_OFF"
+	printf '%s  starting %s%s\n' "$C_HEAD" "$s" "$C_OFF"
+	printf '%s########################################%s\n' "$C_HEAD" "$C_OFF"
 	printf '\n'
 
-	if ! bash "$SH"; then
+	if bash "$SH"; then
+		DID=$(( DID + 1 ))
+	else
+		####### carry on with anything that does not depend on this
+		BROKEN="$BROKEN $s"
+
 		printf '\n'
-		printf '  %s stopped.\n' "$s"
+		printf '  %s[FAIL]%s %s stopped.\n' "$C_FAIL" "$C_OFF" "$s"
 		printf '  log  %s/%s.log\n' "$LOGDIR" "$s"
+		printf '  Carrying on with whatever does not depend on it.\n'
 		printf '\n'
-
-		####### everything that went wrong across the whole run, not just the
-		####### stage that stopped, so one pass of fixing covers all of it
-		show_failures all
-
-		printf '  Every stage is safe to run again.\n'
-		printf '  rebuild carries on from here, it does not start over.\n'
-		printf '\n'
-
-		printf '  To pick up from here:       rebuild\n'
-		printf '  To redo this whole stage:   rebuild --only %s\n' "$s"
-		printf '  To redo everything skipped: rebuild --retry\n'
-		printf '\n'
-
-		exit 1
+		continue
 	fi
-
-	DID=$((DID + 1))
 
 	if [[ -n "${REBOOT[$s]:-}" ]]; then
 		printf '\n'
-		printf '========================================\n'
-		printf '  REBOOT NOW\n'
-		printf '========================================\n'
+		printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
+		printf '%s  REBOOT NOW%s\n' "$C_HEAD" "$C_OFF"
+		printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
 		printf '\n'
 		printf '  Why   %s\n' "${REBOOT[$s]}"
 		printf '\n'
-		printf '  After the restart, run this again:\n'
-		printf '\n'
-		printf '    rebuild\n'
-		printf '\n'
-		printf '  It picks up exactly where it stopped.\n'
+		printf '  After the restart:   rebuild\n'
 		printf '\n'
 		exit 0
 	fi
@@ -399,25 +439,28 @@ done
 section "End"
 
 if (( DID == 0 )); then
-	printf '  Nothing left to do. Every stage is complete.\n\n'
+	printf '  Nothing left to do.\n\n'
 else
-	printf '  Finished %s stage(s). Every stage is complete.\n\n' "$DID"
+	printf '  Finished %s stage(s).\n\n' "$DID"
 fi
 
-printf '  Read next:\n'
-printf '    Guides/Backups.md   snapshots and rollback\n'
-printf '    Guides/Network.md   what to do when the internet breaks\n'
-printf '    Guides/Selfhost.md  starting and stopping your services\n'
-printf '\n'
-printf '  Reboot once more to land on a fully settled system.\n'
-printf '\n'
+if [[ -n "${BROKEN//[[:space:]]/}" ]]; then
+	printf '  These did not finish: %s\n\n' "$BROKEN"
+	printf '  Everything that could still run, did.\n'
+	printf '  Fix what you can, then:   rebuild\n\n'
+else
+	printf '  Read next:\n'
+	printf '    Guides/Backups.md   snapshots and rollback\n'
+	printf '    Guides/Network.md   when the internet breaks\n'
+	printf '    Guides/Selfhost.md  your services\n\n'
+	printf '  Reboot once more to land on a settled system.\n\n'
+fi
 
 ####### the last thing on screen is what still needs attention
 show_failures all
 
-BAD="$(cut -f2 "$FAILLOG" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
+RETRY="$(cut -f2 "$FAILLOG" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
 
-if [[ -n "${BAD//[[:space:]]/}" ]]; then
-	printf '  Those were skipped, not fatal.\n' >&2
+if [[ -n "${RETRY//[[:space:]]/}" ]]; then
 	printf '  To have another go at just those:  rebuild --retry\n\n' >&2
 fi

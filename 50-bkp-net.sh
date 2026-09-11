@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 40-virt
+require_stage 30-security
 
 for c in mullvad ufw snapper btrfs mountpoint yay; do
 	command -v "$c" > /dev/null || { printf 'missing command: %s\n' "$c" >&2; exit 1; }
@@ -238,14 +238,17 @@ if [[ "$SNAPBOOT" == yes ]]; then
 	[[ -f /boot/limine.conf ]] \
 		|| { printf '/boot/limine.conf missing, do not reboot\n' >&2; exit 1; }
 
-	####### single slash puts snapshot entries at the top level, beside the
-	####### main entry rather than inside a folder
-	####### the main entry stays first, so auto boot still picks the system
-	if grep -q '^/Snapshots' /boot/limine.conf; then
+	####### the sync tool looks for a //Snapshots sub entry nested inside the
+	####### OS entry, not a top level one
+	####### the entry keeps its protocol and path lines, so it stays bootable
+	####### and auto boot still works
+	####### if the menu misbehaves after this, limine-header-fix --flat strips
+	####### the marker back out
+	if grep -q '^    //Snapshots' /boot/limine.conf; then
 		note "snapshot marker already present"
 	else
-		printf '\n/Snapshots\n' | $SUDO tee -a /boot/limine.conf > /dev/null
-		note "added the snapshot marker"
+		printf '    //Snapshots\n' | $SUDO tee -a /boot/limine.conf > /dev/null
+		note "added the snapshot marker inside the Arch entry"
 	fi
 
 	soft "baseline snapshot" $SUDO snapper -c root create --description "rebuild baseline"

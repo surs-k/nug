@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 20-desktop
+require_stage 10-base
 
 
 
@@ -74,12 +74,18 @@ run "auto connect on"     $SUDO mullvad auto-connect set on
 ####### every content blocker, this is the biggest privacy win for daily use
 ####### each one is soft on its own, so a flag that gets renamed upstream
 ####### shows up in the failure list instead of ending the stage
-soft "block ads"          $SUDO mullvad dns set default --block-ads
-soft "block trackers"     $SUDO mullvad dns set default --block-ads --block-trackers
-soft "block malware"      $SUDO mullvad dns set default --block-ads --block-trackers --block-malware
-soft "block adult"        $SUDO mullvad dns set default --block-ads --block-trackers --block-malware --block-adult-content
-soft "block gambling"     $SUDO mullvad dns set default --block-ads --block-trackers --block-malware --block-adult-content --block-gambling
-soft "block social media" $SUDO mullvad dns set default --block-ads --block-trackers --block-malware --block-adult-content --block-gambling --block-social-media
+####### one call, not one per blocker
+####### each dns set replaces the whole config, so chaining them was six
+####### rewrites of the resolver settings for no benefit
+if $SUDO mullvad dns set default \
+	--block-ads --block-trackers --block-malware \
+	--block-adult-content --block-gambling --block-social-media >&3 2>&1; then
+	printf '  [ok]   all dns content blockers\n'
+else
+	flag "some blocker flags were rejected, falling back to the core three"
+	soft "core dns blockers" $SUDO mullvad dns set default \
+		--block-ads --block-trackers --block-malware
+fi
 
 
 ## Tunnel
@@ -108,7 +114,23 @@ fi
 
 ## Ipv6
 
-soft "in tunnel ipv6" $SUDO mullvad tunnel set ipv6 on
+####### in tunnel IPv6 with no IPv6 route is what killed DNS
+####### the resolver tries v6 first and sits there until it times out, which
+####### is the 10 second per mirror stall that looked like the internet dying
+have_ipv6() {
+	local addr route
+	addr="$(capture ip -6 addr show scope global)"
+	route="$(capture ip -6 route show default)"
+	[[ -n "${addr//[[:space:]]/}" && -n "${route//[[:space:]]/}" ]]
+}
+
+if have_ipv6; then
+	soft "in tunnel ipv6" $SUDO mullvad tunnel set ipv6 on
+else
+	note "no IPv6 route on this machine, leaving in tunnel IPv6 off"
+	note "turning it on without one makes every DNS lookup time out"
+	soft "ensure ipv6 off" $SUDO mullvad tunnel set ipv6 off
+fi
 
 
 ## Autostart
@@ -128,38 +150,6 @@ else
 fi
 
 
-## Appearance
-
-####### the animated map is a GUI setting held in the app's own settings file,
-####### there is no CLI for it, so it is edited directly if the file is there
-GUI_DIR="$HOME/.config/Mullvad VPN"
-GUI_CONF="$GUI_DIR/gui_settings.json"
-
-####### the file does not exist until the app window has been opened once
-####### writing it first means the app picks the setting up on its first run
-####### instead of this being something you have to remember to do
-mkdir -p "$GUI_DIR"
-
-if [[ -f "$GUI_CONF" ]]; then
-	if grep -q 'animateMap' "$GUI_CONF"; then
-		sed -i 's/"animateMap"[[:space:]]*:[[:space:]]*true/"animateMap": false/' "$GUI_CONF"
-	else
-		sed -i 's/^{/{\n  "animateMap": false,/' "$GUI_CONF"
-	fi
-	note "map animation turned off"
-else
-	cat > "$GUI_CONF" << 'JSONEOF'
-{
-  "animateMap": false,
-  "monochromaticIcon": false,
-  "startMinimized": false,
-  "unpinnedWindow": true
-}
-JSONEOF
-	note "map animation pre-set before the app first opens"
-fi
-
-
 ## Connect
 
 connected() {
@@ -173,6 +163,33 @@ if connected; then
 else
 	run "connect" $SUDO mullvad connect
 	wait_for 120 connected || flag "did not report Connected within 120s"
+fi
+
+
+## Dns
+
+####### everything after this point downloads something
+####### a tunnel that is up but cannot resolve names looks exactly like a dead
+####### internet three stages later, so it gets caught here instead
+
+if wait_for 45 resolves; then
+	note "DNS working through the tunnel"
+else
+	flag "DNS stopped working after connecting, backing IPv6 out"
+
+	soft "disable in tunnel ipv6" $SUDO mullvad tunnel set ipv6 off
+	soft "reconnect"              $SUDO mullvad reconnect
+
+	if wait_for 60 resolves; then
+		note "DNS recovered"
+	else
+		printf '\n  DNS is not working through the VPN.\n' >&2
+		printf '  Nothing after this can download anything.\n\n' >&2
+		printf '  Check:  mullvad status\n' >&2
+		printf '          resolvectl status\n' >&2
+		printf '          mullvad dns get\n\n' >&2
+		exit 1
+	fi
 fi
 
 

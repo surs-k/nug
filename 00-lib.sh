@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-####### Rebuild v4.0 shared library
+####### Rebuild v6.0 shared library
 ####### every stage sources this as its first action
 ####### nothing here installs a package or writes to a disk
 
@@ -82,14 +82,39 @@ record_fail() {
 }
 
 
+## Colour
+
+####### colour never carries meaning on its own, it is always paired with a
+####### word in brackets
+####### roughly one in twelve men has red green colour blindness, and red
+####### green is exactly the fail/ok pairing a terminal reaches for first
+####### NO_COLOR, a dumb terminal, or piping to a file all turn it off
+
+if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
+	C_OK=$'\033[32m'
+	C_WARN=$'\033[33m'
+	C_FAIL=$'\033[31m'
+	C_HEAD=$'\033[1;36m'
+	C_DIM=$'\033[2m'
+	C_OFF=$'\033[0m'
+else
+	C_OK=''; C_WARN=''; C_FAIL=''; C_HEAD=''; C_DIM=''; C_OFF=''
+fi
+
+
 ## Say
 
 say()  { printf '%s\n'   "$*"; printf '%s\n'   "$*" >&3; }
 
 note() { printf '  %s\n' "$*"; printf '  %s\n' "$*" >&3; }
 
+info() {
+	printf '  %s[info]%s %s\n' "$C_DIM" "$C_OFF" "$*"
+	printf 'INFO %s\n' "$*" >&3
+}
+
 flag() {
-	printf '  warn  %s\n' "$*" >&2
+	printf '  %s[warn]%s %s\n' "$C_WARN" "$C_OFF" "$*" >&2
 	printf 'WARN %s\n' "$*" >&3
 	record_fail "$*"
 }
@@ -113,9 +138,9 @@ STEP=0
 section() {
 	STEP=$((STEP + 1))
 	printf '\n'
-	printf '========================================\n'
-	printf ' %-28s %2s / %-2s\n' "$1" "$STEP" "$STEPS"
-	printf '========================================\n'
+	printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
+	printf '%s %-28s %2s / %-2s%s\n' "$C_HEAD" "$1" "$STEP" "$STEPS" "$C_OFF"
+	printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
 	printf '\n'
 	printf '\n--- %s ---\n' "$1" >&3
 }
@@ -136,7 +161,7 @@ VERBOSE="${REBUILD_VERBOSE:-0}"
 ####### never give run an interactive command, it has no terminal
 run() {
 	local label=$1; shift
-	local rc=0
+	local rc=0 ELAPSED=0
 
 	printf 'RUN %s\n' "$*" >&3
 
@@ -144,22 +169,31 @@ run() {
 		printf '  ..     %s\n' "$label"
 		"$@" || rc=$?
 	else
-		local frames='|/-\' i=0 pid
+		local frames='|/-\' i=0 pid start=$SECONDS
 		"$@" >&3 2>&1 &
 		pid=$!
 		while kill -0 "$pid" 2>/dev/null; do
-			printf '\r  [%s]    %s' "${frames:i++%4:1}" "$label"
+			####### a spinner alone cannot tell you whether this is a minute
+			####### or ten, the count can
+			printf '\r  [%s]    %s   %ss' \
+				"${frames:i++%4:1}" "$label" "$(( SECONDS - start ))"
 			sleep 0.2
 		done
 		wait "$pid" || rc=$?
+		ELAPSED=$(( SECONDS - start ))
 		printf '\r'
 		blank
 	fi
 
 	if (( rc == 0 )); then
-		printf '  [ok]   %s\n' "$label"
+		if (( ELAPSED > 10 )); then
+			printf '  %s[ok]%s   %s   %s%ss%s\n' \
+				"$C_OK" "$C_OFF" "$label" "$C_DIM" "$ELAPSED" "$C_OFF"
+		else
+			printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$label"
+		fi
 	else
-		printf '  [FAIL] %s   exit %s\n' "$label" "$rc" >&2
+		printf '  %s[FAIL]%s %s   exit %s\n' "$C_FAIL" "$C_OFF" "$label" "$rc" >&2
 		printf 'FAILED %s exit %s\n' "$*" "$rc" >&3
 
 		####### put the error on screen
@@ -224,9 +258,6 @@ show_failures() {
 }
 
 
-## Pacman
-
-####### package installs stay visible, the download bar is the progress
 ## Refresh
 
 ####### never called on a schedule, only when an install has already failed
@@ -257,10 +288,25 @@ refresh_db() {
 ####### stderr is copied into the log while stdout stays a terminal
 ####### the progress bar needs a real terminal, the error needs to be findable
 pac() {
+	local start=$SECONDS plan
+
 	printf '\n  packages   %s\n\n' "$*"
 	printf 'pacman -S %s\n' "$*" >&3
 
+	####### --noconfirm answers every prompt with the default, which includes
+	####### "yes, remove that" on a conflict
+	####### a dry run first means an unexpected removal stops the stage
+	####### instead of quietly happening while nobody is watching
+	plan="$(capture $SUDO pacman -S --needed --print-format '%n' "$@")"
+
+	if contains "$plan" "removing" || contains "$plan" "conflicts"; then
+		flag "this install wants to remove or replace something, stopping"
+		printf '%s\n' "$plan" | sed 's/^/    /' >&2
+		return 1
+	fi
+
 	if $SUDO pacman -S --needed --noconfirm "$@" 2> >(tee -a "$LOG" >&2); then
+		printf '\n  done in %ss\n' "$(( SECONDS - start ))"
 		return 0
 	fi
 
@@ -307,7 +353,7 @@ installed() { pacman -Qq "$1" &>/dev/null; }
 MARKERS="$HOME/.install-state"
 mkdir -p "$MARKERS"
 
-####### marker name always equals the directory name, no hand typed strings
+####### marker name always equals the file name, no hand typed strings
 stage_done()    { touch "$MARKERS/${1:-$STAGE}"; }
 
 stage_is_done() { [[ -f "$MARKERS/${1:-$STAGE}" ]]; }
@@ -315,14 +361,6 @@ stage_is_done() { [[ -f "$MARKERS/${1:-$STAGE}" ]]; }
 require_stage() {
 	[[ -f "$MARKERS/$1" ]] || { printf 'Run %s first\n' "$1" >&2; exit 1; }
 }
-
-
-## Sections
-
-section_done() { touch "$MARKERS/$STAGE.$1"; }
-
-section_is_done() { [[ -f "$MARKERS/$STAGE.$1" ]]; }
-
 
 
 #    Config
@@ -618,9 +656,9 @@ FAILED=0
 check() {
 	local label=$1; shift
 	if "$@" >&3 2>&1; then
-		printf '  ok    %s\n' "$label"
+		printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$label"
 	else
-		printf '  FAIL  %s\n' "$label" >&2
+		printf '  %s[FAIL]%s %s\n' "$C_FAIL" "$C_OFF" "$label" >&2
 		record_fail "check failed: $label"
 		FAILED=1
 	fi
@@ -632,9 +670,9 @@ check() {
 warn() {
 	local label=$1; shift
 	if "$@" >&3 2>&1; then
-		printf '  ok    %s\n' "$label"
+		printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$label"
 	else
-		printf '  warn  %s\n' "$label" >&2
+		printf '  %s[warn]%s %s\n' "$C_WARN" "$C_OFF" "$label" >&2
 		record_fail "$label"
 	fi
 }
@@ -659,6 +697,9 @@ verify_done() {
 ## Exit
 
 cleanup() {
+	####### captured first, before anything below can clobber it
+	local rc=$?
+
 	if [[ -n "$KEEPALIVE_PID" ]]; then
 		kill "$KEEPALIVE_PID" 2>/dev/null || true
 	fi
@@ -667,6 +708,8 @@ cleanup() {
 	####### point, a stage that stops half way still has to tell you what
 	####### went wrong before it stopped
 	show_failures stage
+
+	return "$rc"
 }
 
 trap cleanup EXIT

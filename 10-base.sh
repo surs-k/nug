@@ -137,6 +137,12 @@ CONF=/boot/limine.conf
 
 TIMEOUT="\${LIMINE_TIMEOUT:-$LIMINE_TIMEOUT}"
 
+####### --flat strips the //Snapshots sub entry back out
+####### the sync tool needs that marker, but it is also the one thing that
+####### could upset auto boot again, so there is a one command way back
+FLAT=no
+[[ "\${1:-}" == --flat ]] && FLAT=yes
+
 ####### refuse to touch anything without a real cmdline to write back
 CMDLINE="\$(cat /etc/kernel/cmdline 2>/dev/null || true)"
 
@@ -178,7 +184,13 @@ awk '/^\/[^\/]/ { n++ } n >= 2' "\$CONF" > "\$TMP" || true
 	fi
 
 	printf '    module_path: boot():/initramfs-linux.img\n'
-	printf '    cmdline: %s\n\n' "\$CMDLINE"
+	printf '    cmdline: %s\n' "\$CMDLINE"
+
+	if [[ "\$FLAT" == no ]] && grep -q '^    //Snapshots' "\$CONF"; then
+		printf '    //Snapshots\n'
+	fi
+
+	printf '\n'
 
 	cat "\$TMP"
 } > "\$CONF"
@@ -207,6 +219,18 @@ $SUDO tee /etc/systemd/zram-generator.conf > /dev/null << 'EOF'
 zram-size = min(ram / 2, 8192)
 compression-algorithm = zstd
 EOF
+
+####### swap in RAM behaves nothing like swap on a disk
+####### the defaults are tuned for a spinning disk and leave zram unused
+####### these are the values Pop_OS ships and the Arch wiki documents
+$SUDO tee /etc/sysctl.d/99-zram.conf > /dev/null << 'EOF'
+vm.swappiness = 180
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+vm.page-cluster = 0
+EOF
+
+run "apply swap tuning" $SUDO sysctl --system
 
 run "reload systemd" $SUDO systemctl daemon-reload
 
@@ -331,6 +355,7 @@ section "Verify"
 check "hostname set"     sh -c "test \"\$(hostnamectl --static)\" = \"$HOSTNAME\""
 check "locale built"     sh -c 'locale -a > /tmp/_loc; grep -q en_US.utf8 /tmp/_loc'
 check "zram config"      test -f /etc/systemd/zram-generator.conf
+check "swap tuning"      test -f /etc/sysctl.d/99-zram.conf
 check "limine conf"      test -f /boot/limine.conf
 check "no stray conf"    sh -c '! test -f /boot/EFI/limine/limine.conf'
 check "auto start set"   grep -q '^timeout:' /boot/limine.conf

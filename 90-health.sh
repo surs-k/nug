@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 50-bkp-net
+require_stage 10-base
 
 pac libnotify
 

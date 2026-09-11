@@ -165,27 +165,30 @@ run "rebuild initramfs" $SUDO mkinitcpio -P
 
 ## Hyprland
 
-LUA="$HOME/.config/hypr/hyprland.lua"
+####### HyDE is a hyprlang setup, it does not use the Lua provider
+####### writing hyprland.lua would have made Hyprland ignore hyprland.conf
+####### entirely, silently, taking every HyDE theme and bind with it
+####### userprefs.conf is HyDE's own hook and survives its updates
 
-mkdir -p "$(dirname "$LUA")"
-touch "$LUA"
+PREFS="$HOME/.config/hypr/userprefs.conf"
 
-[[ -f "$LUA.bak-keyboard" ]] || cp "$LUA" "$LUA.bak-keyboard"
+mkdir -p "$(dirname "$PREFS")"
+touch "$PREFS"
 
-sed -i '/^-- rebuild keyboard start$/,/^-- rebuild keyboard end$/d' "$LUA"
+[[ -f "$PREFS.bak-keyboard" ]] || cp "$PREFS" "$PREFS.bak-keyboard"
 
-cat >> "$LUA" << LUAEOF
--- rebuild keyboard start
+sed -i '/^# rebuild keyboard start$/,/^# rebuild keyboard end$/d' "$PREFS"
 
-hl.config({
-  input = {
-    kb_layout = "us",
-    kb_variant = "$KEYMAP"
-  }
-})
+cat >> "$PREFS" << EOF
+# rebuild keyboard start
 
--- rebuild keyboard end
-LUAEOF
+input {
+    kb_layout = us
+    kb_variant = $KEYMAP
+}
+
+# rebuild keyboard end
+EOF
 
 note "colemak written for the desktop, active at next login"
 
@@ -200,7 +203,8 @@ check "hyde config dir"   test -d "$HOME/.config/hypr"
 check "hyprland present"  command -v Hyprland
 check "firelink"          test -d "$HOME/firelink"
 check "console keymap"    grep -q "$KEYMAP" /etc/vconsole.conf
-check "desktop keymap"    grep -q 'kb_variant' "$HOME/.config/hypr/hyprland.lua"
+check "desktop keymap"    grep -q 'kb_variant' "$HOME/.config/hypr/userprefs.conf"
+check "no lua config"     sh -c '! test -f "$HOME/.config/hypr/hyprland.lua"' 
 
 if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 	check "nvidia driver"  pacman -Qq nvidia-open-dkms

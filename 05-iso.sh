@@ -557,7 +557,9 @@ arch-chroot /mnt bash /root/_setup.sh
 
 rm -f /mnt/root/_setup.sh
 
-shred -u "$KEYTMP" 2>/dev/null || rm -f "$KEYTMP"
+####### shred overwrites disk blocks, and tmpfs has none
+####### what actually protects the key is that it only ever lived in RAM
+rm -f "$KEYTMP"
 
 unset LUKS_PASS
 

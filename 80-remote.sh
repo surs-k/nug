@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 50-bkp-net
+require_stage 30-security
 
 if [[ "${WANT_SUNSHINE:-yes}" != yes ]]; then
 	note "remote access turned off in $CONFIG"
@@ -30,7 +30,8 @@ section "Sunshine"
 
 ## Install
 
-aur sunshine-bin
+####### LizardByte publish their own package as "sunshine", not sunshine-bin
+aur sunshine
 
 
 ## Capture
@@ -117,21 +118,26 @@ section "Service"
 ####### which is why enabling it failed outright
 ####### whatever it ships gets used, and if it ships nothing we write one
 
+####### upstream renamed the user unit for XDG portal compatibility
+####### plain sunshine.service is now an alias that does not always resolve
+SUN_UNIT="app-dev.lizardbyte.app.Sunshine.service"
+
 UNITS="$(capture systemctl --user list-unit-files --no-legend)"
 
-if contains "$UNITS" "sunshine.service"; then
-	note "using the unit shipped with the package"
+if contains "$UNITS" "app-dev.lizardbyte.app.Sunshine"; then
+	note "using the current upstream unit name"
 
-elif [[ -f /usr/lib/systemd/user/sunshine.service ]]; then
-	note "found a unit in /usr/lib/systemd/user"
-	run "reload user systemd" systemctl --user daemon-reload
+elif contains "$UNITS" "sunshine.service"; then
+	SUN_UNIT="sunshine.service"
+	note "using the older unit name shipped with this build"
 
 else
+	SUN_UNIT="sunshine.service"
 	flag "package shipped no user unit, writing one"
 
 	mkdir -p "$HOME/.config/systemd/user"
 
-	cat > "$HOME/.config/systemd/user/sunshine.service" << EOF
+	cat > "$HOME/.config/systemd/user/$SUN_UNIT" << EOF
 [Unit]
 Description=Sunshine game stream host
 After=graphical-session.target
@@ -150,9 +156,9 @@ EOF
 	run "reload user systemd" systemctl --user daemon-reload
 fi
 
-soft "enable sunshine" systemctl --user enable sunshine.service
+soft "enable sunshine" systemctl --user enable "$SUN_UNIT"
 
-soft "start sunshine"  systemctl --user start sunshine.service
+soft "start sunshine"  systemctl --user start "$SUN_UNIT"
 
 
 
@@ -181,13 +187,13 @@ fi
 section "Verify"
 
 check "sunshine present"  command -v sunshine
-check "unit exists"       test -f "$HOME/.config/systemd/user/sunshine.service" -o -f /usr/lib/systemd/user/sunshine.service
+check "unit exists"       sh -c 'systemctl --user list-unit-files > /tmp/_su; grep -qi sunshine /tmp/_su' 
 check "kms capability"    sh -c "getcap '$SUN_BIN' > /tmp/_cap; grep -q cap_sys_admin /tmp/_cap"
 check "uinput rule"       test -f /etc/udev/rules.d/60-sunshine.rules
 check "user in input"     sh -c "id -nG $USERNAME > /tmp/_ig; grep -qw input /tmp/_ig"
 check "headless helper"   test -x /usr/local/bin/rebuild-headless
 
-warn  "sunshine running"  systemctl --user is-active --quiet sunshine
+warn  "sunshine running"  systemctl --user is-active --quiet "$SUN_UNIT"
 warn  "headless unit"     systemctl --user is-enabled --quiet rebuild-headless
 warn  "tailnet rules"     sh -c 'sudo ufw status > /tmp/_uf; grep -q 47984 /tmp/_uf'
 

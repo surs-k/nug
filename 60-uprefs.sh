@@ -14,9 +14,9 @@ sudo_keepalive
 
 require_stage 20-desktop
 
-LUA="$HOME/.config/hypr/hyprland.lua"
+PREFS="$HOME/.config/hypr/userprefs.conf"
 BINDS="$HOME/.local/share/hypr/lua/key_binds.lua"
-MON="$HOME/.config/hypr/monitors.lua"
+MON="$HOME/.config/hypr/monitors.conf"
 
 [[ -f "$HOME/.local/share/hypr/hyde.lua" ]] \
 	|| { printf 'hyde.lua missing, HyDE is pre-lua, run install.sh -r first\n' >&2; exit 1; }
@@ -49,7 +49,9 @@ section "Packages"
 
 ## Repo
 
+####### moonlight-qt and librewolf are in extra now, no AUR build needed
 pac signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
+pac moonlight-qt
 
 
 ## Keyring
@@ -127,11 +129,14 @@ try_aur() {
 }
 
 if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
-	try_aur "librewolf" librewolf-bin librewolf
+	####### librewolf is in extra now, the AUR build is the fallback
+	pac librewolf || try_aur "librewolf" librewolf-bin
 fi
 
 ####### unofficial repackaging of the official build
-try_aur "claude desktop" claude-desktop-native claude-desktop claude-desktop-bin
+####### claude-desktop tracks the official Linux build, the others are
+####### community repackaging
+try_aur "claude desktop" claude-desktop claude-desktop-bin claude-desktop-native
 
 
 
@@ -168,59 +173,54 @@ fi
 
 ## Backup
 
-mkdir -p "$(dirname "$LUA")"
-touch "$LUA"
-[[ -f "$LUA.bak-prefs" ]] || cp "$LUA" "$LUA.bak-prefs"
+mkdir -p "$(dirname "$PREFS")"
+touch "$PREFS"
+[[ -f "$PREFS.bak-prefs" ]] || cp "$PREFS" "$PREFS.bak-prefs"
 
 
 ## Clear
 
-sed -i '/^-- rebuild prefs start$/,/^-- rebuild prefs end$/d' "$LUA"
+sed -i '/^# rebuild binds start$/,/^# rebuild binds end$/d' "$PREFS"
 
 
 ## Write
 
-cat >> "$LUA" << 'LUAEOF'
--- rebuild prefs start
+####### hyprlang, because HyDE does not use the Lua provider
+####### unbind first, then bind, so HyDE's own binding is replaced rather
+####### than fighting with ours
 
-hl.unbind("SUPER + C")
-hl.bind("SUPER + C", hl.dsp.exec_cmd("codium"), { description = "[Rebuild] codium" })
+cat >> "$PREFS" << 'CONFEOF'
+# rebuild binds start
 
-hl.unbind("SUPER + P")
-hl.bind("SUPER + P", hl.dsp.exec_cmd("1password"), { description = "[Rebuild] 1password" })
+unbind = SUPER, C
+bind = SUPER, C, exec, codium
 
-hl.unbind("SUPER + B")
-hl.bind("SUPER + B", hl.dsp.exec_cmd("mullvad-browser"), { description = "[Rebuild] mullvad-browser" })
+unbind = SUPER, P
+bind = SUPER, P, exec, 1password
 
-hl.unbind("SUPER + V")
-hl.bind("SUPER + V", hl.dsp.exec_cmd("flatpak run io.freetubeapp.FreeTube"), { description = "[Rebuild] freetube" })
+unbind = SUPER, B
+bind = SUPER, B, exec, mullvad-browser
 
-hl.unbind("SUPER + S")
-hl.bind("SUPER + S", hl.dsp.exec_cmd("steam"), { description = "[Rebuild] steam" })
+unbind = SUPER, V
+bind = SUPER, V, exec, flatpak run io.freetubeapp.FreeTube
 
-hl.bind("SUPER + D", hl.dsp.exec_cmd("signal-desktop"), { description = "[Rebuild] signal" })
+unbind = SUPER, S
+bind = SUPER, S, exec, steam
 
-hl.unbind("SUPER + E")
-hl.bind("SUPER + F", hl.dsp.exec_cmd("dolphin"), { description = "[Rebuild] dolphin" })
+bind = SUPER, D, exec, signal-desktop
 
-hl.bind("SUPER + L", hl.dsp.exec_cmd("librewolf"), { description = "[Rebuild] librewolf local" })
+unbind = SUPER, E
+bind = SUPER, F, exec, dolphin
 
-hl.window_rule({
-	name = "rebuild-mullvad-nomax",
-	match = { class = "^(Mullvad Browser)$" },
-	suppress_event = "maximize",
-})
+bind = SUPER, L, exec, librewolf
 
-hl.window_rule({
-	name = "rebuild-mullvad",
-	match = { class = "^(Mullvad Browser)$" },
-	float = true,
-	size = { 1400, 1000 },
-	center = true,
-})
+windowrulev2 = float, class:^(Mullvad Browser)$
+windowrulev2 = size 1400 1000, class:^(Mullvad Browser)$
+windowrulev2 = center, class:^(Mullvad Browser)$
+windowrulev2 = suppressevent maximize, class:^(Mullvad Browser)$
 
--- rebuild prefs end
-LUAEOF
+# rebuild binds end
+CONFEOF
 
 
 ## Reload
@@ -242,36 +242,16 @@ section "Monitors"
 [[ -f "$MON" ]] || touch "$MON"
 [[ -f "$MON.bak-prefs" ]] || cp "$MON" "$MON.bak-prefs"
 
-sed -i '/^-- rebuild monitors start$/,/^-- rebuild monitors end$/d' "$MON"
+sed -i '/^# rebuild monitors start$/,/^# rebuild monitors end$/d' "$MON"
 
 cat >> "$MON" << 'MONEOF'
--- rebuild monitors start
+# rebuild monitors start
 
-hl.monitor({
-	output = "desc:Sceptre Tech Inc Sceptre O34",
-	mode = "3440x1440@165",
-	position = "1080x233",
-	scale = 1,
-	transform = 0,
-})
+monitor = desc:Sceptre Tech Inc Sceptre O34, 3440x1440@165, 1080x233, 1
+monitor = desc:Acer Technologies KG251Q T8ZAA00A8575, 1920x1080@143.98, 0x0, 1, transform, 1
+monitor = , preferred, auto, 1
 
-hl.monitor({
-	output = "desc:Acer Technologies KG251Q T8ZAA00A8575",
-	mode = "1920x1080@143.98",
-	position = "0x0",
-	scale = 1,
-	transform = 1,
-})
-
-hl.monitor({
-	output = "",
-	mode = "preferred",
-	position = "auto",
-	scale = 1,
-	transform = 0,
-})
-
--- rebuild monitors end
+# rebuild monitors end
 MONEOF
 
 
@@ -377,9 +357,9 @@ check "dolphin"            command -v dolphin
 check "steam"              command -v steam
 check "flatpak"            command -v flatpak
 check "keyring present"    command -v gnome-keyring-daemon
-check "prefs block"        grep -q 'rebuild prefs start' "$LUA"
-check "block closed"       grep -q 'rebuild prefs end' "$LUA"
-check "block written once" sh -c "test \"\$(grep -c 'rebuild prefs start' '$LUA')\" = 1"
+check "binds block"        grep -q 'rebuild binds start' "$PREFS"
+check "block closed"       grep -q 'rebuild binds end' "$PREFS"
+check "block written once" sh -c "test \"\$(grep -c 'rebuild binds start' '$PREFS')\" = 1"
 check "monitors block"     grep -q 'rebuild monitors start' "$MON"
 check "monitors once"      sh -c "test \"\$(grep -c 'rebuild monitors start' '$MON')\" = 1"
 check "dolphin config"     test -f "$HOME/.config/dolphinrc"
