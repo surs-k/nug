@@ -1,18 +1,25 @@
 services:
 
   comfyui:
-    image: ghcr.io/lecode-official/comfyui-docker:latest
+    image: mmartial/comfyui-nvidia-docker:ubuntu24_cuda12.8-latest
     container_name: comfyui
     restart: unless-stopped
     ports:
       - "127.0.0.1:8188:8188"
+    environment:
+      - WANTED_UID=${WANTED_UID:-1000}
+      - WANTED_GID=${WANTED_GID:-1000}
+      - SECURITY_LEVEL=normal
     volumes:
-      - /home/ai/comfyui/models:/opt/comfyui/models
-      - /home/ai/comfyui/output:/opt/comfyui/output
+      - /home/ai/comfyui/run:/comfy/mnt
+      - /home/ai/comfyui/basedir:/basedir
     deploy:
       resources:
         reservations:
           devices:
-            - driver: cdi
-              device_ids:
-                - nvidia.com/gpu=all
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
