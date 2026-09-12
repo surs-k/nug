@@ -48,6 +48,7 @@ else
 			printf 'Login failed %s times\n' "$RETRY_LIMIT" >&2
 			exit 1
 		fi
+		action "Mullvad needs your account number."
 		ACCT="$(secret 'Mullvad account number')"
 		$SUDO mullvad account login "$ACCT" || printf '  rejected, try again\n' >&2
 		unset ACCT
@@ -80,7 +81,7 @@ run "auto connect on"     $SUDO mullvad auto-connect set on
 if $SUDO mullvad dns set default \
 	--block-ads --block-trackers --block-malware \
 	--block-adult-content --block-gambling --block-social-media >&3 2>&1; then
-	printf '  [ok]   all dns content blockers\n'
+	pass "all dns content blockers"
 else
 	flag "some blocker flags were rejected, falling back to the core three"
 	soft "core dns blockers" $SUDO mullvad dns set default \
@@ -98,16 +99,26 @@ fi
 
 ENTRY="${MULLVAD_ENTRY:-none}"
 
+####### the daemon downloads the relay list after it starts, and a location
+####### set before that arrives is rejected as invalid
+####### that is why this failed on a first run and worked on the retry
+relays_ready() {
+	local list
+	list="$(capture $SUDO mullvad relay list)"
+	[[ ${#list} -gt 200 ]]
+}
+
 if [[ "$ENTRY" == none ]]; then
 	note "multihop off, no entry location chosen"
 else
+	wait_for 60 relays_ready || flag "relay list never arrived, multihop may be rejected"
+
 	####### deliberately unquoted, the location is one to three words
 	####### country, or country and city, or country city and server
 	if $SUDO mullvad relay set entry location $ENTRY >&3 2>&1; then
-		printf '  [ok]   multihop entering via %s\n' "$ENTRY"
+		pass "multihop entering via $ENTRY"
 	else
-		flag "multihop entry '$ENTRY' was rejected, check the location code"
-		flag "list them with: mullvad relay list"
+		flag "multihop entry '$ENTRY' rejected, see valid codes: mullvad relay list"
 	fi
 fi
 
@@ -257,9 +268,63 @@ tailnet_up() {
 if tailnet_up; then
 	note "already logged in"
 	soft "keep dns local" $SUDO tailscale set --accept-dns=false
+
 else
-	printf '\n  A browser link prints below. Open it and approve this machine.\n\n'
-	$SUDO tailscale up --accept-dns=false --timeout=300s
+	####### tailscale up blocks silently while it reaches the control server,
+	####### and if it cannot get there you stare at a cursor until it times
+	####### out with nothing on screen to explain why
+	####### this runs it in the background, watches for the link, and shows
+	####### the link the moment it exists plus a count while it waits
+
+	TS_OUT="$(mktemp)"
+
+	$SUDO tailscale up --accept-dns=false --timeout=180s > "$TS_OUT" 2>&1 &
+	TS_PID=$!
+
+	TS_URL=""
+	TS_START=$SECONDS
+
+	while kill -0 "$TS_PID" 2>/dev/null; do
+
+		if [[ -z "$TS_URL" ]]; then
+			TS_URL="$(grep -m1 -o 'https://login\.tailscale\.com[^[:space:]]*' "$TS_OUT" 2>/dev/null || true)"
+
+			if [[ -n "$TS_URL" ]]; then
+				printf '\r                                                  \r'
+				action "Open this link and approve this machine:
+
+  $TS_URL
+
+Nothing else runs until you do."
+			fi
+		fi
+
+		if [[ -n "$TS_URL" ]]; then
+			printf '\r  waiting for you to approve it   %ss ' "$(( SECONDS - TS_START ))"
+		else
+			printf '\r  reaching the Tailscale control server   %ss ' "$(( SECONDS - TS_START ))"
+		fi
+
+		sleep 1
+	done
+
+	TS_RC=0
+	wait "$TS_PID" || TS_RC=$?
+
+	printf '\r                                                            \r'
+
+	cat "$TS_OUT" >&3
+	rm -f "$TS_OUT"
+
+	if (( TS_RC != 0 )); then
+		if [[ -z "$TS_URL" ]]; then
+			flag "Tailscale never reached its control server, so no link was printed"
+			flag "the exclusion that lets it out past Mullvad is the thing to check"
+			flag "test it with: mullvad-exclude curl -I https://login.tailscale.com"
+		else
+			flag "the link was not approved in time, run rebuild again to get a new one"
+		fi
+	fi
 fi
 
 

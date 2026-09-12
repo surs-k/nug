@@ -118,7 +118,7 @@ try_aur() {
 
 	for pkg in "$@"; do
 		if yay -S --needed --noconfirm "$pkg" >&3 2>&1; then
-			printf '  [ok]   %s   via %s\n' "$label" "$pkg"
+			pass "$label   via $pkg"
 			return 0
 		fi
 		printf '  ..     %s not available, trying the next name\n' "$pkg"

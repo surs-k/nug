@@ -95,11 +95,36 @@ if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
 	C_WARN=$'\033[33m'
 	C_FAIL=$'\033[31m'
 	C_HEAD=$'\033[1;36m'
+	C_ACT=$'\033[1;35m'
 	C_DIM=$'\033[2m'
 	C_OFF=$'\033[0m'
 else
-	C_OK=''; C_WARN=''; C_FAIL=''; C_HEAD=''; C_DIM=''; C_OFF=''
+	C_OK=''; C_WARN=''; C_FAIL=''; C_HEAD=''; C_ACT=''; C_DIM=''; C_OFF=''
 fi
+
+
+## Action
+
+####### anything that needs you to do something by hand
+####### deliberately a different shape and colour from every other block, so
+####### it registers from the corner of your eye without being read
+action() {
+	local line
+
+	printf '\n' > /dev/tty
+	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+
+	while IFS= read -r line; do
+		printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$line" > /dev/tty
+	done <<< "$*"
+
+	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	printf '\n' > /dev/tty
+
+	printf 'ACTION NEEDED: %s\n' "$*" >&3
+}
 
 
 ## Say
@@ -107,6 +132,11 @@ fi
 say()  { printf '%s\n'   "$*"; printf '%s\n'   "$*" >&3; }
 
 note() { printf '  %s\n' "$*"; printf '  %s\n' "$*" >&3; }
+
+pass() {
+	printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$*"
+	printf 'OK %s\n' "$*" >&3
+}
 
 info() {
 	printf '  %s[info]%s %s\n' "$C_DIM" "$C_OFF" "$*"
@@ -240,17 +270,17 @@ show_failures() {
 	stops="$(printf '%s\n' "$raw" | sed -n 's/^stop\t//p' || true)"
 
 	printf '\n' >&2
-	printf '========================================\n' >&2
-	printf ' %s\n' "$title" >&2
-	printf '========================================\n' >&2
+	printf '%s========================================%s\n' "$C_FAIL" "$C_OFF" >&2
+	printf '%s %s%s\n' "$C_FAIL" "$title" "$C_OFF" >&2
+	printf '%s========================================%s\n' "$C_FAIL" "$C_OFF" >&2
 
 	if [[ -n "${softs//[[:space:]]/}" ]]; then
-		printf '\n  SKIPPED, the run carried on\n\n' >&2
+		printf '\n  %sSKIPPED, the run carried on%s\n\n' "$C_WARN" "$C_OFF" >&2
 		printf '%s\n' "$softs" | sed 's/^/    /' >&2
 	fi
 
 	if [[ -n "${stops//[[:space:]]/}" ]]; then
-		printf '\n  STOPPED THE SCRIPT\n\n' >&2
+		printf '\n  %sSTOPPED THE SCRIPT%s\n\n' "$C_FAIL" "$C_OFF" >&2
 		printf '%s\n' "$stops" | sed 's/^/    /' >&2
 	fi
 

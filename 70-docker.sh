@@ -353,7 +353,9 @@ if contains "$WANT" "portainer"; then
 	####### Portainer controls every container on the machine, so it is the
 	####### one thing not worth exposing even to your own tailnet
 	note "portainer at https://127.0.0.1:9443, this PC only"
-	note "set the admin password within a few minutes or restart the container"
+	action "Open https://127.0.0.1:9443 and set the Portainer admin password.
+
+It locks itself if left sitting, and then the container needs restarting." 
 fi
 
 

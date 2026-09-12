@@ -173,6 +173,17 @@ run "rebuild initramfs" $SUDO mkinitcpio -P
 PREFS="$HOME/.config/hypr/userprefs.conf"
 
 mkdir -p "$(dirname "$PREFS")"
+
+####### versions before 6.0 wrote hyprland.lua and monitors.lua here
+####### while either exists Hyprland ignores hyprland.conf completely, so
+####### HyDE stays dead no matter what we write into userprefs.conf
+####### that is what the no lua config check was catching, correctly
+for stale in hyprland.lua monitors.lua; do
+	if [[ -f "$HOME/.config/hypr/$stale" ]]; then
+		mv "$HOME/.config/hypr/$stale" "$HOME/.config/hypr/$stale.disabled"
+		flag "moved $stale aside, it was stopping HyDE from loading at all"
+	fi
+done
 touch "$PREFS"
 
 [[ -f "$PREFS.bak-keyboard" ]] || cp "$PREFS" "$PREFS.bak-keyboard"

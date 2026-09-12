@@ -418,15 +418,11 @@ for s in "${STAGES[@]}"; do
 	fi
 
 	if [[ -n "${REBOOT[$s]:-}" ]]; then
-		printf '\n'
-		printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
-		printf '%s  REBOOT NOW%s\n' "$C_HEAD" "$C_OFF"
-		printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
-		printf '\n'
-		printf '  Why   %s\n' "${REBOOT[$s]}"
-		printf '\n'
-		printf '  After the restart:   rebuild\n'
-		printf '\n'
+		action "Reboot now.
+
+Why   ${REBOOT[$s]}
+
+After the restart, run:   rebuild"
 		exit 0
 	fi
 done
