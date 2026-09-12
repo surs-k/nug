@@ -171,6 +171,11 @@ section "Firewall"
 ####### sunshine speaks on 47984 47989 48010 tcp and 47998 to 48000 udp
 ####### 47990 is the web interface
 
+if ! ip link show tailscale0 &> /dev/null; then
+	flag "no tailnet yet, so the stream ports are not opened"
+	flag "set it up with: rebuild --only 35-tailnet, then rerun this stage"
+fi
+
 if ip link show tailscale0 &> /dev/null; then
 	soft "stream tcp"  $SUDO ufw allow in on tailscale0 to any port 47984,47989,48010 proto tcp
 	soft "stream udp"  $SUDO ufw allow in on tailscale0 to any port 47998:48000 proto udp

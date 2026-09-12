@@ -108,20 +108,40 @@ fi
 ####### anything that needs you to do something by hand
 ####### deliberately a different shape and colour from every other block, so
 ####### it registers from the corner of your eye without being read
-action() {
-	local line
-
+act_open() {
 	printf '\n' > /dev/tty
 	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+}
 
+act_line() {
+	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" > /dev/tty
+}
+
+####### anything piped in gets wrapped, so disk listings and the like stay
+####### inside the block instead of sitting outside it as loose text
+act_feed() {
+	local line
 	while IFS= read -r line; do
 		printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$line" > /dev/tty
-	done <<< "$*"
+	done
+}
 
+act_close() {
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '\n' > /dev/tty
+}
+
+####### the first line should always be an instruction, not context
+action() {
+	local line
+
+	act_open
+	while IFS= read -r line; do
+		act_line "$line"
+	done <<< "$*"
+	act_close
 
 	printf 'ACTION NEEDED: %s\n' "$*" >&3
 }

@@ -13,9 +13,9 @@ section "Answers"
 ####### every question in the whole install lives in this one block
 ####### after the last confirm nothing else is asked until the end
 
-note "Everything you need to type is in this section."
-note "After the final confirm the install runs on its own."
-printf '\n'
+action "Everything you type is in this section.
+
+After the final confirm the install runs on its own."
 
 
 ## Firmware
@@ -69,9 +69,13 @@ export USERNAME
 
 ## Disks
 
-printf '\n'
-lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS
-printf '\n'
+####### the listing goes inside the block, so the thing you need and the
+####### thing you need it for are not separated by a border
+act_open
+act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
+act_line ""
+lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS | act_feed
+act_close
 
 SYSTEM_DISK="$(pick_disk 'System disk: ')"
 DATA_DISK="$(pick_disk 'Data disk: ')"
@@ -84,10 +88,9 @@ require_disk "$DATA_DISK"
 
 ## Passwords
 
-printf '\n'
-note "Three passwords, each typed twice."
-note "The disk passphrase unlocks both disks. You only set it once."
-printf '\n'
+action "Set three passwords, each typed twice.
+
+The disk passphrase unlocks both disks. You set it once."
 
 LUKS_PASS="$(secret_twice 'Disk passphrase, both disks')"
 
@@ -98,7 +101,11 @@ USER_PASS="$(secret_twice "Password for $USERNAME       ")"
 
 ## Review
 
-printf '\n'
+act_open
+act_line "Check this, then type YES to erase both disks."
+act_line ""
+act_close
+
 printf '  hostname     %s\n' "$HOSTNAME"
 printf '  username     %s\n' "$USERNAME"
 printf '  system disk  %s  %s  WILL BE WIPED\n' "$SYSTEM_DISK" "$(lsblk -dno SIZE "$SYSTEM_DISK")"

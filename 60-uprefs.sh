@@ -244,11 +244,13 @@ section "Monitors"
 
 sed -i '/^# rebuild monitors start$/,/^# rebuild monitors end$/d' "$MON"
 
-cat >> "$MON" << 'MONEOF'
+####### transform 1 is 90 degrees, 3 is 270
+####### change ROTATE in ~/.install-config if the monitor moves again
+cat >> "$MON" << MONEOF
 # rebuild monitors start
 
 monitor = desc:Sceptre Tech Inc Sceptre O34, 3440x1440@165, 1080x233, 1
-monitor = desc:Acer Technologies KG251Q T8ZAA00A8575, 1920x1080@143.98, 0x0, 1, transform, 1
+monitor = desc:Acer Technologies KG251Q T8ZAA00A8575, 1920x1080@143.98, 0x0, 1, transform, ${ROTATE:-3}
 monitor = , preferred, auto, 1
 
 # rebuild monitors end
@@ -259,10 +261,16 @@ MONEOF
 
 $SUDO mkdir -p /etc/sddm /etc/sddm.conf.d
 
-$SUDO tee /etc/sddm/Xsetup-rebuild > /dev/null << 'XEOF'
+####### left is 90 degrees, right is 270
+ROTDIR=right
+[[ "${ROTATE:-3}" == 1 ]] && ROTDIR=left
+
+####### only ROTDIR is expanded here, everything else has to reach the file
+####### literally or the greeter script would run with an empty output name
+$SUDO tee /etc/sddm/Xsetup-rebuild > /dev/null << XEOF
 #!/bin/sh
-OUT=$(xrandr --query | awk '/ connected/{o=$1} o!="" && /^ +1920x1080/ && /\+/{print o; exit}')
-[ -n "$OUT" ] && xrandr --output "$OUT" --rotate left
+OUT=\$(xrandr --query | awk '/ connected/{o=\$1} o!="" && /^ +1920x1080/ && /\\+/{print o; exit}')
+[ -n "\$OUT" ] && xrandr --output "\$OUT" --rotate $ROTDIR
 exit 0
 XEOF
 
