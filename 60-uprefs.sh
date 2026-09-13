@@ -234,6 +234,49 @@ fi
 
 
 
+#    Keyboard
+
+
+section "Keyboard"
+
+####### 20-desktop writes the layout, but it runs before HyDE has ever
+####### launched, so hyprland.conf does not exist yet and nothing sources
+####### userprefs.conf
+####### this stage runs after the reboot, when the file finally exists, which
+####### is the first moment the layout can actually be made to stick
+
+HCONF="$HOME/.config/hypr/hyprland.conf"
+
+if [[ ! -f "$HCONF" ]]; then
+	flag "still no hyprland.conf, log into the desktop once then rerun this stage"
+
+elif grep -q 'userprefs.conf' "$HCONF"; then
+	note "hyprland.conf sources userprefs.conf"
+
+else
+	printf '\nsource = ~/.config/hypr/userprefs.conf\n' >> "$HCONF"
+	note "added the missing source line, this is why the layout never applied"
+fi
+
+####### and make it true right now rather than at the next login
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+	####### keyword is rejected by the current parser, reload is not
+	soft "reload hyprland" hyprctl reload
+
+	LIVE="$(capture hyprctl getoption input:kb_variant)"
+
+	if contains "$LIVE" "$KEYMAP"; then
+		pass "keyboard is $KEYMAP right now"
+	else
+		flag "Hyprland still reports: $LIVE"
+		flag "log out and back in, the config is correct now"
+	fi
+else
+	note "not in a session, layout applies at next login"
+fi
+
+
+
 #    Monitors
 
 

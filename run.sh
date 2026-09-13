@@ -226,16 +226,18 @@ pick_stacks() {
 	local reply t bad out parts
 
 	while true; do
-		{
-			printf '\n  Available services. All of them run on this PC only,\n'
-			printf '  reachable from this machine and nowhere else.\n\n'
-			printf '    searxng     private search engine, replaces Google\n'
-			printf '    portainer   web dashboard for managing Docker\n'
-			printf '    invidious   private YouTube backend, feeds FreeTube\n'
-			printf '    comfyui     AI image generation, uses your GPU\n\n'
-			printf '    all         every one of them\n'
-			printf '    none        skip self hosting\n\n'
-		} > /dev/tty
+		act_line "Available services. All of them run on this PC only,"
+		act_line "reachable from this machine and nowhere else."
+		act_line ""
+		act_line "  searxng     private search engine, replaces Google"
+		act_line "  portainer   web dashboard for managing Docker"
+		act_line "  invidious   private YouTube backend, feeds FreeTube"
+		act_line "  comfyui     AI image generation, uses your GPU"
+		act_line ""
+		act_line "  all         every one of them"
+		act_line "  none        skip self hosting"
+		act_line ""
+
 
 		reply="$(ask 'Which ones, comma separated' 'searxng,portainer,invidious')"
 		reply="${reply// /}"
@@ -317,13 +319,12 @@ Nothing installs until you are through them."
 
 	if need MULLVAD_ENTRY; then
 		rule
-		{
-			printf '\n  Multihop enters the VPN at one location and leaves at another.\n'
-			printf '  Give a country, or a country and a city, or none.\n\n'
-			printf '    us atl   Atlanta        us lax   Los Angeles\n'
-			printf '    se       Sweden         ch       Switzerland\n\n'
-			printf '  Full list later with: mullvad relay list\n\n'
-		} > /dev/tty
+		act_line "Multihop enters the VPN at one location and leaves at another."
+		act_line "Give a country, or a country and a city, or none."
+		act_line "us atl   Atlanta        us lax   Los Angeles"
+		act_line "se       Sweden         ch       Switzerland"
+		act_line "Full list later with: mullvad relay list"
+
 
 		save_cfg MULLVAD_ENTRY "$(ask 'Multihop entry location' 'us atl')"
 	fi
@@ -333,14 +334,13 @@ Nothing installs until you are through them."
 
 	if need WANT_TAILSCALE; then
 		rule
-		{
-			printf '\n  Tailscale lets the laptop and phone reach this PC from\n'
-			printf '  anywhere, without opening anything to the internet.\n\n'
-			printf '  It is also the most fragile part of this setup, because it\n'
-			printf '  has to be carved out of the Mullvad tunnel by hand.\n'
-			printf '  Nothing else needs it. You can turn it on any time with\n'
-			printf '  rebuild --only 35-tailnet\n\n'
-		} > /dev/tty
+		act_line "Tailscale lets the laptop and phone reach this PC from"
+		act_line "anywhere, without opening anything to the internet."
+		act_line "It is also the most fragile part of this setup, because it"
+		act_line "has to be carved out of the Mullvad tunnel by hand."
+		act_line "Nothing else needs it. You can turn it on any time with"
+		act_line "rebuild --only 35-tailnet"
+
 
 		if yesno "Set up Tailscale remote access now" n; then
 			save_cfg WANT_TAILSCALE yes

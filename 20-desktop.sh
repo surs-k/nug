@@ -210,49 +210,49 @@ EOF
 
 ## Sourced
 
-####### userprefs.conf is HyDE's documented user hook, but it only does
-####### anything if hyprland.conf actually sources it
-####### writing a correct file that nothing reads is exactly what qwerty on
-####### the desktop looks like
+####### userprefs.conf only does anything if hyprland.conf sources it
+####### HyDE writes that file when it first launches, so on a fresh install
+####### it does not exist yet at this point, which is why the layout never
+####### applied no matter how correct the file was
 
 HCONF="$HOME/.config/hypr/hyprland.conf"
+HYDE_BASE="$HOME/.local/share/hyde/hyprland.conf"
 
 if [[ -f "$HCONF" ]]; then
+
 	if grep -q 'userprefs.conf' "$HCONF"; then
 		note "hyprland.conf already sources userprefs.conf"
 	else
 		printf '\nsource = ~/.config/hypr/userprefs.conf\n' >> "$HCONF"
-		flag "hyprland.conf was not sourcing userprefs.conf, added it"
+		note "added the missing source line to hyprland.conf"
 	fi
+
+elif [[ -f "$HYDE_BASE" ]]; then
+
+	####### HyDE is installed but has not written its config yet
+	####### this is the documented layout, boilerplate first then user files,
+	####### and HyDE overwrites it with the same shape on first launch
+	cat > "$HCONF" << 'HEOF'
+source = ~/.local/share/hyde/hyprland.conf
+source = ~/.config/hypr/keybindings.conf
+source = ~/.config/hypr/windowrules.conf
+source = ~/.config/hypr/monitors.conf
+source = ~/.config/hypr/userprefs.conf
+HEOF
+	note "wrote hyprland.conf so the layout applies at first login"
+
 else
-	flag "no hyprland.conf yet, HyDE writes it on first launch"
-fi
-
-
-## Greeter
-
-####### the login screen has its own hyprland instance and its own layout
-$SUDO mkdir -p /etc/sddm.conf.d/hypr
-
-if [[ -f /etc/sddm.conf.d/hypr/sddm-hyprland.conf ]]; then
-	$SUDO sed -i "s/kb_layout = .*/kb_layout = us/" /etc/sddm.conf.d/hypr/sddm-hyprland.conf
-	grep -q kb_variant /etc/sddm.conf.d/hypr/sddm-hyprland.conf \
-		|| $SUDO sed -i "/kb_layout/a\\    kb_variant = $KEYMAP" /etc/sddm.conf.d/hypr/sddm-hyprland.conf
-	note "login screen set to $KEYMAP"
-else
-	note "no sddm hyprland config, login screen left alone"
+	flag "HyDE is not installed where expected, layout may not apply"
 fi
 
 
 ## Live
 
-####### apply it now if a session is running, so it does not wait for a logout
+####### hyprctl keyword is rejected by the parser in current Hyprland
+####### reload re-reads the config instead, which works either way
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-	soft "apply layout now" hyprctl keyword input:kb_layout us
-	soft "apply variant now" hyprctl keyword input:kb_variant "$KEYMAP"
+	soft "reload hyprland" hyprctl reload
 fi
-
-note "colemak written, active now if in a session, else at next login"
 
 
 
@@ -270,7 +270,7 @@ check "userprefs sourced" sh -c 'test ! -f "$HOME/.config/hypr/hyprland.conf" ||
 
 ####### the file being right proves nothing, this asks hyprland itself
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-	check "layout live" sh -c "hyprctl getoption input:kb_variant | grep -q $KEYMAP"
+	warn "layout live" sh -c "hyprctl getoption input:kb_variant | grep -q $KEYMAP"
 fi
 check "no lua config"     sh -c '! test -f "$HOME/.config/hypr/hyprland.lua"' 
 

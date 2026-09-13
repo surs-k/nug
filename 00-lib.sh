@@ -508,13 +508,17 @@ capture() { "$@" 2>&1 || true; }
 
 ## Line
 
+####### the prompt itself gets the marker, so a question never appears as a
+####### bare line with nothing saying it is still your turn
+act_prompt() { printf '%s>>%s  %s' "$C_ACT" "$C_OFF" "$*"; }
+
 ask() {
 	local prompt=$1 default=${2:-} reply
 	if [[ -n "$default" ]]; then
-		read -rp "  $prompt [$default]: " reply < /dev/tty
+		read -rp "$(act_prompt "$prompt [$default]: ")" reply < /dev/tty
 		printf '%s' "${reply:-$default}"
 	else
-		read -rp "  $prompt: " reply < /dev/tty
+		read -rp "$(act_prompt "$prompt: ")" reply < /dev/tty
 		printf '%s' "$reply"
 	fi
 }
@@ -523,11 +527,8 @@ ask() {
 ## Divider
 
 ####### a question needs room around it or it reads as part of the last answer
-rule() {
-	printf '\n' > /dev/tty
-	printf '  ----------------------------------------\n' > /dev/tty
-	printf '\n' > /dev/tty
-}
+####### kept as a name, but it draws the pink rule now
+rule() { act_rule; }
 
 
 ## Yes
@@ -542,7 +543,7 @@ yesno() {
 		hint="(y/N)"
 	fi
 
-	read -rp "  $prompt $hint: " reply < /dev/tty
+	read -rp "$(act_prompt "$prompt $hint: ")" reply < /dev/tty
 
 	reply="${reply:-$default}"
 
@@ -554,7 +555,7 @@ yesno() {
 
 confirm() {
 	local reply
-	read -rp "  Type YES to continue: " reply < /dev/tty
+	read -rp "$(act_prompt 'Type YES to continue: ')" reply < /dev/tty
 	[[ "$reply" == YES ]] || exit 1
 }
 
@@ -563,7 +564,7 @@ confirm() {
 
 secret() {
 	local prompt=$1 reply
-	read -rsp "  $prompt: " reply < /dev/tty
+	read -rsp "$(act_prompt "$prompt: ")" reply < /dev/tty
 	printf '\n' > /dev/tty
 	printf '%s' "$reply"
 }
@@ -706,7 +707,7 @@ partname() { printf '%s%s%s' "$1" "$(partsuffix "$1")" "$2"; }
 pick_disk() {
 	local prompt=$1 dev
 	while true; do
-		read -rp "  $prompt" dev < /dev/tty || { printf 'No input\n' >&2; exit 1; }
+		read -rp "$(act_prompt "$prompt")" dev < /dev/tty || { printf 'No input\n' >&2; exit 1; }
 		[[ "$dev" == /dev/* ]] || dev="/dev/$dev"
 		if [[ ! -b "$dev" ]]; then
 			printf '  not a block device: %s\n' "$dev" >&2
