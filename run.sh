@@ -181,14 +181,35 @@ esac
 
 section "Answers"
 
+
+## Network
+
+####### three stages failing one after another because the network is down
+####### is a bad way to find out the network is down
+
+if ! routed; then
+	printf '\n  %sNo route out. Nothing here can download anything.%s\n\n' "$C_FAIL" "$C_OFF" >&2
+	printf '  Check:  nmcli device status\n' >&2
+	printf '          mullvad status\n' >&2
+	printf '          ip route\n\n' >&2
+	exit 1
+fi
+
+if ! resolves; then
+	printf '\n  %sRouting works but DNS does not.%s\n\n' "$C_FAIL" "$C_OFF" >&2
+	printf '  Check:  resolvectl status\n' >&2
+	printf '          mullvad status\n' >&2
+	printf '          mullvad dns get\n\n' >&2
+	exit 1
+fi
+
 ####### every question for every remaining stage is asked here, once
 ####### after this block the run is hands off until a reboot or the end
 
 
 ## Sudo
 
-note "Your password unlocks sudo for the whole run."
-printf '\n'
+action "Type your password. It unlocks sudo for the whole run."
 
 sudo_keepalive
 

@@ -108,7 +108,14 @@ fi
 ####### anything that needs you to do something by hand
 ####### deliberately a different shape and colour from every other block, so
 ####### it registers from the corner of your eye without being read
+ACT_IS_OPEN=0
+ACT_LINES=0
+
 act_open() {
+	(( ACT_IS_OPEN )) && return 0
+	ACT_IS_OPEN=1
+	ACT_LINES=0
+
 	printf '\n' > /dev/tty
 	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
@@ -128,6 +135,9 @@ act_feed() {
 }
 
 act_close() {
+	(( ACT_IS_OPEN )) || return 0
+	ACT_IS_OPEN=0
+
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '\n' > /dev/tty
@@ -138,10 +148,14 @@ action() {
 	local line
 
 	act_open
+
+	####### a blank separator if this is a second thing in the same turn
+	(( ACT_LINES > 0 )) && act_line ""
+
 	while IFS= read -r line; do
 		act_line "$line"
+		ACT_LINES=$(( ACT_LINES + 1 ))
 	done <<< "$*"
-	act_close
 
 	printf 'ACTION NEEDED: %s\n' "$*" >&3
 }
@@ -149,21 +163,24 @@ action() {
 
 ## Say
 
-say()  { printf '%s\n'   "$*"; printf '%s\n'   "$*" >&3; }
+say()  { act_close; printf '%s\n'   "$*"; printf '%s\n'   "$*" >&3; }
 
-note() { printf '  %s\n' "$*"; printf '  %s\n' "$*" >&3; }
+note() { act_close; printf '  %s\n' "$*"; printf '  %s\n' "$*" >&3; }
 
 pass() {
+	act_close
 	printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$*"
 	printf 'OK %s\n' "$*" >&3
 }
 
 info() {
+	act_close
 	printf '  %s[info]%s %s\n' "$C_DIM" "$C_OFF" "$*"
 	printf 'INFO %s\n' "$*" >&3
 }
 
 flag() {
+	act_close
 	printf '  %s[warn]%s %s\n' "$C_WARN" "$C_OFF" "$*" >&2
 	printf 'WARN %s\n' "$*" >&3
 	record_fail "$*"
@@ -186,6 +203,7 @@ STEP=0
 ## Banner
 
 section() {
+	act_close
 	STEP=$((STEP + 1))
 	printf '\n'
 	printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
@@ -210,6 +228,7 @@ VERBOSE="${REBUILD_VERBOSE:-0}"
 ####### run hides output and shows one spinner line
 ####### never give run an interactive command, it has no terminal
 run() {
+	act_close
 	local label=$1; shift
 	local rc=0 ELAPSED=0
 
@@ -757,6 +776,8 @@ cleanup() {
 	####### this runs whether the stage finished or died, which is the whole
 	####### point, a stage that stops half way still has to tell you what
 	####### went wrong before it stopped
+	act_close
+
 	show_failures stage
 
 	return "$rc"

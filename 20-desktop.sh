@@ -181,7 +181,13 @@ mkdir -p "$(dirname "$PREFS")"
 for stale in hyprland.lua monitors.lua; do
 	if [[ -f "$HOME/.config/hypr/$stale" ]]; then
 		mv "$HOME/.config/hypr/$stale" "$HOME/.config/hypr/$stale.disabled"
-		flag "moved $stale aside, it was stopping HyDE from loading at all"
+
+		####### this is a repair, not a fault, so it does not belong in the
+		####### problems list where it reads as something still wrong
+		note "renamed $stale to $stale.disabled"
+		note "a version before 6.0 wrote it, and while it existed Hyprland"
+		note "ignored hyprland.conf entirely, which is why HyDE looked broken"
+		note "nothing else to do, it is fixed, colemak applies at next login"
 	fi
 done
 touch "$PREFS"

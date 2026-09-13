@@ -57,6 +57,7 @@ retry online
 ## Names
 
 if [[ "$HOSTNAME" == CHANGEME || "$USERNAME" == CHANGEME ]]; then
+	action "Name this machine and yourself."
 	HOSTNAME="$(ask 'Hostname')"
 	USERNAME="$(ask 'Username')"
 	[[ -n "$HOSTNAME" && -n "$USERNAME" ]] || { printf 'Both required\n' >&2; exit 1; }
@@ -75,7 +76,7 @@ act_open
 act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
 act_line ""
 lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS | act_feed
-act_close
+act_line ""
 
 SYSTEM_DISK="$(pick_disk 'System disk: ')"
 DATA_DISK="$(pick_disk 'Data disk: ')"
@@ -104,19 +105,14 @@ USER_PASS="$(secret_twice "Password for $USERNAME       ")"
 act_open
 act_line "Check this, then type YES to erase both disks."
 act_line ""
-act_close
-
-printf '  hostname     %s\n' "$HOSTNAME"
-printf '  username     %s\n' "$USERNAME"
-printf '  system disk  %s  %s  WILL BE WIPED\n' "$SYSTEM_DISK" "$(lsblk -dno SIZE "$SYSTEM_DISK")"
-printf '  data disk    %s  %s  WILL BE WIPED\n' "$DATA_DISK" "$(lsblk -dno SIZE "$DATA_DISK")"
-printf '\n'
+act_line "hostname     $HOSTNAME"
+act_line "username     $USERNAME"
+act_line "system disk  $SYSTEM_DISK  $(lsblk -dno SIZE "$SYSTEM_DISK")  WILL BE WIPED"
+act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  WILL BE WIPED"
 
 confirm
 
-printf '\n'
 note "Hands off from here."
-printf '\n'
 
 
 
