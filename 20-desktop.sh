@@ -207,7 +207,52 @@ input {
 # rebuild keyboard end
 EOF
 
-note "colemak written for the desktop, active at next login"
+
+## Sourced
+
+####### userprefs.conf is HyDE's documented user hook, but it only does
+####### anything if hyprland.conf actually sources it
+####### writing a correct file that nothing reads is exactly what qwerty on
+####### the desktop looks like
+
+HCONF="$HOME/.config/hypr/hyprland.conf"
+
+if [[ -f "$HCONF" ]]; then
+	if grep -q 'userprefs.conf' "$HCONF"; then
+		note "hyprland.conf already sources userprefs.conf"
+	else
+		printf '\nsource = ~/.config/hypr/userprefs.conf\n' >> "$HCONF"
+		flag "hyprland.conf was not sourcing userprefs.conf, added it"
+	fi
+else
+	flag "no hyprland.conf yet, HyDE writes it on first launch"
+fi
+
+
+## Greeter
+
+####### the login screen has its own hyprland instance and its own layout
+$SUDO mkdir -p /etc/sddm.conf.d/hypr
+
+if [[ -f /etc/sddm.conf.d/hypr/sddm-hyprland.conf ]]; then
+	$SUDO sed -i "s/kb_layout = .*/kb_layout = us/" /etc/sddm.conf.d/hypr/sddm-hyprland.conf
+	grep -q kb_variant /etc/sddm.conf.d/hypr/sddm-hyprland.conf \
+		|| $SUDO sed -i "/kb_layout/a\\    kb_variant = $KEYMAP" /etc/sddm.conf.d/hypr/sddm-hyprland.conf
+	note "login screen set to $KEYMAP"
+else
+	note "no sddm hyprland config, login screen left alone"
+fi
+
+
+## Live
+
+####### apply it now if a session is running, so it does not wait for a logout
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+	soft "apply layout now" hyprctl keyword input:kb_layout us
+	soft "apply variant now" hyprctl keyword input:kb_variant "$KEYMAP"
+fi
+
+note "colemak written, active now if in a session, else at next login"
 
 
 
@@ -221,6 +266,12 @@ check "hyprland present"  command -v Hyprland
 check "firelink"          test -d "$HOME/firelink"
 check "console keymap"    grep -q "$KEYMAP" /etc/vconsole.conf
 check "desktop keymap"    grep -q 'kb_variant' "$HOME/.config/hypr/userprefs.conf"
+check "userprefs sourced" sh -c 'test ! -f "$HOME/.config/hypr/hyprland.conf" || grep -q userprefs.conf "$HOME/.config/hypr/hyprland.conf"'
+
+####### the file being right proves nothing, this asks hyprland itself
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+	check "layout live" sh -c "hyprctl getoption input:kb_variant | grep -q $KEYMAP"
+fi
 check "no lua config"     sh -c '! test -f "$HOME/.config/hypr/hyprland.lua"' 
 
 if [[ "${HAS_NVIDIA:-no}" == yes ]]; then

@@ -115,14 +115,29 @@ act_open() {
 	(( ACT_IS_OPEN )) && return 0
 	ACT_IS_OPEN=1
 	ACT_LINES=0
+	ACT_ROW=0
 
 	printf '\n' > /dev/tty
 	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 }
 
+ACT_ROW=0
+
+act_rule() {
+	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	ACT_ROW=0
+}
+
+####### a pink marker at the far left stops registering after ten or so rows,
+####### so a full width rule goes in every eight lines to keep the colour
+####### present down the whole block
 act_line() {
 	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" > /dev/tty
+
+	ACT_ROW=$(( ACT_ROW + 1 ))
+	(( ACT_ROW >= 8 )) && act_rule
+	return 0
 }
 
 ####### anything piped in gets wrapped, so disk listings and the like stay
@@ -149,8 +164,9 @@ action() {
 
 	act_open
 
-	####### a blank separator if this is a second thing in the same turn
-	(( ACT_LINES > 0 )) && act_line ""
+	####### a full width rule between things, not a blank line, so the second
+	####### instruction in a turn is as visible as the first
+	(( ACT_LINES > 0 )) && act_rule
 
 	while IFS= read -r line; do
 		act_line "$line"
