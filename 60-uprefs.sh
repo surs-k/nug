@@ -14,9 +14,9 @@ sudo_keepalive
 
 require_stage 20-desktop
 
-PREFS="$HOME/.config/hypr/userprefs.conf"
+LUA="$HOME/.config/hypr/hyprland.lua"
 BINDS="$HOME/.local/share/hypr/lua/key_binds.lua"
-MON="$HOME/.config/hypr/monitors.conf"
+MON="$HOME/.config/hypr/monitors.lua"
 
 [[ -f "$HOME/.local/share/hypr/hyde.lua" ]] \
 	|| { printf 'hyde.lua missing, HyDE is pre-lua, run install.sh -r first\n' >&2; exit 1; }
@@ -173,54 +173,61 @@ fi
 
 ## Backup
 
-mkdir -p "$(dirname "$PREFS")"
-touch "$PREFS"
-[[ -f "$PREFS.bak-prefs" ]] || cp "$PREFS" "$PREFS.bak-prefs"
+mkdir -p "$(dirname "$LUA")"
+touch "$LUA"
+[[ -f "$LUA.bak-prefs" ]] || cp "$LUA" "$LUA.bak-prefs"
 
 
 ## Clear
 
-sed -i '/^# rebuild binds start$/,/^# rebuild binds end$/d' "$PREFS"
+sed -i '/^-- rebuild binds start$/,/^-- rebuild binds end$/d' "$LUA"
 
 
 ## Write
 
-####### hyprlang, because HyDE does not use the Lua provider
-####### unbind first, then bind, so HyDE's own binding is replaced rather
-####### than fighting with ours
+####### lua, because that is the file Hyprland reads on this machine
 
-cat >> "$PREFS" << 'CONFEOF'
-# rebuild binds start
+cat >> "$LUA" << 'LUAEOF'
+-- rebuild binds start
 
-unbind = SUPER, C
-bind = SUPER, C, exec, codium
+hl.unbind("SUPER + C")
+hl.bind("SUPER + C", hl.dsp.exec_cmd("codium"), { description = "[Rebuild] codium" })
 
-unbind = SUPER, P
-bind = SUPER, P, exec, 1password
+hl.unbind("SUPER + P")
+hl.bind("SUPER + P", hl.dsp.exec_cmd("1password"), { description = "[Rebuild] 1password" })
 
-unbind = SUPER, B
-bind = SUPER, B, exec, mullvad-browser
+hl.unbind("SUPER + B")
+hl.bind("SUPER + B", hl.dsp.exec_cmd("mullvad-browser"), { description = "[Rebuild] mullvad-browser" })
 
-unbind = SUPER, V
-bind = SUPER, V, exec, flatpak run io.freetubeapp.FreeTube
+hl.unbind("SUPER + V")
+hl.bind("SUPER + V", hl.dsp.exec_cmd("flatpak run io.freetubeapp.FreeTube"), { description = "[Rebuild] freetube" })
 
-unbind = SUPER, S
-bind = SUPER, S, exec, steam
+hl.unbind("SUPER + S")
+hl.bind("SUPER + S", hl.dsp.exec_cmd("steam"), { description = "[Rebuild] steam" })
 
-bind = SUPER, D, exec, signal-desktop
+hl.bind("SUPER + D", hl.dsp.exec_cmd("signal-desktop"), { description = "[Rebuild] signal" })
 
-unbind = SUPER, E
-bind = SUPER, F, exec, dolphin
+hl.unbind("SUPER + E")
+hl.bind("SUPER + F", hl.dsp.exec_cmd("dolphin"), { description = "[Rebuild] dolphin" })
 
-bind = SUPER, L, exec, librewolf
+hl.bind("SUPER + L", hl.dsp.exec_cmd("librewolf"), { description = "[Rebuild] librewolf" })
 
-windowrulev2 = float, class:^(Mullvad Browser)$
-windowrulev2 = size 1400 1000, class:^(Mullvad Browser)$
-windowrulev2 = center, class:^(Mullvad Browser)$
-windowrulev2 = suppressevent maximize, class:^(Mullvad Browser)$
+hl.window_rule({
+	name = "rebuild-mullvad-nomax",
+	match = { class = "^(Mullvad Browser)$" },
+	suppress_event = "maximize",
+})
 
-# rebuild binds end
-CONFEOF
+hl.window_rule({
+	name = "rebuild-mullvad",
+	match = { class = "^(Mullvad Browser)$" },
+	float = true,
+	size = "1400x1000",
+	center = true,
+})
+
+-- rebuild binds end
+LUAEOF
 
 
 ## Reload
@@ -239,28 +246,31 @@ fi
 
 section "Keyboard"
 
-####### 20-desktop writes the layout, but it runs before HyDE has ever
-####### launched, so hyprland.conf does not exist yet and nothing sources
-####### userprefs.conf
-####### this stage runs after the reboot, when the file finally exists, which
-####### is the first moment the layout can actually be made to stick
+####### 20-desktop already wrote this, it is re-asserted here at the end of
+####### the file so nothing added in between can win
+####### in lua the last assignment is the one that counts
 
-HCONF="$HOME/.config/hypr/hyprland.conf"
+LUA="$HOME/.config/hypr/hyprland.lua"
 
-if [[ ! -f "$HCONF" ]]; then
-	flag "still no hyprland.conf, log into the desktop once then rerun this stage"
+mkdir -p "$(dirname "$LUA")"
+touch "$LUA"
 
-elif grep -q 'userprefs.conf' "$HCONF"; then
-	note "hyprland.conf sources userprefs.conf"
+sed -i '/^-- rebuild keyboard start$/,/^-- rebuild keyboard end$/d' "$LUA"
 
-else
-	printf '\nsource = ~/.config/hypr/userprefs.conf\n' >> "$HCONF"
-	note "added the missing source line, this is why the layout never applied"
-fi
+cat >> "$LUA" << LUAEOF
+-- rebuild keyboard start
 
-####### and make it true right now rather than at the next login
+hl.config({
+  input = {
+    kb_layout = "us",
+    kb_variant = "$KEYMAP"
+  }
+})
+
+-- rebuild keyboard end
+LUAEOF
+
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-	####### keyword is rejected by the current parser, reload is not
 	soft "reload hyprland" hyprctl reload
 
 	LIVE="$(capture hyprctl getoption input:kb_variant)"
@@ -268,8 +278,8 @@ if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
 	if contains "$LIVE" "$KEYMAP"; then
 		pass "keyboard is $KEYMAP right now"
 	else
-		flag "Hyprland still reports: $LIVE"
-		flag "log out and back in, the config is correct now"
+		flag "Hyprland reports: $LIVE"
+		flag "log out and back in, or type: kbfix"
 	fi
 else
 	note "not in a session, layout applies at next login"
@@ -285,11 +295,39 @@ section "Monitors"
 [[ -f "$MON" ]] || touch "$MON"
 [[ -f "$MON.bak-prefs" ]] || cp "$MON" "$MON.bak-prefs"
 
-sed -i '/^# rebuild monitors start$/,/^# rebuild monitors end$/d' "$MON"
+sed -i '/^-- rebuild monitors start$/,/^-- rebuild monitors end$/d' "$MON"
 
 ####### transform 1 is 90 degrees, 3 is 270
 ####### change ROTATE in ~/.install-config if the monitor moves again
 cat >> "$MON" << MONEOF
+-- rebuild monitors start
+
+hl.monitor({
+	output = "desc:Sceptre Tech Inc Sceptre O34",
+	mode = "3440x1440@165",
+	position = "1080x233",
+	scale = 1,
+	transform = 0,
+})
+
+hl.monitor({
+	output = "desc:Acer Technologies KG251Q T8ZAA00A8575",
+	mode = "1920x1080@143.98",
+	position = "0x0",
+	scale = 1,
+	transform = ${ROTATE:-3},
+})
+
+hl.monitor({
+	output = "",
+	mode = "preferred",
+	position = "auto",
+	scale = 1,
+	transform = 0,
+})
+
+-- rebuild monitors end
+MONEOF
 # rebuild monitors start
 
 monitor = desc:Sceptre Tech Inc Sceptre O34, 3440x1440@165, 1080x233, 1
@@ -408,9 +446,10 @@ check "dolphin"            command -v dolphin
 check "steam"              command -v steam
 check "flatpak"            command -v flatpak
 check "keyring present"    command -v gnome-keyring-daemon
-check "binds block"        grep -q 'rebuild binds start' "$PREFS"
-check "block closed"       grep -q 'rebuild binds end' "$PREFS"
-check "block written once" sh -c "test \"\$(grep -c 'rebuild binds start' '$PREFS')\" = 1"
+check "binds block"        grep -q 'rebuild binds start' "$LUA"
+check "block closed"       grep -q 'rebuild binds end' "$LUA"
+check "block written once" sh -c "test \"\$(grep -c 'rebuild binds start' '$LUA')\" = 1"
+check "keyboard in lua"    grep -q 'kb_variant' "$LUA"
 check "monitors block"     grep -q 'rebuild monitors start' "$MON"
 check "monitors once"      sh -c "test \"\$(grep -c 'rebuild monitors start' '$MON')\" = 1"
 check "dolphin config"     test -f "$HOME/.config/dolphinrc"

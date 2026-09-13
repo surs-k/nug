@@ -137,119 +137,113 @@ fi
 
 section "Keyboard"
 
-####### this used to only land in 60-uprefs, which runs after the reboot into
-####### the desktop, so the first desktop boot was always qwerty
-####### the console half also only wrote a config file, and the terminal you
-####### were already sitting in never reloaded it, which is why reboot was
-####### hard to type
+####### hyprland.lua is what Hyprland actually reads on this machine
+####### it writes that file itself at first launch and then ignores
+####### hyprland.conf entirely, which is why every .conf edit did nothing
+####### the layout goes in the lua, and nothing here touches .conf again
+
+LUA="$HOME/.config/hypr/hyprland.lua"
+
+mkdir -p "$(dirname "$LUA")"
+
+
+## Restore
+
+####### an earlier version renamed this file aside, put it back as the base
+if [[ ! -f "$LUA" && -f "$LUA.disabled" ]]; then
+	mv "$LUA.disabled" "$LUA"
+	note "restored hyprland.lua, an earlier version had moved it aside"
+fi
+
+touch "$LUA"
 
 
 ## Console
 
-####### localectl set-keymap was rewriting this file straight after we wrote
-####### it, sometimes quoting the value, which is why the check failed
-####### the file is the thing systemd actually reads, so it is written here
-####### and localectl is only used for the x11 half, with no-convert so it
-####### cannot touch the console side at all
 printf 'KEYMAP=%s\n' "$KEYMAP" | $SUDO tee /etc/vconsole.conf > /dev/null
 
-####### apply to the tty you are sitting in right now, not at the next boot
 soft "apply console keymap" $SUDO loadkeys "$KEYMAP"
 
 soft "set x11 keymap" $SUDO localectl --no-convert set-x11-keymap us pc105 "$KEYMAP"
 
-####### the passphrase prompt at boot comes from the initramfs, which bakes
-####### in vconsole.conf at build time
+####### the passphrase prompt at boot comes from the initramfs
 run "rebuild initramfs" $SUDO mkinitcpio -P
 
 
-## Hyprland
+## Desktop
 
-####### HyDE is a hyprlang setup, it does not use the Lua provider
-####### writing hyprland.lua would have made Hyprland ignore hyprland.conf
-####### entirely, silently, taking every HyDE theme and bind with it
-####### userprefs.conf is HyDE's own hook and survives its updates
+sed -i '/^-- rebuild keyboard start$/,/^-- rebuild keyboard end$/d' "$LUA"
 
-PREFS="$HOME/.config/hypr/userprefs.conf"
+cat >> "$LUA" << LUAEOF
+-- rebuild keyboard start
 
-mkdir -p "$(dirname "$PREFS")"
+hl.config({
+  input = {
+    kb_layout = "us",
+    kb_variant = "$KEYMAP"
+  }
+})
 
-####### versions before 6.0 wrote hyprland.lua and monitors.lua here
-####### while either exists Hyprland ignores hyprland.conf completely, so
-####### HyDE stays dead no matter what we write into userprefs.conf
-####### that is what the no lua config check was catching, correctly
-for stale in hyprland.lua monitors.lua; do
-	if [[ -f "$HOME/.config/hypr/$stale" ]]; then
-		mv "$HOME/.config/hypr/$stale" "$HOME/.config/hypr/$stale.disabled"
+-- rebuild keyboard end
+LUAEOF
 
-		####### this is a repair, not a fault, so it does not belong in the
-		####### problems list where it reads as something still wrong
-		note "renamed $stale to $stale.disabled"
-		note "a version before 6.0 wrote it, and while it existed Hyprland"
-		note "ignored hyprland.conf entirely, which is why HyDE looked broken"
-		note "nothing else to do, it is fixed, colemak applies at next login"
-	fi
-done
-touch "$PREFS"
-
-[[ -f "$PREFS.bak-keyboard" ]] || cp "$PREFS" "$PREFS.bak-keyboard"
-
-sed -i '/^# rebuild keyboard start$/,/^# rebuild keyboard end$/d' "$PREFS"
-
-cat >> "$PREFS" << EOF
-# rebuild keyboard start
-
-input {
-    kb_layout = us
-    kb_variant = $KEYMAP
-}
-
-# rebuild keyboard end
-EOF
+note "colemak written to hyprland.lua"
 
 
-## Sourced
+## Command
 
-####### userprefs.conf only does anything if hyprland.conf sources it
-####### HyDE writes that file when it first launches, so on a fresh install
-####### it does not exist yet at this point, which is why the layout never
-####### applied no matter how correct the file was
+####### one short word to put the layout back
+####### when this breaks you cannot type, and every fix so far has been a
+####### paragraph of qwerty guesswork
+$SUDO tee /usr/local/bin/kbfix > /dev/null << KBEOF
+#!/usr/bin/env bash
+set -euo pipefail
 
-HCONF="$HOME/.config/hypr/hyprland.conf"
-HYDE_BASE="$HOME/.local/share/hyde/hyprland.conf"
+LUA="\$HOME/.config/hypr/hyprland.lua"
 
-if [[ -f "$HCONF" ]]; then
+mkdir -p "\$(dirname "\$LUA")"
+touch "\$LUA"
 
-	if grep -q 'userprefs.conf' "$HCONF"; then
-		note "hyprland.conf already sources userprefs.conf"
-	else
-		printf '\nsource = ~/.config/hypr/userprefs.conf\n' >> "$HCONF"
-		note "added the missing source line to hyprland.conf"
-	fi
+sed -i '/^-- rebuild keyboard start\$/,/^-- rebuild keyboard end\$/d' "\$LUA"
 
-elif [[ -f "$HYDE_BASE" ]]; then
+cat >> "\$LUA" << 'INNER'
+-- rebuild keyboard start
 
-	####### HyDE is installed but has not written its config yet
-	####### this is the documented layout, boilerplate first then user files,
-	####### and HyDE overwrites it with the same shape on first launch
-	cat > "$HCONF" << 'HEOF'
-source = ~/.local/share/hyde/hyprland.conf
-source = ~/.config/hypr/keybindings.conf
-source = ~/.config/hypr/windowrules.conf
-source = ~/.config/hypr/monitors.conf
-source = ~/.config/hypr/userprefs.conf
-HEOF
-	note "wrote hyprland.conf so the layout applies at first login"
+hl.config({
+  input = {
+    kb_layout = "us",
+    kb_variant = "$KEYMAP"
+  }
+})
 
-else
-	flag "HyDE is not installed where expected, layout may not apply"
+-- rebuild keyboard end
+INNER
+
+hyprctl reload 2>/dev/null || true
+
+printf 'keyboard set to $KEYMAP\n'
+printf 'if it did not take, log out and back in\n'
+KBEOF
+
+$SUDO chmod 755 /usr/local/bin/kbfix
+
+note "if the layout ever breaks again, type: kbfix"
+
+
+## Greeter
+
+$SUDO mkdir -p /etc/sddm.conf.d/hypr
+
+if [[ -f /etc/sddm.conf.d/hypr/sddm-hyprland.conf ]]; then
+	grep -q kb_variant /etc/sddm.conf.d/hypr/sddm-hyprland.conf \
+		|| $SUDO sed -i "/kb_layout/a\\    kb_variant = $KEYMAP" \
+			/etc/sddm.conf.d/hypr/sddm-hyprland.conf
+	note "login screen set to $KEYMAP"
 fi
 
 
 ## Live
 
-####### hyprctl keyword is rejected by the parser in current Hyprland
-####### reload re-reads the config instead, which works either way
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
 	soft "reload hyprland" hyprctl reload
 fi
@@ -265,14 +259,13 @@ check "hyde config dir"   test -d "$HOME/.config/hypr"
 check "hyprland present"  command -v Hyprland
 check "firelink"          test -d "$HOME/firelink"
 check "console keymap"    grep -q "$KEYMAP" /etc/vconsole.conf
-check "desktop keymap"    grep -q 'kb_variant' "$HOME/.config/hypr/userprefs.conf"
-check "userprefs sourced" sh -c 'test ! -f "$HOME/.config/hypr/hyprland.conf" || grep -q userprefs.conf "$HOME/.config/hypr/hyprland.conf"'
+check "lua keymap"        grep -q 'kb_variant' "$HOME/.config/hypr/hyprland.lua"
+check "kbfix command"     test -x /usr/local/bin/kbfix
 
 ####### the file being right proves nothing, this asks hyprland itself
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
 	warn "layout live" sh -c "hyprctl getoption input:kb_variant | grep -q $KEYMAP"
 fi
-check "no lua config"     sh -c '! test -f "$HOME/.config/hypr/hyprland.lua"' 
 
 if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 	check "nvidia driver"  pacman -Qq nvidia-open-dkms
