@@ -182,6 +182,12 @@ esac
 section "Answers"
 
 
+## Fresh
+
+####### only this run's problems, the rest move to the history file
+roll_failures
+
+
 ## Network
 
 ####### three stages failing one after another because the network is down

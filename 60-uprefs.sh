@@ -117,7 +117,8 @@ try_aur() {
 	local pkg
 
 	for pkg in "$@"; do
-		if yay -S --needed --noconfirm "$pkg" >&3 2>&1; then
+		if yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
+			--answeredit=None --removemake "$pkg" >&3 2>&1; then
 			pass "$label   via $pkg"
 			return 0
 		fi
@@ -157,18 +158,6 @@ soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Ve
 
 
 section "Hyprland"
-
-
-## Survey
-
-if [[ -f "$BINDS" ]]; then
-	for combo in "SUPER + C" "SUPER + P" "SUPER + B" "SUPER + V" "SUPER + S" "SUPER + E"; do
-		grep -qF "\"$combo\"" "$BINDS" \
-			|| flag "HyDE no longer binds $combo, that unbind may pop an error"
-	done
-else
-	flag "$BINDS absent, cannot confirm HyDE bind spellings"
-fi
 
 
 ## Backup
@@ -222,7 +211,7 @@ hl.window_rule({
 	name = "rebuild-mullvad",
 	match = { class = "^(Mullvad Browser)$" },
 	float = true,
-	size = "1400x1000",
+	size = "1400 1000",
 	center = true,
 })
 

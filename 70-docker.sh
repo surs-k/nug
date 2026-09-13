@@ -303,7 +303,10 @@ fi
 
 ## Comfyui
 
-if contains "$WANT" "comfyui"; then
+if contains "$WANT" "comfyui" && [[ "${HAS_NVIDIA:-no}" != yes ]]; then
+	note "skipping comfyui, it needs a GPU and this machine has none"
+
+elif contains "$WANT" "comfyui"; then
 
 	CU="$STACKS_DIR/comfyui"
 

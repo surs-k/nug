@@ -72,6 +72,20 @@ printf '\n===== %s  %s =====\n' "$STAGE" "$(date -Is)" >&3
 ####### this file is what gets printed at the end of a stage and at the end of
 ####### the whole run, including when a stage dies part way through
 FAILLOG="$LOGDIR/failures.txt"
+FAILHIST="$LOGDIR/failures-history.txt"
+
+####### run.sh rolls this over before the stages start
+####### it used to accumulate forever, so problems fixed weeks ago kept
+####### reappearing in the summary with nothing to say they were old
+roll_failures() {
+	if [[ -s "$FAILLOG" ]]; then
+		{
+			printf '\n===== %s =====\n' "$(date -Is)"
+			cat "$FAILLOG"
+		} >> "$FAILHIST"
+	fi
+	: > "$FAILLOG"
+}
 
 touch "$FAILLOG"
 
@@ -411,7 +425,11 @@ pac() {
 aur() {
 	printf '\n  aur build  %s\n\n' "$*"
 	printf 'yay -S %s\n' "$*" >&3
-	yay -S --needed --noconfirm "$@" 2> >(tee -a "$LOG" >&2)
+	####### --noconfirm alone is not enough, yay still stops to ask whether
+	####### you want to see the diff, view the PKGBUILD or edit it, and the
+	####### default answer to those is not always the one that continues
+	yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
+		--answeredit=None --removemake "$@" 2> >(tee -a "$LOG" >&2)
 }
 
 
@@ -744,8 +762,8 @@ check() {
 	if "$@" >&3 2>&1; then
 		printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$label"
 	else
-		printf '  %s[FAIL]%s %s\n' "$C_FAIL" "$C_OFF" "$label" >&2
-		record_fail "check failed: $label"
+		printf '  %s[FAIL]%s could not confirm: %s\n' "$C_FAIL" "$C_OFF" "$label" >&2
+		record_fail "could not confirm: $label"
 		FAILED=1
 	fi
 }
@@ -758,8 +776,8 @@ warn() {
 	if "$@" >&3 2>&1; then
 		printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$label"
 	else
-		printf '  %s[warn]%s %s\n' "$C_WARN" "$C_OFF" "$label" >&2
-		record_fail "$label"
+		printf '  %s[warn]%s could not confirm: %s\n' "$C_WARN" "$C_OFF" "$label" >&2
+		record_fail "could not confirm: $label"
 	fi
 }
 
