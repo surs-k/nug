@@ -155,6 +155,15 @@ act_line() {
 	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" > /dev/tty
 }
 
+####### anything piped in gets wrapped, so a disk listing stays inside the
+####### block instead of sitting outside it as loose text
+act_feed() {
+	local line
+	while IFS= read -r line; do
+		printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$line" > /dev/tty
+	done
+}
+
 act_close() {
 	(( ACT_IS_OPEN )) || return 0
 	ACT_IS_OPEN=0
