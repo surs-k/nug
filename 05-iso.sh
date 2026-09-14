@@ -95,9 +95,15 @@ The disk passphrase unlocks both disks. You set it once."
 
 LUKS_PASS="$(secret_twice 'Disk passphrase, both disks')"
 
+act_gap
+
 ROOT_PASS="$(secret_twice 'Root password              ')"
 
+act_gap
+
 USER_PASS="$(secret_twice "Password for $USERNAME       ")"
+
+act_break
 
 
 ## Review

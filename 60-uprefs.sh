@@ -317,14 +317,6 @@ hl.monitor({
 
 -- rebuild monitors end
 MONEOF
-# rebuild monitors start
-
-monitor = desc:Sceptre Tech Inc Sceptre O34, 3440x1440@165, 1080x233, 1
-monitor = desc:Acer Technologies KG251Q T8ZAA00A8575, 1920x1080@143.98, 0x0, 1, transform, ${ROTATE:-3}
-monitor = , preferred, auto, 1
-
-# rebuild monitors end
-MONEOF
 
 
 ## Greeter

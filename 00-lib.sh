@@ -129,38 +129,30 @@ act_open() {
 	(( ACT_IS_OPEN )) && return 0
 	ACT_IS_OPEN=1
 	ACT_LINES=0
-	ACT_ROW=0
 
 	printf '\n' > /dev/tty
 	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 }
 
-ACT_ROW=0
-
 act_rule() {
 	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
-	ACT_ROW=0
 }
 
-####### a pink marker at the far left stops registering after ten or so rows,
-####### so a full width rule goes in every eight lines to keep the colour
-####### present down the whole block
+####### one blank marker line, for things that are related but distinct
+act_gap() {
+	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+}
+
+####### two, for things that have nothing to do with each other
+act_break() {
+	act_gap
+	act_gap
+}
+
+####### no automatic rules, spacing is placed deliberately or not at all
 act_line() {
 	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" > /dev/tty
-
-	ACT_ROW=$(( ACT_ROW + 1 ))
-	(( ACT_ROW >= 8 )) && act_rule
-	return 0
-}
-
-####### anything piped in gets wrapped, so disk listings and the like stay
-####### inside the block instead of sitting outside it as loose text
-act_feed() {
-	local line
-	while IFS= read -r line; do
-		printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$line" > /dev/tty
-	done
 }
 
 act_close() {
@@ -178,9 +170,8 @@ action() {
 
 	act_open
 
-	####### a full width rule between things, not a blank line, so the second
-	####### instruction in a turn is as visible as the first
-	(( ACT_LINES > 0 )) && act_rule
+	####### two blank marker lines between separate instructions
+	(( ACT_LINES > 0 )) && act_break
 
 	while IFS= read -r line; do
 		act_line "$line"
@@ -517,7 +508,26 @@ contains() { [[ "$1" == *"$2"* ]]; }
 
 ## Capture
 
+####### capture returns the error text when a command fails or is missing
+####### so a non empty result does NOT mean success, and treating it as a
+####### value is how an error string ended up in a docker env file
 capture() { "$@" 2>&1 || true; }
+
+
+## Tailnet
+
+####### empty unless there is a real tailnet address, checked by shape
+tailnet_ip() {
+	command -v tailscale > /dev/null 2>&1 || return 1
+
+	local ip
+	ip="$(tailscale ip -4 2>/dev/null || true)"
+	ip="${ip//[[:space:]]/}"
+
+	[[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
+
+	printf '%s' "$ip"
+}
 
 
 
@@ -545,8 +555,8 @@ ask() {
 ## Divider
 
 ####### a question needs room around it or it reads as part of the last answer
-####### kept as a name, but it draws the pink rule now
-rule() { act_rule; }
+####### separates one question from the next
+rule() { act_break; }
 
 
 ## Yes

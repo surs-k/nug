@@ -99,13 +99,21 @@ fi
 
 ENTRY="${MULLVAD_ENTRY:-none}"
 
-####### the daemon downloads the relay list after it starts, and a location
-####### set before that arrives is rejected as invalid
-####### that is why this failed on a first run and worked on the retry
+####### your GUI produced "Multihop state: enabled" plus an entry location
+####### setting the entry location alone may leave the state disabled, which
+####### would explain a command that reports success while multihop stays off
+####### so both are set, and then the state is read back to see which it was
+
 relays_ready() {
 	local list
 	list="$(capture $SUDO mullvad relay list)"
 	[[ ${#list} -gt 200 ]]
+}
+
+multihop_on() {
+	local get
+	get="$(capture $SUDO mullvad relay get)"
+	contains "$get" "Multihop state: enabled" || contains "$get" "Multihop state:  enabled"
 }
 
 if [[ "$ENTRY" == none ]]; then
@@ -113,12 +121,21 @@ if [[ "$ENTRY" == none ]]; then
 else
 	wait_for 60 relays_ready || flag "relay list never arrived, multihop may be rejected"
 
+	####### the entry location, which is what the docs describe
 	####### deliberately unquoted, the location is one to three words
-	####### country, or country and city, or country city and server
-	if $SUDO mullvad relay set entry location $ENTRY >&3 2>&1; then
-		pass "multihop entering via $ENTRY"
+	soft "multihop entry $ENTRY" $SUDO mullvad relay set entry location $ENTRY
+
+	####### and the state, in case that is a separate switch on this version
+	if ! multihop_on; then
+		soft "enable multihop" $SUDO mullvad relay set tunnel wireguard --use-multihop on
+	fi
+
+	if multihop_on; then
+		pass "multihop on, entering via $ENTRY"
 	else
-		flag "multihop entry '$ENTRY' rejected, see valid codes: mullvad relay list"
+		flag "multihop entry set but the state is still disabled"
+		flag "turn it on in the app under WireGuard settings, it sticks after that"
+		flag "check with: mullvad relay get"
 	fi
 fi
 

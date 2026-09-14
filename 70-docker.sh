@@ -243,22 +243,25 @@ if contains "$WANT" "searxng"; then
 		chmod 600 "$SX/.env"
 	fi
 
-	####### bound to loopback and the tailnet, so the laptop and phone reach
-	####### it but nothing on the open LAN or the internet can
-	TS_IP="$(capture tailscale ip -4)"
-	TS_IP="${TS_IP//[[:space:]]/}"
+	####### bound to loopback, and to the tailnet only if there really is one
+	####### an unset bind falls back to 127.0.0.1 inside the compose file
+	sed -i '/^BIND_SEARXNG=/d' "$SX/.env"
 
-	if [[ -n "$TS_IP" ]]; then
+	if TS_IP="$(tailnet_ip)"; then
 		printf 'BIND_SEARXNG=%s\n' "$TS_IP" >> "$SX/.env"
 		note "searxng will also listen on $TS_IP"
+	else
+		note "no tailnet, searxng listens on this machine only"
 	fi
 
 	run "start searxng" $SUDO docker compose -f "$SX/compose.yaml" --env-file "$SX/.env" up -d
 
-	soft "searxng on tailnet" $SUDO ufw allow in on tailscale0 to any port 8080 proto tcp
+	if ip link show tailscale0 &> /dev/null; then
+		soft "searxng on tailnet" $SUDO ufw allow in on tailscale0 to any port 8080 proto tcp
+	fi
 
 	note "searxng at http://127.0.0.1:8080"
-	[[ -n "$TS_IP" ]] && note "and at http://$TS_IP:8080 from your other devices"
+	[[ -n "${TS_IP:-}" ]] && note "and at http://$TS_IP:8080 from your other devices"
 fi
 
 
@@ -283,20 +286,23 @@ if contains "$WANT" "invidious"; then
 		chmod 600 "$IV/.env"
 	fi
 
-	TS_IP="$(capture tailscale ip -4)"
-	TS_IP="${TS_IP//[[:space:]]/}"
+	sed -i '/^BIND_INVIDIOUS=/d' "$IV/.env"
 
-	if [[ -n "$TS_IP" ]]; then
+	if TS_IP="$(tailnet_ip)"; then
 		printf 'BIND_INVIDIOUS=%s\n' "$TS_IP" >> "$IV/.env"
 		note "invidious will also listen on $TS_IP"
+	else
+		note "no tailnet, invidious listens on this machine only"
 	fi
 
 	run "start invidious" $SUDO docker compose -f "$IV/compose.yaml" --env-file "$IV/.env" up -d
 
-	soft "invidious on tailnet" $SUDO ufw allow in on tailscale0 to any port 3000 proto tcp
+	if ip link show tailscale0 &> /dev/null; then
+		soft "invidious on tailnet" $SUDO ufw allow in on tailscale0 to any port 3000 proto tcp
+	fi
 
 	note "invidious at http://127.0.0.1:3000"
-	[[ -n "$TS_IP" ]] && note "and at http://$TS_IP:3000 from your other devices"
+	[[ -n "${TS_IP:-}" ]] && note "and at http://$TS_IP:3000 from your other devices"
 	note "point FreeTube at it, see Guides/Selfhost.md"
 fi
 

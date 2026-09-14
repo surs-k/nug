@@ -244,11 +244,22 @@ if [[ "$SNAPBOOT" == yes ]]; then
 	####### and auto boot still works
 	####### if the menu misbehaves after this, limine-header-fix --flat strips
 	####### the marker back out
+	####### limine-snapper-sync wants the kernel as a sub entry under a
+	####### directory, so it can add snapshot entries beside it
+	####### a flat bootable entry is what makes auto boot work
+	####### those two shapes are mutually exclusive, and this is the warning
+	####### you saw on the desktop about no kernel in limine.conf
 	if grep -q '^    //Snapshots' /boot/limine.conf; then
 		note "snapshot marker already present"
-	else
+
+	elif grep -q '^/+' /boot/limine.conf; then
 		printf '    //Snapshots\n' | $SUDO tee -a /boot/limine.conf > /dev/null
 		note "added the snapshot marker inside the Arch entry"
+
+	else
+		flag "boot entry is flat, so snapshot boot entries cannot be generated"
+		flag "the system boots reliably, but rollback from the menu is unavailable"
+		flag "see Guides/Bootmenu.md, this is a deliberate trade and yours to make"
 	fi
 
 	soft "baseline snapshot" $SUDO snapper -c root create --description "rebuild baseline"
