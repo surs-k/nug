@@ -376,7 +376,10 @@ section "Verify"
 
 check "docker active"    systemctl is-active --quiet docker
 check "docker responds"  $SUDO docker info
-check "user in group"    sh -c "id -nG $USERNAME > /tmp/_dg; grep -qw docker /tmp/_dg"
+####### you are deliberately NOT in the docker group, so this check could
+####### never pass, and its failure was the whole reason the stage exited 1
+####### the stacks were coming up fine
+check "not in docker group" sh -c "id -nG $USERNAME > /tmp/_dg; ! grep -qw docker /tmp/_dg"
 check "stacks copied"    test -d "$STACKS_DIR"
 check "ufw-docker"       test -x /usr/local/bin/ufw-docker
 

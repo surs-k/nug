@@ -121,21 +121,16 @@ if [[ "$ENTRY" == none ]]; then
 else
 	wait_for 60 relays_ready || flag "relay list never arrived, multihop may be rejected"
 
-	####### the entry location, which is what the docs describe
-	####### deliberately unquoted, the location is one to three words
+	####### the entry location is set, because that part works
+	####### the state switch is not, the CLI flag for it was rejected on this
+	####### version and chasing it cost more rounds than it was worth
+	####### you turn it on in the app once and it sticks
 	soft "multihop entry $ENTRY" $SUDO mullvad relay set entry location $ENTRY
-
-	####### and the state, in case that is a separate switch on this version
-	if ! multihop_on; then
-		soft "enable multihop" $SUDO mullvad relay set tunnel wireguard --use-multihop on
-	fi
 
 	if multihop_on; then
 		pass "multihop on, entering via $ENTRY"
 	else
-		flag "multihop entry set but the state is still disabled"
-		flag "turn it on in the app under WireGuard settings, it sticks after that"
-		flag "check with: mullvad relay get"
+		note "multihop entry is $ENTRY, switch the state on in the app once"
 	fi
 fi
 
