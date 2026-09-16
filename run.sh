@@ -234,8 +234,6 @@ action "Type your password. It unlocks sudo for the whole run."
 
 sudo_keepalive
 
-printf '\n'
-
 
 ## Ask
 
@@ -259,7 +257,6 @@ pick_stacks() {
 		act_line "  none        skip self hosting"
 		act_line ""
 
-
 		reply="$(ask 'Which ones, comma separated' 'searxng,portainer,invidious')"
 		reply="${reply// /}"
 
@@ -278,7 +275,7 @@ pick_stacks() {
 					out="${out:+$out,}$t" ;;
 				"") ;;
 				*)
-					printf '  not a service: %s\n' "$t" > /dev/tty
+					act_line "Not a service: $t"
 					bad=1 ;;
 			esac
 		done
@@ -288,19 +285,28 @@ pick_stacks() {
 			return 0
 		fi
 
-		printf '  try again\n' > /dev/tty
+		act_line "Try again."
+		act_line ""
 	done
 }
 
 
 ####### each answer is checked on its own rather than behind one flag
 ####### a single ANSWERED gate meant any question added later was skipped
-####### forever on a machine that had already answered the earlier ones,
-####### which is why the multihop location was never asked for
+####### forever on a machine that had already answered the earlier ones
 need() { [[ -z "${!1:-}" ]]; }
 
+####### every question starts with an arrow line gap, and the one after the
+####### long service list gets the bigger gap
+NEXT_GAP=small
+
+gap() {
+	act_next "$NEXT_GAP"
+	NEXT_GAP=small
+}
+
 if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
-	|| need MULLVAD_ENTRY || need WANT_TAILSCALE || need WANT_OLLAMA \
+	|| need WANT_TAILSCALE || need WANT_OLLAMA \
 	|| need WANT_SUNSHINE || need WANT_LIBREWOLF || need WANT_LOCKDOWN; then
 
 	action "Answer a few questions. Press enter to take each default.
@@ -311,7 +317,7 @@ Nothing installs until you are through them."
 	## Chaotic
 
 	if need WANT_CHAOTIC_REMOVE; then
-		rule
+		gap
 		if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
 			save_cfg WANT_CHAOTIC_REMOVE yes
 		else
@@ -323,12 +329,14 @@ Nothing installs until you are through them."
 	## Hosting
 
 	if need WANT_DOCKER; then
-		rule
+		gap
 		if yesno "Set up Docker and self hosted services" y; then
 			save_cfg WANT_DOCKER yes
+			act_next
 			STACKS="$(pick_stacks)"
 			save_cfg WANT_STACKS "$STACKS"
-			printf '  chosen: %s\n' "$STACKS" > /dev/tty
+			act_line "Chosen: $STACKS"
+			NEXT_GAP=big
 		else
 			save_cfg WANT_DOCKER no
 			save_cfg WANT_STACKS none
@@ -336,33 +344,11 @@ Nothing installs until you are through them."
 	fi
 
 
-	## Multihop
-
-	if need MULLVAD_ENTRY; then
-		rule
-		act_line "Multihop enters the VPN at one location and leaves at another."
-		act_line "Give a country, or a country and a city, or none."
-		act_line "us atl   Atlanta        us lax   Los Angeles"
-		act_line "se       Sweden         ch       Switzerland"
-		act_line "Full list later with: mullvad relay list"
-
-
-		save_cfg MULLVAD_ENTRY "$(ask 'Multihop entry location' 'us atl')"
-	fi
-
-
 	## Tailnet
 
+	####### the reasons Tailscale is off by default live in the README
 	if need WANT_TAILSCALE; then
-		rule
-		act_line "Tailscale lets the laptop and phone reach this PC from"
-		act_line "anywhere, without opening anything to the internet."
-		act_line "It is also the most fragile part of this setup, because it"
-		act_line "has to be carved out of the Mullvad tunnel by hand."
-		act_line "Nothing else needs it. You can turn it on any time with"
-		act_line "rebuild --only 35-tailnet"
-
-
+		gap
 		if yesno "Set up Tailscale remote access now" n; then
 			save_cfg WANT_TAILSCALE yes
 		else
@@ -374,7 +360,7 @@ Nothing installs until you are through them."
 	## Ollama
 
 	if need WANT_OLLAMA; then
-		rule
+		gap
 		if yesno "Install Ollama for local AI models" y; then
 			save_cfg WANT_OLLAMA yes
 		else
@@ -386,7 +372,7 @@ Nothing installs until you are through them."
 	## Sunshine
 
 	if need WANT_SUNSHINE; then
-		rule
+		gap
 		if yesno "Set up Sunshine so the laptop can drive this PC" y; then
 			save_cfg WANT_SUNSHINE yes
 		else
@@ -398,7 +384,7 @@ Nothing installs until you are through them."
 	## Librewolf
 
 	if need WANT_LIBREWOLF; then
-		rule
+		gap
 		if yesno "Install LibreWolf as a second browser for local services" y; then
 			save_cfg WANT_LIBREWOLF yes
 		else
@@ -412,9 +398,8 @@ Nothing installs until you are through them."
 	####### asked here now, it used to be asked by 90-health near the very
 	####### end, which stopped an unattended run with the summary unprinted
 	if need WANT_LOCKDOWN; then
-		rule
-		act_line "Lockdown mode blocks all traffic whenever the VPN is not"
-		act_line "connected, including while it reconnects."
+		gap
+		act_line "Lockdown mode blocks all traffic whenever the VPN is down."
 		if yesno "Turn on lockdown mode at the end of the run" y; then
 			save_cfg WANT_LOCKDOWN yes
 		else
@@ -423,7 +408,7 @@ Nothing installs until you are through them."
 	fi
 
 
-	printf '\n'
+	act_close
 	note "Saved. Only questions without an answer are asked."
 	note "Edit $CONFIG to change any answer."
 	printf '\n'

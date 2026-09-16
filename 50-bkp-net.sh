@@ -89,12 +89,20 @@ $SUDO tee /etc/ssh/sshd_config.d/10-harden.conf > /dev/null << 'EOF'
 PermitRootLogin no
 EOF
 
+####### a key from the laptop replaces your password for SSH logins only
+####### the login screen and sudo on this PC keep using the password
+####### the firewall only opens SSH on the tailnet, so with Tailscale off
+####### nothing can reach it at all, see Guides/Network.md
 if [[ -s "$HOME/.ssh/authorized_keys" ]]; then
 	printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' \
 		| $SUDO tee -a /etc/ssh/sshd_config.d/10-harden.conf > /dev/null
-	note "key only auth enabled"
+	note "SSH takes keys only, passwords are refused"
 else
-	note "no SSH keys yet, so password login stays on for now"
+	note "SSH still takes your password, no laptop key added yet"
+fi
+
+if ! ip link show tailscale0 &> /dev/null; then
+	note "SSH is closed to the network until Tailscale is on"
 fi
 
 run "generate host keys" $SUDO ssh-keygen -A

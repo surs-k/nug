@@ -13,11 +13,13 @@ stage_banner "05-iso" "partitions, encryption, base system, boot menu" "installe
 section "Answers"
 
 ####### every question in the whole install lives in this one block
-####### after the last confirm nothing else is asked until the end
+####### after the last password nothing else is asked until the end
+####### subjects are split by an arrow line, with one extra blank line
+####### after a long subject, as laid out in the v6.14 review
 
-action "Everything you type is in this section.
+act_text "Everything you type is in this section.
 
-After the final confirm the install runs on its own."
+After the last password the install runs on its own."
 
 
 ## Firmware
@@ -59,7 +61,8 @@ retry online
 ## Names
 
 if [[ "$HOSTNAME" == CHANGEME || "$USERNAME" == CHANGEME ]]; then
-	action "Name this machine and yourself."
+	act_next
+	act_text "Name this machine and yourself."
 	HOSTNAME="$(ask 'Hostname')"
 	USERNAME="$(ask 'Username')"
 	[[ -n "$HOSTNAME" && -n "$USERNAME" ]] || { printf 'Both required\n' >&2; exit 1; }
@@ -74,16 +77,39 @@ export USERNAME
 
 ####### the listing goes inside the block, so the thing you need and the
 ####### thing you need it for are not separated by a border
-act_open
-act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
-act_line ""
-lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS | act_feed
-act_line ""
+####### the wipe is confirmed right here, while the choice is still on screen
+####### it used to come after the passwords, so a wrong disk meant typing
+####### six passwords first and then starting the script over
+####### anything but YES asks for the disks again
 
-SYSTEM_DISK="$(pick_disk 'System disk: ')"
-DATA_DISK="$(pick_disk 'Data disk: ')"
+while true; do
+	act_next big
+	act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
+	act_line ""
+	lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS | act_feed
+	act_line ""
 
-[[ "$SYSTEM_DISK" != "$DATA_DISK" ]] || { printf 'Disks must differ\n' >&2; exit 1; }
+	SYSTEM_DISK="$(pick_disk 'System disk: ')"
+	DATA_DISK="$(pick_disk 'Data disk: ')"
+
+	if [[ "$SYSTEM_DISK" == "$DATA_DISK" ]]; then
+		act_line ""
+		act_line "That is the same disk twice, pick two different ones."
+		continue
+	fi
+
+	act_next
+	act_line "Check this, then type YES to erase both disks."
+	act_line ""
+	act_line "system disk  $SYSTEM_DISK  $(lsblk -dno SIZE "$SYSTEM_DISK")  WILL BE WIPED"
+	act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  WILL BE WIPED"
+	act_line ""
+
+	confirmed "Type YES to erase them, anything else to pick again" && break
+
+	act_line ""
+	act_line "Nothing erased."
+done
 
 require_disk "$SYSTEM_DISK"
 require_disk "$DATA_DISK"
@@ -91,34 +117,23 @@ require_disk "$DATA_DISK"
 
 ## Passwords
 
-action "Set three passwords, each typed twice.
+act_next big
+act_text "Set three passwords, each typed twice.
 
 The disk passphrase unlocks both disks. You set it once."
+act_line ""
 
 LUKS_PASS="$(secret_twice 'Disk passphrase, both disks')"
 
-act_gap
+act_next
 
-ROOT_PASS="$(secret_twice 'Root password              ')"
+ROOT_PASS="$(secret_twice 'Root password')"
 
-act_gap
+act_next
 
-USER_PASS="$(secret_twice "Password for $USERNAME       ")"
+USER_PASS="$(secret_twice "Password for $USERNAME")"
 
-act_break
-
-
-## Review
-
-act_open
-act_line "Check this, then type YES to erase both disks."
-act_line ""
-act_line "hostname     $HOSTNAME"
-act_line "username     $USERNAME"
-act_line "system disk  $SYSTEM_DISK  $(lsblk -dno SIZE "$SYSTEM_DISK")  WILL BE WIPED"
-act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  WILL BE WIPED"
-
-confirm
+act_close
 
 note "Hands off from here."
 
@@ -454,8 +469,13 @@ unset ROOT_PASS USER_PASS
 
 ## Sudo
 
-printf '%%wheel ALL=(ALL:ALL) ALL\n' > /mnt/etc/sudoers.d/10-wheel
+####### lecture never, the first sudo of the run otherwise prints a paragraph
+####### of advice in the middle of the question block
+####### proven with visudo before it counts, a broken file here disables sudo
+printf '%%wheel ALL=(ALL:ALL) ALL\nDefaults lecture = never\n' > /mnt/etc/sudoers.d/10-wheel
 chmod 440 /mnt/etc/sudoers.d/10-wheel
+
+run "check sudo rules" arch-chroot /mnt visudo -c -f /etc/sudoers.d/10-wheel
 
 
 

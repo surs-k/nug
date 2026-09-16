@@ -89,50 +89,12 @@ else
 fi
 
 
-## Tunnel
+## Multihop
 
-####### multihop has two parts, a switch and an entry location
-####### the entry location comes from the Answers block in run.sh and sets
-####### reliably, the switch is the part earlier versions could not set
-####### mullvad.net/en/help/cli-command-wg, tested there on app 2026.1, names
-####### relay set multihop on, switch first and entry second
-####### it is tried once, quietly, with its output in the log
-####### an older app that rejects it is not a problem, the entry still sets
-####### and the switch in the app still works, so nothing is flagged either way
-
-ENTRY="${MULLVAD_ENTRY:-none}"
-
-relays_ready() {
-	local list
-	list="$(capture $SUDO mullvad relay list)"
-	[[ ${#list} -gt 200 ]]
-}
-
-multihop_on() {
-	local get
-	get="$(capture $SUDO mullvad relay get)"
-	contains "$get" "Multihop state: enabled" || contains "$get" "Multihop state:  enabled"
-}
-
-if [[ "$ENTRY" == none ]]; then
-	info "multihop off, no entry location chosen"
-else
-	wait_for 60 relays_ready || flag "relay list never arrived, multihop may be rejected"
-
-	if $SUDO mullvad relay set multihop on >&3 2>&1; then
-		printf 'multihop switch accepted\n' >&3
-	else
-		printf 'multihop switch rejected by this app version\n' >&3
-	fi
-
-	soft "multihop entry $ENTRY" $SUDO mullvad relay set entry location $ENTRY
-
-	if multihop_on; then
-		pass "multihop on, entering via $ENTRY"
-	else
-		info "multihop entry is $ENTRY, switch multihop on in the app once"
-	fi
-fi
+####### not set here, the switch and the entry location are both yours to
+####### set in the Mullvad app, once, and the app keeps them from then on
+####### earlier versions set the entry and tried the switch, and every check
+####### on it failed on a fresh install before the app had been opened
 
 
 ## Ipv6
@@ -249,10 +211,6 @@ warn  "dns blocking"      sh -c 'sudo mullvad dns get > /tmp/_dns; grep -qi "blo
 warn  "auto connect"      sh -c 'sudo mullvad auto-connect get > /tmp/_ac; grep -qi on /tmp/_ac'
 warn  "app autostart"     sh -c 'ls ~/.config/autostart/mullvad* >/dev/null 2>&1'
 
-####### no multihop check here, on purpose
-####### the switch may be yours to flip in the app, so a check could only
-####### ever fail on a fresh install, the Tunnel block reports the state
-
 verify_done
 
 stage_done
@@ -266,3 +224,4 @@ section "End"
 
 printf '  VPN and firewall up.\n'
 printf '  Check yourself any time at https://mullvad.net/check\n\n'
+printf '  Multihop is yours to set in the Mullvad app, once.\n\n'

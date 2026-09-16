@@ -442,7 +442,10 @@ check "dolphin config"     test -f "$HOME/.config/dolphinrc"
 warn  "codium"             command -v codium
 warn  "1password"          command -v 1password
 warn  "mullvad-browser"    command -v mullvad-browser
-warn  "librewolf"          command -v librewolf
+####### only when you asked for it, a skipped install is not a problem
+if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
+	warn  "librewolf"        command -v librewolf
+fi
 warn  "claude desktop"     command -v claude-desktop
 warn  "freetube"           flatpak info io.freetubeapp.FreeTube
 warn  "places installed"   test -f "$HOME/.local/share/user-places.xbel"

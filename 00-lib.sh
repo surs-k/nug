@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-####### Rebuild v6.14 shared library
+####### Rebuild v6.15 shared library
 ####### every stage sources this as its first action
 ####### nothing here installs a package or writes to a disk
 
@@ -140,15 +140,39 @@ act_rule() {
 	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 }
 
-####### one blank marker line, for things that are related but distinct
+####### one blank marker line, room inside a single subject
 act_gap() {
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 }
 
-####### two, for things that have nothing to do with each other
+####### between two short subjects: blank, arrow line, blank
+####### nothing when no block is open, a fresh block header is gap enough
+act_split() {
+	(( ACT_IS_OPEN )) || return 0
+	act_gap
+	act_rule
+	act_gap
+}
+
+####### after a long subject, the same with one more blank for extra room
 act_break() {
+	(( ACT_IS_OPEN )) || return 0
+	act_gap
+	act_rule
 	act_gap
 	act_gap
+}
+
+####### the start of the next subject: a gap inside an open block, or a new
+####### block when none is open, pass big after a long subject
+act_next() {
+	if (( ! ACT_IS_OPEN )); then
+		act_open
+	elif [[ "${1:-small}" == big ]]; then
+		act_break
+	else
+		act_split
+	fi
 }
 
 ####### no automatic rules, spacing is placed deliberately or not at all
@@ -175,13 +199,11 @@ act_close() {
 }
 
 ####### the first line should always be an instruction, not context
-action() {
+####### act_text only prints, every gap around it is placed by the caller
+act_text() {
 	local line
 
 	act_open
-
-	####### two blank marker lines between separate instructions
-	(( ACT_LINES > 0 )) && act_break
 
 	while IFS= read -r line; do
 		act_line "$line"
@@ -191,6 +213,14 @@ action() {
 	printf 'ACTION NEEDED: %s\n' "$*" >&3
 }
 
+####### the same, with a small gap before it when it follows another one
+action() {
+	if (( ACT_IS_OPEN && ACT_LINES > 0 )); then
+		act_split
+	fi
+
+	act_text "$@"
+}
 
 ## Say
 
@@ -357,16 +387,19 @@ stage_banner() {
 
 	printf '\n\n%s%s%s\n\n' "$C_BIG" "${bar// /$BIG_LOW}" "$C_OFF"
 
-	####### too narrow for the tall letters, the name still gets its own line
+	####### the tall letters already say the name, the line under them only
+	####### says what the stage does and where it sits
+	####### too narrow for the letters, the name takes their place instead
 	if (( BIG_WIDTH + 4 <= cols )); then
 		for row in "${BIG_ROWS[@]}"; do
 			printf '  %s%s%s\n' "$C_BIG" "$row" "$C_OFF"
 		done
 		printf '\n'
+	else
+		printf '  %s%s%s\n\n' "$C_BIG" "${name^^}" "$C_OFF"
 	fi
 
-	printf '  %s%s%s' "$C_BIG" "${name^^}" "$C_OFF"
-	[[ -n "$about" ]] && printf '   %s' "$about"
+	printf '  %s' "$about"
 	[[ -n "$where" ]] && printf '   %s%s%s' "$C_DIM" "$where" "$C_OFF"
 	printf '\n'
 
@@ -712,13 +745,6 @@ ask() {
 }
 
 
-## Divider
-
-####### a question needs room around it or it reads as part of the last answer
-####### separates one question from the next
-rule() { act_break; }
-
-
 ## Yes
 
 ####### the capital letter is the default, that is the whole convention
@@ -741,10 +767,12 @@ yesno() {
 
 ## Confirm
 
-confirm() {
+####### YES in capitals says yes, anything else returns false so the caller
+####### can ask again instead of ending the whole run
+confirmed() {
 	local reply
-	read -rp "$(act_prompt 'Type YES to continue: ')" reply < /dev/tty
-	[[ "$reply" == YES ]] || exit 1
+	read -rp "$(act_prompt "${1:-Type YES to continue}: ")" reply < /dev/tty
+	[[ "$reply" == YES ]]
 }
 
 
@@ -768,7 +796,7 @@ secret_twice() {
 		b="$(secret "$label again")"
 
 		if [[ -z "$a" ]]; then
-			printf '  empty, try again\n' >&2
+			act_line "Empty, type it again."
 			continue
 		fi
 
@@ -777,7 +805,7 @@ secret_twice() {
 			return 0
 		fi
 
-		printf '  those did not match, try again\n' >&2
+		act_line "Those did not match, type it again."
 	done
 }
 
@@ -865,7 +893,8 @@ KEEPALIVE_PID=""
 
 sudo_keepalive() {
 	[[ -n "$SUDO" ]] || return 0
-	sudo -v
+	####### the prompt carries the block marker, so it reads as part of the block
+	sudo -v -p "$(act_prompt 'Password for %p: ')"
 	(
 		while true; do
 			sudo -n true 2>/dev/null || true
