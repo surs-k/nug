@@ -51,8 +51,6 @@ done
 
 ## Stages
 
-## Stages
-
 ####### run in this order, the marker name always equals the file name
 STAGES=(
 	10-base
@@ -65,6 +63,23 @@ STAGES=(
 	80-remote
 	90-health
 	35-tailnet
+)
+
+
+## About
+
+####### one line each, printed under the stage name in the big banner
+declare -A ABOUT=(
+	[10-base]="locale, boot menu, swap, AUR helper"
+	[20-desktop]="graphics driver and HyDE"
+	[30-security]="Mullvad VPN and the firewall"
+	[40-virt]="KVM and the VM network"
+	[50-bkp-net]="SSH, snapshots, backups, snapshot boot entries"
+	[60-uprefs]="apps, keybinds, monitors"
+	[70-docker]="Docker, Ollama, self hosted services"
+	[80-remote]="Sunshine, so the laptop can drive this PC"
+	[90-health]="health report, alerts, lockdown mode"
+	[35-tailnet]="Tailscale remote access, off unless chosen"
 )
 
 
@@ -286,7 +301,7 @@ need() { [[ -z "${!1:-}" ]]; }
 
 if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
 	|| need MULLVAD_ENTRY || need WANT_TAILSCALE || need WANT_OLLAMA \
-	|| need WANT_SUNSHINE || need WANT_LIBREWOLF; then
+	|| need WANT_SUNSHINE || need WANT_LIBREWOLF || need WANT_LOCKDOWN; then
 
 	action "Answer a few questions. Press enter to take each default.
 
@@ -392,6 +407,22 @@ Nothing installs until you are through them."
 	fi
 
 
+	## Lockdown
+
+	####### asked here now, it used to be asked by 90-health near the very
+	####### end, which stopped an unattended run with the summary unprinted
+	if need WANT_LOCKDOWN; then
+		rule
+		act_line "Lockdown mode blocks all traffic whenever the VPN is not"
+		act_line "connected, including while it reconnects."
+		if yesno "Turn on lockdown mode at the end of the run" y; then
+			save_cfg WANT_LOCKDOWN yes
+		else
+			save_cfg WANT_LOCKDOWN no
+		fi
+	fi
+
+
 	printf '\n'
 	note "Saved. Only questions without an answer are asked."
 	note "Edit $CONFIG to change any answer."
@@ -412,6 +443,15 @@ section "Running"
 DID=0
 
 BROKEN=""
+
+####### position in the run order, for the banner
+stage_number() {
+	local i
+	for i in "${!STAGES[@]}"; do
+		[[ "${STAGES[$i]}" == "$1" ]] && { printf '%s' "$(( i + 1 ))"; return 0; }
+	done
+	printf '?'
+}
 
 ####### a stage is blocked when anything it depends on failed, directly or
 ####### further back up the chain
@@ -438,7 +478,7 @@ for s in "${STAGES[@]}"; do
 	BLOCKER="$(blocked_by "$s")" && {
 		printf '  %s[skip]%s %s needs %s, which failed\n' \
 			"$C_DIM" "$C_OFF" "$s" "$BLOCKER"
-		record_fail "skipped, $BLOCKER failed first"
+		record_fail "$s skipped, $BLOCKER failed first"
 		continue
 	}
 
@@ -449,11 +489,8 @@ for s in "${STAGES[@]}"; do
 		continue
 	fi
 
-	printf '\n'
-	printf '%s########################################%s\n' "$C_HEAD" "$C_OFF"
-	printf '%s  starting %s%s\n' "$C_HEAD" "$s" "$C_OFF"
-	printf '%s########################################%s\n' "$C_HEAD" "$C_OFF"
-	printf '\n'
+	####### the big banner, so each stage start can be found while scrolling
+	stage_banner "$s" "${ABOUT[$s]:-}" "stage $(stage_number "$s") of ${#STAGES[@]}   $(date +%H:%M)"
 
 	if bash "$SH"; then
 		DID=$(( DID + 1 ))
@@ -499,6 +536,7 @@ if [[ -n "${BROKEN//[[:space:]]/}" ]]; then
 else
 	printf '  Read next:\n'
 	printf '    Guides/Backups.md   snapshots and rollback\n'
+	printf '    Guides/Bootmenu.md  the boot menu and its escape hatch\n'
 	printf '    Guides/Network.md   when the internet breaks\n'
 	printf '    Guides/Selfhost.md  your services\n\n'
 	printf '  Reboot once more to land on a settled system.\n\n'

@@ -54,6 +54,12 @@ capture() { "$@" 2>&1 || true; }
 
 has() { [[ "$1" == *"$2"* ]]; }
 
+####### the answers from the install, read, never sourced
+answer() { sed -n "s/^$1=//p" "$HOME/.install-config" 2>/dev/null | tail -n 1; }
+
+WANT_TS="$(answer WANT_TAILSCALE)"
+WANT_ST="$(answer WANT_STACKS)"
+
 
 ####### vpn
 ####### a missing command is a failure, not a pass, these are all things
@@ -69,8 +75,11 @@ fi
 
 
 ####### tailnet
+####### only a failure when it was chosen, Tailscale is off unless asked for
 
-if ! command -v tailscale > /dev/null; then
+if ! command -v tailscale > /dev/null && [[ "$WANT_TS" != yes ]]; then
+	:
+elif ! command -v tailscale > /dev/null; then
 	fail "Tailscale" "the command is gone, the package was removed"
 else
 	S="$(capture tailscale status)"
@@ -83,28 +92,41 @@ fi
 
 
 ####### containers stuck restarting
+####### you are not in the docker group, so this asks through one sudo rule
+####### that allows exactly this listing and nothing else
+####### it used to ask as you, got permission denied, and called that text a
+####### container stuck in a restart loop
 
 if command -v docker > /dev/null; then
-	S="$(capture docker ps -a --filter status=restarting --format '{{.Names}}')"
-	if [[ -n "${S//[[:space:]]/}" ]]; then
-		fail "Containers" "stuck in a restart loop: ${S//$'\n'/ }"
+	if S="$(sudo -n docker ps -a --filter status=restarting --format '{{.Names}}' 2>&1)"; then
+		if [[ -n "${S//[[:space:]]/}" ]]; then
+			fail "Containers" "stuck in a restart loop: ${S//$'\n'/ }"
+		else
+			pass "Containers"
+		fi
 	else
-		pass "Containers"
+		fail "Containers" "could not ask Docker, rerun: rebuild --only 90-health"
 	fi
 fi
 
 
 ####### invidious, the one that youtube actively breaks
+####### two questions, is it running at all, and can it still reach YouTube
+####### the stats page answers without YouTube, the video needs it
+####### the video is the first one ever uploaded, it is not going anywhere
 
-if command -v docker > /dev/null; then
-	S="$(capture docker ps --format '{{.Names}}')"
-	if has "$S" "invidious"; then
-		CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-			http://127.0.0.1:3000/api/v1/trending)"
+if has "$WANT_ST" "invidious" || has "$WANT_ST" "all"; then
+	CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+		http://127.0.0.1:3000/api/v1/stats)"
+	if [[ "$CODE" != 200 ]]; then
+		fail "Invidious" "not answering, try: sudo docker restart invidious"
+	else
+		CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+			http://127.0.0.1:3000/api/v1/videos/jNQXAC9IVRw)"
 		if [[ "$CODE" == 200 ]]; then
 			pass "Invidious"
 		else
-			fail "Invidious" "API returned $CODE, YouTube has probably broken it again"
+			fail "Invidious" "running, but YouTube refused it, code $CODE, common on VPN addresses"
 		fi
 	fi
 fi
@@ -112,13 +134,10 @@ fi
 
 ####### searxng
 
-if command -v docker > /dev/null; then
-	S="$(capture docker ps --format '{{.Names}}')"
-	if has "$S" "searxng"; then
-		CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:8080/)"
-		if [[ "$CODE" == 200 ]]; then pass "SearXNG"
-		else fail "SearXNG" "returned $CODE"; fi
-	fi
+if has "$WANT_ST" "searxng" || has "$WANT_ST" "all"; then
+	CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:8080/)"
+	if [[ "$CODE" == 200 ]]; then pass "SearXNG"
+	else fail "SearXNG" "not answering, try: sudo docker restart searxng"; fi
 fi
 
 
@@ -169,11 +188,23 @@ else
 fi
 
 
-####### boot menu still auto starts
+####### boot menu still starts on its own
+####### the same check the install used, first failing reason is reported
 
-if [[ -f /boot/limine.conf ]]; then
-	if grep -q '^timeout:' /boot/limine.conf; then pass "Boot menu"
-	else fail "Boot menu" "auto start setting was wiped, it will wait for a keypress"; fi
+if [[ ! -x /usr/local/bin/limine-header-fix ]]; then
+	fail "Boot menu" "limine-header-fix is gone, rerun: rebuild --only 10-base"
+elif S="$(/usr/local/bin/limine-header-fix --check 2>&1)"; then
+	pass "Boot menu"
+else
+	R=""
+	while IFS= read -r L; do
+		if has "$L" "FAIL"; then
+			R="${L#*FAIL}"
+			R="${R#"${R%%[![:space:]]*}"}"
+			break
+		fi
+	done <<< "$S"
+	fail "Boot menu" "${R:-would not start on its own}, see Guides/Bootmenu.md"
 fi
 
 
@@ -298,16 +329,23 @@ done
 
 section "Sudoers"
 
-####### the snapshot check needs one read only command without a password
-####### nothing else is granted
+####### two read only listings without a password, nothing else is granted
+####### snapper for the snapshot check, docker for the restart loop check
+####### the file is proven with visudo before it is put in place, a broken
+####### file in sudoers.d stops sudo working for everything
 
-$SUDO tee /etc/sudoers.d/20-rebuild-health > /dev/null << EOF
+SUDO_TMP="$(mktemp)"
+
+cat > "$SUDO_TMP" << EOF
 $USERNAME ALL=(root) NOPASSWD: /usr/bin/snapper -c root list --columns number
+$USERNAME ALL=(root) NOPASSWD: /usr/bin/docker ps -a --filter status\=restarting --format {{.Names}}
 EOF
 
-$SUDO chmod 440 /etc/sudoers.d/20-rebuild-health
+run "validate sudoers" $SUDO visudo -c -f "$SUDO_TMP"
 
-run "validate sudoers" $SUDO visudo -c -f /etc/sudoers.d/20-rebuild-health
+$SUDO install -m 440 -o root -g root "$SUDO_TMP" /etc/sudoers.d/20-rebuild-health
+
+rm -f "$SUDO_TMP"
 
 
 
@@ -322,18 +360,27 @@ section "Lockdown"
 ####### it, which is what killed that stage part way through
 ####### nothing after this point needs to download anything
 
-TS="$(capture tailscale status)"
+####### answered at the start of the run now, so the end never waits on you
 
-if contains "$TS" "Logged out" || contains "$TS" "stopped"; then
+TS_DOWN=no
+if command -v tailscale > /dev/null; then
+	TS="$(capture tailscale status)"
+	if contains "$TS" "Logged out" || contains "$TS" "stopped"; then
+		TS_DOWN=yes
+	fi
+fi
+
+if [[ "${WANT_LOCKDOWN:-yes}" != yes ]]; then
+	note "lockdown mode left off, as answered at the start"
+
+elif [[ "$TS_DOWN" == yes ]]; then
 	flag "Tailscale is down, leaving lockdown mode off so you keep remote access"
 
-elif yesno "Turn on lockdown mode, nothing leaves outside the VPN" y; then
+else
 	soft "lockdown mode on" $SUDO mullvad lockdown-mode set on
 	note "lockdown mode is on"
 	note "if anything loses network later, this is the first thing to check"
 	note "to undo: sudo mullvad lockdown-mode set off"
-else
-	note "lockdown mode left off"
 fi
 
 
@@ -367,4 +414,18 @@ printf '  terminal repeats it until it is fixed.\n\n'
 printf '  Check any time with:\n\n'
 printf '    rebuild-health\n\n'
 
-soft "first run" /usr/local/bin/rebuild-health
+
+## First
+
+####### the first report on a fresh machine
+####### anything it calls broken goes into the summary by name, instead of
+####### one line saying the first run did not succeed
+HEALTH_NOW="$(capture /usr/local/bin/rebuild-health)"
+
+printf '%s\n' "$HEALTH_NOW"
+
+while IFS= read -r l; do
+	if contains "$l" "BROKEN"; then
+		flag "health: ${l#*BROKEN  }"
+	fi
+done <<< "$HEALTH_NOW"

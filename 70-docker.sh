@@ -63,7 +63,10 @@ fi
 
 run "enable docker" $SUDO systemctl enable --now docker.service
 
-wait_for 30 $SUDO docker info
+####### docker info prints a page of text, only the answer matters here
+docker_up() { $SUDO docker info > /dev/null 2>&1; }
+
+wait_for 30 docker_up
 
 
 ## Group
@@ -75,7 +78,10 @@ wait_for 30 $SUDO docker info
 ####### sudo docker costs five keystrokes and closes that off
 ####### day to day you use the browser and Portainer, not the terminal
 
-if id -nG "$USERNAME" | grep -qw docker; then
+####### capture then match, a pipe into grep -q can read as false here
+DGROUPS="$(id -nG "$USERNAME" 2>/dev/null || true)"
+
+if [[ " $DGROUPS " == *" docker "* ]]; then
 	flag "you are in the docker group, which is root equivalent"
 	flag "remove it with: sudo gpasswd -d $USERNAME docker"
 else
@@ -172,6 +178,8 @@ fi
 
 section "Ollama"
 
+ollama_answers() { curl -fsS --max-time 3 http://127.0.0.1:11434/api/version > /dev/null 2>&1; }
+
 ####### native package, not a container
 ####### the container adds gpu plumbing for no benefit on a machine that
 ####### already has the driver installed
@@ -185,8 +193,21 @@ if [[ "${WANT_OLLAMA:-yes}" == yes ]]; then
 	fi
 
 	####### models are large, keep them on the data disk
+	####### the packaged service runs as its own user and hides all of /home
+	####### from itself with ProtectHome, so the models folder was out of its
+	####### reach and the service died a moment after starting
+	####### ProtectHome=tmpfs with BindPaths shows it that one folder only,
+	####### the rest of /home stays hidden, and the folder belongs to it
+	OLLAMA_USER="$(systemctl show -p User --value ollama.service 2>/dev/null || true)"
+	OLLAMA_USER="${OLLAMA_USER:-ollama}"
+
 	$SUDO mkdir -p /home/ai/ollama
-	$SUDO chown -R "$USERNAME:$USERNAME" /home/ai/ollama
+
+	if id -u "$OLLAMA_USER" &> /dev/null; then
+		$SUDO chown -R "$OLLAMA_USER:$OLLAMA_USER" /home/ai/ollama
+	else
+		flag "no $OLLAMA_USER user, ollama may not be able to save models"
+	fi
 
 	$SUDO mkdir -p /etc/systemd/system/ollama.service.d
 
@@ -194,10 +215,17 @@ if [[ "${WANT_OLLAMA:-yes}" == yes ]]; then
 [Service]
 Environment="OLLAMA_MODELS=/home/ai/ollama"
 Environment="OLLAMA_HOST=127.0.0.1:11434"
+ProtectHome=tmpfs
+BindPaths=/home/ai/ollama
 EOF
 
 	run "reload systemd" $SUDO systemctl daemon-reload
 	run "enable ollama"  $SUDO systemctl enable --now ollama
+	run "restart ollama" $SUDO systemctl restart ollama
+
+	####### active is not proof, the old failure was active for one second
+	####### an answer on its port is
+	wait_for 20 ollama_answers || flag "ollama is not answering on 127.0.0.1:11434"
 
 	note "pull a model with: ollama pull llama3.2"
 else
@@ -210,6 +238,108 @@ fi
 
 
 section "Stacks"
+
+
+## Helpers
+
+####### one service failing no longer stops the ones after it
+####### each failure is named with its reason, read out of the log, and the
+####### stage still ends unfinished, so rebuild --retry comes back to it
+####### Docker Hub limits downloads per address when you are not logged in,
+####### and a VPN address is shared by many people, so hitting that limit
+####### gets one automatic retry through a different Mullvad server
+
+STACK_FAILS=0
+
+mullvad_connected() {
+	local st
+	st="$(capture $SUDO mullvad status)"
+	contains "$st" "Connected"
+}
+
+pull_reason() {
+	local tail
+	tail="$(tail -n 40 "$LOG" 2>/dev/null || true)"
+
+	if contains "$tail" "toomanyrequests"; then
+		printf 'Docker Hub download limit reached for this VPN address'
+	elif contains "$tail" "manifest unknown" || contains "$tail" "not found: manifest"; then
+		printf 'the image name or tag no longer exists'
+	elif contains "$tail" "no such host" || contains "$tail" "i/o timeout" \
+		|| contains "$tail" "TLS handshake timeout" || contains "$tail" "connection reset"; then
+		printf 'could not reach the image registry'
+	elif contains "$tail" "port is already allocated" || contains "$tail" "address already in use"; then
+		printf 'its port is already taken by something else'
+	elif contains "$tail" "invalid IP address"; then
+		printf 'a bind address in its .env is not a real address'
+	else
+		printf 'the reason is in %s' "$LOG"
+	fi
+}
+
+####### downloads, with the one retry described above
+pull_images() {
+	local name=$1; shift
+
+	run "download $name" "$@" && return 0
+
+	contains "$(pull_reason)" "download limit" || return 1
+
+	note "Docker Hub limit on this VPN address, switching server, trying once more"
+	soft "switch VPN server" $SUDO mullvad reconnect
+	sleep 5
+	wait_for 60 mullvad_connected || true
+	wait_for 30 resolves || true
+
+	run "download $name again" "$@"
+}
+
+stack_failed() {
+	flag "$1 did not start: $(pull_reason)"
+	STACK_FAILS=$(( STACK_FAILS + 1 ))
+	WHY=""
+}
+
+####### everything after the name is handed to docker compose as is
+stack_up() {
+	local name=$1; shift
+
+	if ! pull_images "$name" $SUDO docker compose "$@" pull; then
+		stack_failed "$name"
+		return 0
+	fi
+
+	if ! run "start $name" $SUDO docker compose "$@" up -d; then
+		stack_failed "$name"
+	fi
+	return 0
+}
+
+####### the tailnet address is added as a second compose file, only when there
+####### is one, the single file used to list 127.0.0.1 twice when there was not
+####### COMPOSE_FILE in .env makes a plain docker compose in that folder pick up
+####### the same files the script used
+compose_files() {
+	local dir=$1 var=$2 ip
+
+	sed -i "/^$var=/d; /^COMPOSE_FILE=/d" "$dir/.env"
+
+	FILES=(-f "$dir/compose.yaml")
+
+	if ip="$(tailnet_ip)"; then
+		printf '%s=%s\n' "$var" "$ip" >> "$dir/.env"
+		printf 'COMPOSE_FILE=compose.yaml:tailnet.yaml\n' >> "$dir/.env"
+		FILES+=(-f "$dir/tailnet.yaml")
+		TS_IP="$ip"
+		return 0
+	fi
+
+	TS_IP=""
+	return 1
+}
+
+
+## Copy
 
 $SUDO mkdir -p "$STACKS_DIR"
 
@@ -243,25 +373,20 @@ if contains "$WANT" "searxng"; then
 		chmod 600 "$SX/.env"
 	fi
 
-	####### bound to loopback, and to the tailnet only if there really is one
-	####### an unset bind falls back to 127.0.0.1 inside the compose file
-	sed -i '/^BIND_SEARXNG=/d' "$SX/.env"
-
-	if TS_IP="$(tailnet_ip)"; then
-		printf 'BIND_SEARXNG=%s\n' "$TS_IP" >> "$SX/.env"
+	if compose_files "$SX" BIND_SEARXNG; then
 		note "searxng will also listen on $TS_IP"
 	else
 		note "no tailnet, searxng listens on this machine only"
 	fi
 
-	run "start searxng" $SUDO docker compose -f "$SX/compose.yaml" --env-file "$SX/.env" up -d
+	stack_up searxng "${FILES[@]}" --env-file "$SX/.env"
 
 	if ip link show tailscale0 &> /dev/null; then
 		soft "searxng on tailnet" $SUDO ufw allow in on tailscale0 to any port 8080 proto tcp
 	fi
 
 	note "searxng at http://127.0.0.1:8080"
-	[[ -n "${TS_IP:-}" ]] && note "and at http://$TS_IP:8080 from your other devices"
+	[[ -n "$TS_IP" ]] && note "and at http://$TS_IP:8080 from your other devices"
 fi
 
 
@@ -286,23 +411,20 @@ if contains "$WANT" "invidious"; then
 		chmod 600 "$IV/.env"
 	fi
 
-	sed -i '/^BIND_INVIDIOUS=/d' "$IV/.env"
-
-	if TS_IP="$(tailnet_ip)"; then
-		printf 'BIND_INVIDIOUS=%s\n' "$TS_IP" >> "$IV/.env"
+	if compose_files "$IV" BIND_INVIDIOUS; then
 		note "invidious will also listen on $TS_IP"
 	else
 		note "no tailnet, invidious listens on this machine only"
 	fi
 
-	run "start invidious" $SUDO docker compose -f "$IV/compose.yaml" --env-file "$IV/.env" up -d
+	stack_up invidious "${FILES[@]}" --env-file "$IV/.env"
 
 	if ip link show tailscale0 &> /dev/null; then
 		soft "invidious on tailnet" $SUDO ufw allow in on tailscale0 to any port 3000 proto tcp
 	fi
 
 	note "invidious at http://127.0.0.1:3000"
-	[[ -n "${TS_IP:-}" ]] && note "and at http://$TS_IP:3000 from your other devices"
+	[[ -n "$TS_IP" ]] && note "and at http://$TS_IP:3000 from your other devices"
 	note "point FreeTube at it, see Guides/Selfhost.md"
 fi
 
@@ -326,16 +448,10 @@ elif contains "$WANT" "comfyui"; then
 		printf 'WANTED_GID=%s\n' "$(id -g "$USERNAME")"
 	} > "$CU/.env"
 
-	####### pull first, so a missing or renamed image is reported as exactly
-	####### that instead of a confusing compose failure
-	if soft "pull comfyui image" $SUDO docker compose -f "$CU/compose.yaml" --env-file "$CU/.env" pull; then
-		soft "start comfyui" $SUDO docker compose -f "$CU/compose.yaml" --env-file "$CU/.env" up -d
-			####### loopback only, you reach it through Sunshine from the laptop
-		note "comfyui at http://127.0.0.1:8188, reach it via Sunshine"
-	else
-		flag "comfyui image did not pull, the stack was not started"
-		flag "check the image name in $CU/compose.yaml"
-	fi
+	####### loopback only, you reach it through Sunshine from the laptop
+	stack_up comfyui -f "$CU/compose.yaml" --env-file "$CU/.env"
+
+	note "comfyui at http://127.0.0.1:8188, reach it via Sunshine"
 fi
 
 
@@ -348,23 +464,29 @@ if contains "$WANT" "portainer"; then
 
 	if contains "$NAMES" "portainer"; then
 		note "portainer already exists"
+
+	elif ! pull_images portainer $SUDO docker pull portainer/portainer-ce:latest; then
+		stack_failed portainer
+
+	elif ! run "start portainer" $SUDO docker run -d \
+		-p 127.0.0.1:9443:9443 \
+		--name portainer \
+		--restart unless-stopped \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v portainer_data:/data \
+		portainer/portainer-ce:latest; then
+		stack_failed portainer
+
 	else
-		run "start portainer" $SUDO docker run -d \
-			-p 127.0.0.1:9443:9443 \
-			--name portainer \
-			--restart unless-stopped \
-			-v /var/run/docker.sock:/var/run/docker.sock \
-			-v portainer_data:/data \
-			portainer/portainer-ce:latest
+		####### deliberately loopback only
+		####### Portainer controls every container on the machine, so it is the
+		####### one thing not worth exposing even to your own tailnet
+		note "portainer at https://127.0.0.1:9443, this PC only"
+		action "Open https://127.0.0.1:9443 and set the Portainer admin password.
+
+It stops itself if no password is set within a few minutes, and then the
+container needs restarting: sudo docker restart portainer"
 	fi
-
-	####### deliberately loopback only
-	####### Portainer controls every container on the machine, so it is the
-	####### one thing not worth exposing even to your own tailnet
-	note "portainer at https://127.0.0.1:9443, this PC only"
-	action "Open https://127.0.0.1:9443 and set the Portainer admin password.
-
-It locks itself if left sitting, and then the container needs restarting." 
 fi
 
 
@@ -389,15 +511,31 @@ if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 fi
 
 if [[ "${WANT_OLLAMA:-yes}" == yes ]]; then
-	warn "ollama active"  systemctl is-active --quiet ollama
+	check "ollama answers"     ollama_answers
 fi
 
+####### exact names, so searxng-valkey can never stand in for searxng
+container_up() {
+	local names
+	names="$(capture $SUDO docker ps --format '{{.Names}}')"
+	[[ $'\n'"$names"$'\n' == *$'\n'"$1"$'\n'* ]]
+}
+
+####### a service that did not start keeps this stage unfinished, so
+####### rebuild --retry comes back to it once the reason is gone
+check "chosen services started" test "$STACK_FAILS" -eq 0
+
 if contains "$WANT" "searxng"; then
-	warn "searxng running" sh -c 'sudo docker ps --format "{{.Names}}" > /tmp/_dp; grep -q searxng /tmp/_dp'
+	check "searxng running"    container_up searxng
 fi
 
 if contains "$WANT" "invidious"; then
-	warn "invidious running" sh -c 'sudo docker ps --format "{{.Names}}" > /tmp/_di; grep -q invidious /tmp/_di'
+	check "invidious running"  container_up invidious
+fi
+
+####### a warning only, portainer stops itself when nobody sets a password
+if contains "$WANT" "portainer"; then
+	warn  "portainer running"  container_up portainer
 fi
 
 verify_done
@@ -414,5 +552,5 @@ section "End"
 printf '  Self hosting ready.\n'
 printf '  Everything binds to 127.0.0.1 only. Nothing is on the internet.\n'
 printf '  Read Guides/Selfhost.md for start, stop and update.\n\n'
-printf '  The docker group applies at your next login.\n'
-printf '  Until then, docker commands need sudo.\n\n'
+printf '  Docker commands need sudo, on purpose.\n'
+printf '  You are not in the docker group, it would be root without a password.\n\n'

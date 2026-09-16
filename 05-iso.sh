@@ -4,6 +4,8 @@ set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
+stage_banner "05-iso" "partitions, encryption, base system, boot menu" "installer   $(date +%H:%M)"
+
 
 #    Answers
 
@@ -368,6 +370,10 @@ pacstrap_retry nano vim bash-completion openssh gobject-introspection reflector
 
 genfstab -U /mnt > /mnt/etc/fstab
 
+####### / is mounted by name only, see Fstab in 00-lib for why
+####### without this a snapshot restore would boot the old broken system
+fstab_root_by_name /mnt/etc/fstab
+
 
 
 #    System
@@ -530,33 +536,13 @@ else
 	echo "no TPM device, skipping"
 fi
 
-printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw\n' \\
+####### /@ with the slash, the snapshot tool only recognises that spelling
+####### subvol=@ and subvol=/@ mount the same thing
+printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=/@ rw\n' \\
 	"\$LUKS_UUID" > /etc/kernel/cmdline
 
-####### only a timeout goes here
-####### default_entry was pointing at something that is not bootable, because
-####### /+Arch Linux is a collapsible branch rather than an entry, and quiet
-####### then hid the resulting failure, which is why the firmware handed back
-####### a black screen with no message
-####### limine already boots the first bootable entry on its own
-####### the entry is top level and directly bootable
-####### /+Name with a plus is a folder, and limine cannot auto boot a folder,
-####### it waits for someone to open it and choose
-####### that single character is why the menu never started on its own
-####### the snapshot marker is added later by 50-bkp-net, right before the
-####### sync tool that needs it, so first boot has exactly one entry and
-####### nothing ambiguous to choose between
-cat > /boot/limine.conf << ENTRYEOF
-timeout: $LIMINE_TIMEOUT
-
-/Arch Linux
-    comment: machine-id=\$(cat /etc/machine-id)
-    protocol: linux
-    path: boot():/vmlinuz-linux
-    module_path: boot():/intel-ucode.img
-    module_path: boot():/initramfs-linux.img
-    cmdline: rd.luks.name=\$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw
-ENTRYEOF
+####### the boot menu is not written here any more
+####### the Menu block below writes it with the same tool 10-base installs
 CHROOTEOF
 
 
@@ -571,6 +557,24 @@ rm -f /mnt/root/_setup.sh
 rm -f "$KEYTMP"
 
 unset LUKS_PASS
+
+
+## Menu
+
+####### one tool writes the boot menu, here and on every later change
+####### it builds the menu from the real kernel files and the cmdline above,
+####### checks the result would start on its own, and only then saves it
+####### nested shape: /+Arch Linux is an open folder, Linux is the first
+####### thing in it, default_entry 2 points at Linux, quiet stays off
+####### the old black screen was default_entry pointing at the folder with
+####### quiet hiding why, the check refuses exactly that
+install -Dm755 "$REPO/limine-header-fix.sh" /mnt/usr/local/bin/limine-header-fix
+
+printf 'BOOT_MODE=nested\nBOOT_TIMEOUT=%s\n' "$LIMINE_TIMEOUT" > /mnt/etc/rebuild-boot.conf
+
+run "write boot menu" bash "$REPO/limine-header-fix.sh" --root /mnt
+
+bash "$REPO/limine-header-fix.sh" --root /mnt --check || true
 
 
 
@@ -621,17 +625,15 @@ section "Verify"
 check "esp mounted"      mountpoint -q /mnt/boot
 check "root mounted"     mountpoint -q /mnt
 check "snapshots sib"    sh -c 'findmnt -no SOURCE /mnt/.snapshots | grep -q "@snapshots"'
-check "limine conf"      test -f /mnt/boot/limine.conf
-check "conf has entry"   grep -q 'protocol: linux' /mnt/boot/limine.conf
-check "entry top level"  grep -q '^/Arch Linux' /mnt/boot/limine.conf
-check "entry not folder" sh -c '! grep -q "^/+" /mnt/boot/limine.conf'
-check "conf has timeout" grep -q '^timeout:' /mnt/boot/limine.conf
-check "no default_entry" sh -c '! grep -q "^default_entry:" /mnt/boot/limine.conf'
+check "menu starts alone" bash "$REPO/limine-header-fix.sh" --root /mnt --check
+check "menu tool copied"  test -x /mnt/usr/local/bin/limine-header-fix
+check "menu settings"     test -f /mnt/etc/rebuild-boot.conf
 check "kernel present"   test -f /mnt/boot/vmlinuz-linux
 check "initramfs present" test -f /mnt/boot/initramfs-linux.img
 check "microcode present" test -f /mnt/boot/intel-ucode.img
-check "cmdline has root"  grep -q 'root=/dev/mapper/cryptsystem' /mnt/boot/limine.conf
 check "cmdline has luks"  grep -q 'rd.luks.name=' /mnt/boot/limine.conf
+check "cmdline names /@"  grep -q 'rootflags=subvol=/@' /mnt/etc/kernel/cmdline
+check "fstab / by name"   fstab_root_named /mnt/etc/fstab
 check "efi entry made"    sh -c 'efibootmgr | grep -q Limine'
 check "no efi conf"      sh -c '! test -f /mnt/boot/EFI/limine/limine.conf'
 check "deploy hook"      test -f /mnt/etc/pacman.d/hooks/99-limine-deploy.hook
@@ -657,6 +659,10 @@ lsblk
 
 printf '\n'
 printf '  Remove the USB and reboot.\n'
+printf '\n'
+printf '  The boot menu shows for %s seconds with Linux highlighted,\n' "$LIMINE_TIMEOUT"
+printf '  then starts on its own. If it ever waits instead, press Enter\n'
+printf '  on Linux, it is always the second line.\n'
 printf '\n'
 printf '  Then log in and run:\n'
 printf '\n'

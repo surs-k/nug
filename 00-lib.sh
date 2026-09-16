@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-####### Rebuild v6.0 shared library
+####### Rebuild v6.14 shared library
 ####### every stage sources this as its first action
 ####### nothing here installs a package or writes to a disk
 
@@ -111,9 +111,10 @@ if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
 	C_HEAD=$'\033[1;36m'
 	C_ACT=$'\033[1;35m'
 	C_DIM=$'\033[2m'
+	C_BIG=$'\033[1;96m'
 	C_OFF=$'\033[0m'
 else
-	C_OK=''; C_WARN=''; C_FAIL=''; C_HEAD=''; C_ACT=''; C_DIM=''; C_OFF=''
+	C_OK=''; C_WARN=''; C_FAIL=''; C_HEAD=''; C_ACT=''; C_DIM=''; C_BIG=''; C_OFF=''
 fi
 
 
@@ -232,15 +233,146 @@ STEP=0
 
 ## Banner
 
+####### the section name is kept, so a failure can say where it happened
+SECTION=""
+
 section() {
 	act_close
 	STEP=$((STEP + 1))
+	SECTION="$1"
 	printf '\n'
 	printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
 	printf '%s %-28s %2s / %-2s%s\n' "$C_HEAD" "$1" "$STEP" "$STEPS" "$C_OFF"
 	printf '%s========================================%s\n' "$C_HEAD" "$C_OFF"
 	printf '\n'
 	printf '\n--- %s ---\n' "$1" >&3
+}
+
+
+## Stage
+
+####### the start of every stage, letters five rows tall across a full width
+####### band, so a stage can be found by eye while scrolling back
+####### X is a filled cell and a dot an empty one, the solid block is put in
+####### at print time so this file stays plain ASCII
+####### the block characters exist in the console font too, so this also
+####### shows on the text console before the desktop is installed
+
+BIG_FULL=$'\xe2\x96\x88'
+BIG_LOW=$'\xe2\x96\x84'
+BIG_HIGH=$'\xe2\x96\x80'
+
+declare -A BIG=(
+	[A]='.XXX.|X...X|XXXXX|X...X|X...X'
+	[B]='XXXX.|X...X|XXXX.|X...X|XXXX.'
+	[C]='.XXXX|X....|X....|X....|.XXXX'
+	[D]='XXXX.|X...X|X...X|X...X|XXXX.'
+	[E]='XXXXX|X....|XXXX.|X....|XXXXX'
+	[F]='XXXXX|X....|XXXX.|X....|X....'
+	[G]='.XXXX|X....|X..XX|X...X|.XXXX'
+	[H]='X...X|X...X|XXXXX|X...X|X...X'
+	[I]='XXX|.X.|.X.|.X.|XXX'
+	[J]='..XXX|....X|....X|X...X|.XXX.'
+	[K]='X...X|X..X.|XXX..|X..X.|X...X'
+	[L]='X....|X....|X....|X....|XXXXX'
+	[M]='X...X|XX.XX|X.X.X|X...X|X...X'
+	[N]='X...X|XX..X|X.X.X|X..XX|X...X'
+	[O]='.XXX.|X...X|X...X|X...X|.XXX.'
+	[P]='XXXX.|X...X|XXXX.|X....|X....'
+	[Q]='.XXX.|X...X|X.X.X|X..X.|.XX.X'
+	[R]='XXXX.|X...X|XXXX.|X..X.|X...X'
+	[S]='.XXXX|X....|.XXX.|....X|XXXX.'
+	[T]='XXXXX|..X..|..X..|..X..|..X..'
+	[U]='X...X|X...X|X...X|X...X|.XXX.'
+	[V]='X...X|X...X|X...X|.X.X.|..X..'
+	[W]='X...X|X...X|X.X.X|XX.XX|X...X'
+	[X]='X...X|.X.X.|..X..|.X.X.|X...X'
+	[Y]='X...X|.X.X.|..X..|..X..|..X..'
+	[Z]='XXXXX|...X.|..X..|.X...|XXXXX'
+	[0]='.XXX.|X..XX|X.X.X|XX..X|.XXX.'
+	[1]='.X.|XX.|.X.|.X.|XXX'
+	[2]='XXXX.|....X|.XXX.|X....|XXXXX'
+	[3]='XXXX.|....X|.XXX.|....X|XXXX.'
+	[4]='X...X|X...X|XXXXX|....X|....X'
+	[5]='XXXXX|X....|XXXX.|....X|XXXX.'
+	[6]='.XXX.|X....|XXXX.|X...X|.XXX.'
+	[7]='XXXXX|....X|...X.|..X..|..X..'
+	[8]='.XXX.|X...X|.XXX.|X...X|.XXX.'
+	[9]='.XXX.|X...X|.XXXX|....X|.XXX.'
+	[dash]='....|....|XXXX|....|....'
+	[sp]='...|...|...|...|...'
+)
+
+BIG_ROWS=()
+BIG_WIDTH=0
+
+big_render() {
+	local text=${1^^} ch i n
+	local -a rows=('' '' '' '' '') cells
+
+	for (( i = 0; i < ${#text}; i++ )); do
+		ch=${text:i:1}
+		case "$ch" in
+			[A-Z0-9]) ;;
+			-) ch=dash ;;
+			*) ch=sp ;;
+		esac
+		IFS='|' read -r -a cells <<< "${BIG[$ch]:-${BIG[sp]}}"
+		for n in 0 1 2 3 4; do
+			rows[n]+="${cells[n]}."
+		done
+	done
+
+	BIG_ROWS=()
+	BIG_WIDTH=$(( ${#rows[0]} - 1 ))
+	for n in 0 1 2 3 4; do
+		ch=${rows[n]%.}
+		ch=${ch//X/$BIG_FULL}
+		BIG_ROWS+=("${ch//./ }")
+	done
+}
+
+####### the real width when there is a terminal to ask, 80 when there is not
+term_cols() {
+	local r c
+	if read -r r c < <(stty size 2>/dev/null < /dev/tty) \
+		&& [[ "$c" =~ ^[0-9]+$ ]] && (( c > 20 )); then
+		printf '%s' "$c"
+	else
+		printf '80'
+	fi
+}
+
+stage_banner() {
+	local name=$1 about=${2:-} where=${3:-}
+	local cols bar row
+
+	act_close
+
+	cols="$(term_cols)"
+	cols=$(( cols - 1 ))
+	printf -v bar '%*s' "$cols" ''
+
+	big_render "$name"
+
+	printf '\n\n%s%s%s\n\n' "$C_BIG" "${bar// /$BIG_LOW}" "$C_OFF"
+
+	####### too narrow for the tall letters, the name still gets its own line
+	if (( BIG_WIDTH + 4 <= cols )); then
+		for row in "${BIG_ROWS[@]}"; do
+			printf '  %s%s%s\n' "$C_BIG" "$row" "$C_OFF"
+		done
+		printf '\n'
+	fi
+
+	printf '  %s%s%s' "$C_BIG" "${name^^}" "$C_OFF"
+	[[ -n "$about" ]] && printf '   %s' "$about"
+	[[ -n "$where" ]] && printf '   %s%s%s' "$C_DIM" "$where" "$C_OFF"
+	printf '\n'
+
+	printf '%s%s%s\n\n' "$C_BIG" "${bar// /$BIG_HIGH}" "$C_OFF"
+
+	printf '\n##### STAGE %s  %s  %s #####\n' "$name" "$about" "$(date -Is)" >&3
 }
 
 
@@ -253,6 +385,14 @@ section() {
 VERBOSE="${REBUILD_VERBOSE:-0}"
 
 
+## Why
+
+####### the last helper that failed writes down what it was doing here
+####### a stop otherwise reaches the error trap as a bare return line, which
+####### is how the summary ended up saying only: return "$rc"
+WHY=""
+
+
 ## Quiet
 
 ####### run hides output and shows one spinner line
@@ -262,6 +402,7 @@ run() {
 	local label=$1; shift
 	local rc=0 ELAPSED=0
 
+	WHY=""
 	printf 'RUN %s\n' "$*" >&3
 
 	if [[ "$VERBOSE" == 1 ]]; then
@@ -300,6 +441,8 @@ run() {
 		printf '\n  what it actually said:\n\n' >&2
 		tail -n 15 "$LOG" 2>/dev/null | sed 's/^/    /' >&2 || true
 		printf '\n  full log  %s\n\n' "$LOG" >&2
+
+		WHY="$label failed, exit $rc"
 	fi
 
 	return "$rc"
@@ -311,7 +454,10 @@ run() {
 ####### same as run but a failure is advisory
 soft() {
 	local label=$1; shift
-	run "$label" "$@" || flag "$label did not succeed, continuing"
+	if ! run "$label" "$@"; then
+		flag "$label did not succeed, continuing"
+		WHY=""
+	fi
 }
 
 
@@ -401,6 +547,7 @@ pac() {
 	if contains "$plan" "removing" || contains "$plan" "conflicts"; then
 		flag "this install wants to remove or replace something, stopping"
 		printf '%s\n' "$plan" | sed 's/^/    /' >&2
+		WHY="installing $* would have removed something"
 		return 1
 	fi
 
@@ -480,7 +627,11 @@ TIMEZONE="America/New_York"
 LOCALE="en_US.UTF-8"
 RETRY_LIMIT=10
 TUNNEL_MTU=1420
-LIMINE_TIMEOUT=1
+
+####### seconds the boot menu shows before starting on its own
+####### long enough to see it and press a key for the snapshots, and for a
+####### monitor to wake, short enough that nobody has to press anything
+LIMINE_TIMEOUT=3
 
 
 ## Load
@@ -700,6 +851,7 @@ wait_for() {
 		if (( n >= tries )); then
 			printf '  timeout after %ss: %s\n' "$tries" "$*" >&2
 			printf 'TIMEOUT after %ss waiting for: %s\n' "$tries" "$*" >&3
+			WHY="gave up after ${tries}s waiting for: $*"
 			return 1
 		fi
 		sleep 1
@@ -758,6 +910,32 @@ pick_disk() {
 }
 
 
+## Fstab
+
+####### genfstab pins every btrfs mount by id as well as by name
+####### only the / line matters, a restore swaps in a new subvolume under the
+####### name @ with a new id, and a snapshot boot mounts another id again
+####### so / keeps the name alone, the other mounts never move
+fstab_root_by_name() {
+	local f=$1 old new
+	old="$(cat "$f")"
+	new="$(awk 'BEGIN { OFS = "\t" }
+		$1 !~ /^#/ && $2 == "/" && $3 == "btrfs" {
+			gsub(/,subvolid=[0-9]+/, "", $4)
+			gsub(/subvolid=[0-9]+,/, "", $4)
+		}
+		{ print }' "$f")"
+	[[ "$new" == "$old" ]] && return 0
+	printf '%s\n' "$new" | $SUDO tee "$f" > /dev/null
+}
+
+fstab_root_named() {
+	local r
+	r="$(awk '$1 !~ /^#/ && $2 == "/"' "$1")"
+	[[ -n "$r" ]] && ! contains "$r" "subvolid="
+}
+
+
 ## Require
 
 require_disk() {
@@ -772,6 +950,9 @@ require_disk() {
 ## State
 
 FAILED=0
+
+####### set once a stop is in the failure list, so it is never listed twice
+STOP_RECORDED=0
 
 
 ## Check
@@ -832,7 +1013,24 @@ cleanup() {
 	####### went wrong before it stopped
 	act_close
 
-	show_failures stage
+	####### a deliberate exit never passes through the error trap first, so the
+	####### stop is written down here, before the stage summary is printed
+	if (( rc != 0 && STOP_RECORDED == 0 )); then
+		STOP_RECORDED=1
+		if (( FAILED )); then
+			record_fail "stopped at Verify, a check listed above failed" stop
+		elif (( rc == 130 )); then
+			record_fail "stopped in ${SECTION:-setup}, interrupted with Ctrl+C" stop
+		else
+			record_fail "stopped in ${SECTION:-setup}, the reason is printed just above the stop" stop
+		fi
+	fi
+
+	####### run.sh prints the full list itself as its last word, repeating its
+	####### own part here would push that list up the screen
+	if [[ "$STAGE" != run || "$rc" != 0 ]]; then
+		show_failures stage
+	fi
 
 	return "$rc"
 }
@@ -843,19 +1041,38 @@ trap cleanup EXIT
 ## Error
 
 ####### every failure path shows the error, not only the ones inside run()
-####### wait_for and plain commands were reaching this trap and printing a
-####### path to a log file instead of the reason
+####### only the first stop is written down, anything after it is fallout
 on_err() {
 	local rc=$?
+	local what="$BASH_COMMAND"
+	local where="${SECTION:-setup}"
 
-	printf '\n  FAIL %s line %s\n' "${BASH_SOURCE[1]##*/}" "${BASH_LINENO[0]}" >&2
-	printf '  cmd  %s\n' "$BASH_COMMAND" >&2
+	(( STOP_RECORDED )) && return "$rc"
+
+	case "$what" in
+		exit*)
+			####### the exit handler already wrote this one down
+			return "$rc" ;;
+		return*)
+			####### a helper that failed has already put its output on screen,
+			####### only the name of the step is missing
+			STOP_RECORDED=1
+			what="${WHY:-a step failed with exit $rc}"
+			printf '\n  STOPPED  %s, in %s\n\n' "$what" "$where" >&2
+			record_fail "$what, in $where" stop
+			return "$rc" ;;
+	esac
+
+	STOP_RECORDED=1
+
+	printf '\n  FAIL %s line %s, in %s\n' "${BASH_SOURCE[1]##*/}" "${BASH_LINENO[0]}" "$where" >&2
+	printf '  cmd  %s\n' "$what" >&2
 
 	printf '\n  what it actually said:\n\n' >&2
 	tail -n 15 "$LOG" 2>/dev/null | sed 's/^/    /' >&2 || true
 	printf '\n  full log  %s\n\n' "$LOG" >&2
 
-	record_fail "$BASH_COMMAND" stop
+	record_fail "$what, in $where" stop
 
 	return "$rc"
 }

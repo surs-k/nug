@@ -91,18 +91,16 @@ fi
 
 ## Tunnel
 
-####### multihop is not a toggle, it is the entry location
-####### setting one turns it on, setting none turns it off
-####### the previous version never named a country, so it could not have
-####### worked under any spelling
-####### mullvad.net/en/help/cli-command-wg
+####### multihop has two parts, a switch and an entry location
+####### the entry location comes from the Answers block in run.sh and sets
+####### reliably, the switch is the part earlier versions could not set
+####### mullvad.net/en/help/cli-command-wg, tested there on app 2026.1, names
+####### relay set multihop on, switch first and entry second
+####### it is tried once, quietly, with its output in the log
+####### an older app that rejects it is not a problem, the entry still sets
+####### and the switch in the app still works, so nothing is flagged either way
 
 ENTRY="${MULLVAD_ENTRY:-none}"
-
-####### your GUI produced "Multihop state: enabled" plus an entry location
-####### setting the entry location alone may leave the state disabled, which
-####### would explain a command that reports success while multihop stays off
-####### so both are set, and then the state is read back to see which it was
 
 relays_ready() {
 	local list
@@ -117,20 +115,22 @@ multihop_on() {
 }
 
 if [[ "$ENTRY" == none ]]; then
-	note "multihop off, no entry location chosen"
+	info "multihop off, no entry location chosen"
 else
 	wait_for 60 relays_ready || flag "relay list never arrived, multihop may be rejected"
 
-	####### the entry location is set, because that part works
-	####### the state switch is not, the CLI flag for it was rejected on this
-	####### version and chasing it cost more rounds than it was worth
-	####### you turn it on in the app once and it sticks
+	if $SUDO mullvad relay set multihop on >&3 2>&1; then
+		printf 'multihop switch accepted\n' >&3
+	else
+		printf 'multihop switch rejected by this app version\n' >&3
+	fi
+
 	soft "multihop entry $ENTRY" $SUDO mullvad relay set entry location $ENTRY
 
 	if multihop_on; then
 		pass "multihop on, entering via $ENTRY"
 	else
-		note "multihop entry is $ENTRY, switch the state on in the app once"
+		info "multihop entry is $ENTRY, switch multihop on in the app once"
 	fi
 fi
 
@@ -249,10 +249,9 @@ warn  "dns blocking"      sh -c 'sudo mullvad dns get > /tmp/_dns; grep -qi "blo
 warn  "auto connect"      sh -c 'sudo mullvad auto-connect get > /tmp/_ac; grep -qi on /tmp/_ac'
 warn  "app autostart"     sh -c 'ls ~/.config/autostart/mullvad* >/dev/null 2>&1'
 
-####### the via line is the only real proof multihop is active
-if [[ "${MULLVAD_ENTRY:-none}" != none ]]; then
-	warn "multihop active"   sh -c 'sudo mullvad status -v > /tmp/_mh; grep -q " via " /tmp/_mh'
-fi
+####### no multihop check here, on purpose
+####### the switch may be yours to flip in the app, so a check could only
+####### ever fail on a fresh install, the Tunnel block reports the state
 
 verify_done
 

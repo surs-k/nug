@@ -108,11 +108,10 @@ run "enable ntp" $SUDO timedatectl set-ntp true
 
 section "Boot"
 
-####### this is the fix for the menu that sat there waiting for a keypress
 ####### limine reads the directory holding its own efi binary before /boot,
 ####### so a stray limine.conf beside the binary silently wins
-####### and limine-snapper-sync rewrites /boot/limine.conf on every snapshot,
-####### so the global settings are re-asserted by a hook instead of by hand
+####### limine-snapper-sync rewrites /boot/limine.conf on every snapshot, so
+####### the menu is re-checked by a hook after every save instead of by hand
 
 
 ## Stray
@@ -125,87 +124,46 @@ for c in /boot/EFI/limine/limine.conf /boot/EFI/BOOT/limine.conf /boot/limine/li
 done
 
 
-## Enforcer
+## Cmdline
 
-$SUDO tee /usr/local/bin/limine-header-fix > /dev/null << EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-CONF=/boot/limine.conf
-
-[[ -f "\$CONF" ]] || exit 0
-
-TIMEOUT="\${LIMINE_TIMEOUT:-$LIMINE_TIMEOUT}"
-
-####### --flat strips the //Snapshots sub entry back out
-####### the sync tool needs that marker, but it is also the one thing that
-####### could upset auto boot again, so there is a one command way back
-FLAT=no
-[[ "\${1:-}" == --flat ]] && FLAT=yes
-
-####### refuse to touch anything without a real cmdline to write back
-CMDLINE="\$(cat /etc/kernel/cmdline 2>/dev/null || true)"
-
-if [[ -z "\$CMDLINE" ]]; then
-	printf 'no /etc/kernel/cmdline, refusing to rewrite limine.conf\n' >&2
-	exit 1
+####### installs made before v6.14 wrote subvol=@, the snapshot tool only
+####### recognises subvol=/@, both mount the same thing
+if grep -Eq 'rootflags=subvol=@([[:space:]]|$)' /etc/kernel/cmdline; then
+	$SUDO sed -i -E 's#rootflags=subvol=@([[:space:]]|$)#rootflags=subvol=/@\1#' /etc/kernel/cmdline
+	note "root subvolume now written as /@ in /etc/kernel/cmdline"
 fi
 
-MID="\$(cat /etc/machine-id 2>/dev/null || true)"
 
-TMP="\$(mktemp)"
+## Fstab
 
-####### keep everything from the SECOND top level entry onward
-####### a top level entry starts with one slash, a sub entry with two
-####### this is what preserves snapshot entries while the main one is rebuilt
-awk '/^\/[^\/]/ { n++ } n >= 2' "\$CONF" > "\$TMP" || true
+####### same repair as 05-iso makes on a fresh install, see Fstab in 00-lib
+if ! fstab_root_named /etc/fstab; then
+	$SUDO cp /etc/fstab /etc/fstab.pre-v6.14
+	fstab_root_by_name /etc/fstab
+	note "/ in fstab now mounts by name only, old copy at /etc/fstab.pre-v6.14"
+fi
 
-{
-	printf 'timeout: %s\n\n' "\$TIMEOUT"
 
-	####### top level and directly bootable
-	####### /+Name with a plus is a folder, and limine will not auto boot a
-	####### folder, it sits waiting for someone to open it and choose
-	printf '/Arch Linux\n'
+## Enforcer
 
-	if [[ -n "\$MID" ]]; then
-		printf '    comment: machine-id=%s\n' "\$MID"
-	fi
+####### the same file 05-iso used to write the menu, now installed for good
+####### the snapshot tool runs it after every save, and so does 20-desktop
+####### after it changes the cmdline
+$SUDO install -m 755 "$REPO/limine-header-fix.sh" /usr/local/bin/limine-header-fix
 
-	printf '    protocol: linux\n'
-	printf '    path: boot():/vmlinuz-linux\n'
-
-	if [[ -f /boot/intel-ucode.img ]]; then
-		printf '    module_path: boot():/intel-ucode.img\n'
-	fi
-
-	if [[ -f /boot/amd-ucode.img ]]; then
-		printf '    module_path: boot():/amd-ucode.img\n'
-	fi
-
-	printf '    module_path: boot():/initramfs-linux.img\n'
-	printf '    cmdline: %s\n' "\$CMDLINE"
-
-	if [[ "\$FLAT" == no ]] && grep -q '^    //Snapshots' "\$CONF"; then
-		printf '    //Snapshots\n'
-	fi
-
-	printf '\n'
-
-	cat "\$TMP"
-} > "\$CONF"
-
-rm -f "\$TMP"
-EOF
-
-$SUDO chmod 755 /usr/local/bin/limine-header-fix
+####### only created when missing, a choice made later with --flat or
+####### --timeout is never overwritten by a rerun
+if [[ ! -f /etc/rebuild-boot.conf ]]; then
+	printf 'BOOT_MODE=nested\nBOOT_TIMEOUT=%s\n' "$LIMINE_TIMEOUT" \
+		| $SUDO tee /etc/rebuild-boot.conf > /dev/null
+fi
 
 
 ## Apply
 
-####### this also repairs an existing install, it flattens a /+Arch Linux
-####### folder into a bootable top level entry and keeps snapshot entries
-run "set boot to auto start" $SUDO /usr/local/bin/limine-header-fix
+####### also converts an older flat menu to the nested shape, and keeps
+####### any snapshot entries already in it
+run "write boot menu" $SUDO /usr/local/bin/limine-header-fix
 
 
 
@@ -294,12 +252,8 @@ git reset --hard "origin/$BRANCH"
 
 find . -name '*.sh' -exec chmod +x {} +
 
-printf '
-Updated to %s
-' "$(git rev-parse --short HEAD)"
-printf 'Now run: ./run.sh
-
-'
+printf '\nUpdated to %s\n' "$(git rev-parse --short HEAD)"
+printf 'Now run: rebuild\n\n'
 EOF
 
 $SUDO chmod 755 /usr/local/bin/rebuild-update
@@ -356,14 +310,12 @@ check "hostname set"     sh -c "test \"\$(hostnamectl --static)\" = \"$HOSTNAME\
 check "locale built"     sh -c 'locale -a > /tmp/_loc; grep -q en_US.utf8 /tmp/_loc'
 check "zram config"      test -f /etc/systemd/zram-generator.conf
 check "swap tuning"      test -f /etc/sysctl.d/99-zram.conf
-check "limine conf"      test -f /boot/limine.conf
 check "no stray conf"    sh -c '! test -f /boot/EFI/limine/limine.conf'
-check "auto start set"   grep -q '^timeout:' /boot/limine.conf
-check "entry top level"  grep -q '^/Arch Linux' /boot/limine.conf
-check "entry not folder" sh -c '! grep -q "^/+" /boot/limine.conf'
-check "entry bootable"   grep -q 'protocol: linux' /boot/limine.conf
+check "menu starts alone" $SUDO /usr/local/bin/limine-header-fix --check
+check "cmdline names /@" grep -q 'rootflags=subvol=/@' /etc/kernel/cmdline
+check "fstab / by name"  fstab_root_named /etc/fstab
 check "deploy hook"      test -f /etc/pacman.d/hooks/99-limine-deploy.hook
-check "header enforcer"  test -x /usr/local/bin/limine-header-fix
+check "menu tool"        test -x /usr/local/bin/limine-header-fix
 check "yay present"      command -v yay
 check "update helper"    test -x /usr/local/bin/rebuild-update
 check "rebuild command"  test -x /usr/local/bin/rebuild

@@ -49,9 +49,12 @@ section "Packages"
 
 ## Repo
 
-####### moonlight-qt and librewolf are in extra now, no AUR build needed
+####### librewolf is in extra now, no AUR build needed
+####### moonlight-qt is gone from this list, it is the client that runs on
+####### the laptop and connects to Sunshine on this PC, it was left here when
+####### v6.0 moved it from the AUR to the official repo, which is why it
+####### installed even with Sunshine turned off
 pac signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
-pac moonlight-qt
 
 
 ## Keyring
@@ -63,7 +66,8 @@ pac gnome-keyring libsecret seahorse
 
 ## Purge
 
-for p in code firefox; do
+####### moonlight-qt is here so an install made before v6.14 loses it too
+for p in code firefox moonlight-qt; do
 	if pacman -Qq "$p" &> /dev/null; then
 		soft "remove $p" $SUDO pacman -Rns --noconfirm "$p"
 	fi

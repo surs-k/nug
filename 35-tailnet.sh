@@ -162,15 +162,6 @@ Nothing else runs until you do."
 fi
 
 
-## Firewall
-
-if ip link show tailscale0 &> /dev/null; then
-	soft "allow ssh on tailnet" $SUDO ufw allow in on tailscale0 to any port 22 proto tcp
-else
-	flag "tailscale0 absent, ssh rule not added"
-fi
-
-
 #    Firewall
 
 
@@ -206,5 +197,9 @@ stage_done
 
 section "End"
 
-printf '  Tailnet up.\n'
-printf '  Your services can now be reached from the laptop and phone.\n\n'
+####### this stage runs last, so the services were set up before a tailnet
+####### address existed and are still bound to this PC only
+printf '  Tailnet up. SSH is reachable over it now.\n\n'
+printf '  To open your services to the tailnet as well, run both:\n\n'
+printf '    rebuild --only 70-docker\n'
+printf '    rebuild --only 80-remote\n\n'

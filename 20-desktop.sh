@@ -73,6 +73,9 @@ if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia" || contains "$VENDORS" "
 
 	run "rebuild initramfs" $SUDO mkinitcpio -P
 
+	####### save_cfg only writes the file, the Verify block below reads the
+	####### variable, so on a first run it never saw yes and skipped the checks
+	HAS_NVIDIA=yes
 	save_cfg HAS_NVIDIA yes
 
 else
@@ -82,8 +85,17 @@ else
 	note "no NVIDIA card found, using mesa"
 	note "if this machine has an NVIDIA card, stop and say so"
 	pac mesa vulkan-icd-loader
+	HAS_NVIDIA=no
 	save_cfg HAS_NVIDIA no
 fi
+
+
+## Menu
+
+####### the cmdline only reaches the boot menu when the menu is rewritten
+####### before v6.14 that waited for 50-bkp-net, so the reboot right after
+####### this stage started the NVIDIA driver without modeset
+run "update boot menu" $SUDO /usr/local/bin/limine-header-fix
 
 
 
@@ -270,7 +282,12 @@ fi
 if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 	check "nvidia driver"  pacman -Qq nvidia-open-dkms
 	check "modeset in cmdline" grep -q 'nvidia_drm.modeset=1' /etc/kernel/cmdline
+	check "modeset in menu"    grep -q 'nvidia_drm.modeset=1' /boot/limine.conf
 fi
+
+####### this stage ends in the one reboot of the run, so the menu is proven
+####### right before it rather than after
+check "menu starts alone" $SUDO /usr/local/bin/limine-header-fix --check
 
 warn  "sddm enabled"      systemctl is-enabled sddm
 

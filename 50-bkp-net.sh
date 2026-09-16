@@ -177,6 +177,13 @@ run "enable cleanup timer"  $SUDO systemctl enable --now snapper-cleanup.timer
 
 section "Snapboot"
 
+####### snapshots in the boot menu, beside the normal entry
+####### the menu keeps its nested shape: an open Arch Linux folder with
+####### Linux first inside it, which is what starts on its own, then a
+####### Snapshots folder that stays closed until you open it
+####### limine-snapper-sync fills that folder and runs limine-header-fix
+####### after every save, which re-checks the menu still starts on its own
+
 
 ## Install
 
@@ -187,8 +194,11 @@ if pacman -Qi limine-snapper-sync &> /dev/null; then
 	note "already installed"
 else
 	####### the AUR name has a git variant, try both before giving up
+	####### output goes to the log here, so any yay question would sit waiting
+	####### where nobody can see it, the answer flags remove the questions
 	for pkg in limine-snapper-sync limine-snapper-sync-git; do
-		if yay -S --needed --noconfirm "$pkg" >&3 2>&1; then
+		if yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
+			--answeredit=None --removemake "$pkg" >&3 2>&1; then
 			SNAPBOOT=yes
 			note "installed $pkg"
 			break
@@ -200,25 +210,36 @@ else
 		|| flag "limine-snapper-sync would not build, snapshot boot entries skipped"
 fi
 
+####### the watcher that adds entries as snapshots appear is built on this,
+####### and it is only an optional dependency of the package
+if [[ "$SNAPBOOT" == yes ]]; then
+	pac inotify-tools
+fi
+
 
 ## Defaults
 
-####### commands_after_save runs the header enforcer, which is what keeps
-####### the boot menu from going back to waiting for a keypress every time
-####### a snapshot is added
+####### read by limine-snapper-sync
+####### ROOT_SUBVOLUME_PATH has to match the cmdline spelling exactly, /@
+####### COMMANDS_BEFORE_SAVE is emptied, the packaged default can call a tool
+####### from limine-entry-tool, which is not installed here
+####### KERNEL_CMDLINE is copied from /etc/kernel/cmdline so the two cannot
+####### disagree, only limine-entry-tool reads it
 
 if [[ "$SNAPBOOT" == yes ]]; then
 
-	LUKS_UUID="$($SUDO blkid -s UUID -o value /dev/disk/by-partlabel/cryptsystem)"
-	[[ -n "$LUKS_UUID" ]] || { printf 'no cryptsystem UUID\n' >&2; exit 1; }
+	CMDLINE_NOW="$(tr -s '[:space:]' ' ' < /etc/kernel/cmdline)"
+	CMDLINE_NOW="${CMDLINE_NOW% }"
 
 	$SUDO tee /etc/default/limine > /dev/null << EOF
 ESP_PATH="/boot"
 TARGET_OS_NAME="Arch Linux"
+ROOT_SUBVOLUME_PATH="/@"
 ROOT_SNAPSHOTS_PATH="/@snapshots"
 MAX_SNAPSHOT_ENTRIES=10
 LIMIT_USAGE_PERCENT=80
-KERNEL_CMDLINE[default]="rd.luks.name=$LUKS_UUID=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=@ rw nvidia_drm.modeset=1"
+KERNEL_CMDLINE[default]="$CMDLINE_NOW"
+COMMANDS_BEFORE_SAVE=""
 COMMANDS_AFTER_SAVE="/usr/local/bin/limine-header-fix"
 EOF
 fi
@@ -238,29 +259,10 @@ if [[ "$SNAPBOOT" == yes ]]; then
 	[[ -f /boot/limine.conf ]] \
 		|| { printf '/boot/limine.conf missing, do not reboot\n' >&2; exit 1; }
 
-	####### the sync tool looks for a //Snapshots sub entry nested inside the
-	####### OS entry, not a top level one
-	####### the entry keeps its protocol and path lines, so it stays bootable
-	####### and auto boot still works
-	####### if the menu misbehaves after this, limine-header-fix --flat strips
-	####### the marker back out
-	####### limine-snapper-sync wants the kernel as a sub entry under a
-	####### directory, so it can add snapshot entries beside it
-	####### a flat bootable entry is what makes auto boot work
-	####### those two shapes are mutually exclusive, and this is the warning
-	####### you saw on the desktop about no kernel in limine.conf
-	if grep -q '^    //Snapshots' /boot/limine.conf; then
-		note "snapshot marker already present"
-
-	elif grep -q '^/+' /boot/limine.conf; then
-		printf '    //Snapshots\n' | $SUDO tee -a /boot/limine.conf > /dev/null
-		note "added the snapshot marker inside the Arch entry"
-
-	else
-		flag "boot entry is flat, so snapshot boot entries cannot be generated"
-		flag "the system boots reliably, but rollback from the menu is unavailable"
-		flag "see Guides/Bootmenu.md, this is a deliberate trade and yours to make"
-	fi
+	####### now that the sync tool is installed, the menu tool adds the empty
+	####### Snapshots folder inside the Arch entry, after Linux, which is the
+	####### one place the sync tool looks for it
+	run "add snapshot folder" $SUDO /usr/local/bin/limine-header-fix
 
 	soft "baseline snapshot" $SUDO snapper -c root create --description "rebuild baseline"
 
@@ -268,8 +270,9 @@ if [[ "$SNAPBOOT" == yes ]]; then
 
 	soft "enable sync watcher" $SUDO systemctl enable --now limine-snapper-sync.service
 
-	####### re-assert the header in case the sync rewrote it
-	run "restore auto start" $SUDO /usr/local/bin/limine-header-fix
+	####### the sync rewrote the file, so it is proven once more
+	####### if this fails, do not reboot, Guides/Bootmenu.md has the way back
+	run "check boot menu" $SUDO /usr/local/bin/limine-header-fix
 fi
 
 
@@ -354,6 +357,10 @@ run "dry run btrbk" $SUDO btrbk -n run
 
 run "enable daily snapshots" $SUDO systemctl enable --now btrbk.timer
 
+####### one real run now, so the first undo point for /home exists today
+####### and the health report does not call backups broken on day one
+soft "first home snapshot" $SUDO btrbk run
+
 
 
 #    Verify
@@ -372,14 +379,23 @@ check "snapshots listable" sh -c 'snapper -c root list > /dev/null'
 check "timeline timer"     systemctl is-enabled --quiet snapper-timeline.timer
 check "data root mounted"  mountpoint -q /mnt/data-root
 check "btrbk timer"        systemctl is-enabled --quiet btrbk.timer
-check "limine conf"        test -f /boot/limine.conf
-check "auto start intact"  grep -q '^timeout:' /boot/limine.conf
-check "entry still bootable" grep -q '^/Arch Linux' /boot/limine.conf
-check "entry not folder"   sh -c '! grep -q "^/+" /boot/limine.conf' 
+check "menu starts alone"  $SUDO /usr/local/bin/limine-header-fix --check
 check "no stray conf"      sh -c '! test -f /boot/EFI/limine/limine.conf'
+check "fstab / by name"    fstab_root_named /etc/fstab
 
-warn  "snapshot entries"   sh -c 'limine-snapper-list > /dev/null'
-warn  "restore tool"       command -v limine-snapper-restore
+####### entries three slashes deep are the snapshot entries themselves
+snapshot_entries() {
+	local n
+	n="$(grep -Ec '^[[:space:]]*///' /boot/limine.conf || true)"
+	(( ${n:-0} > 0 ))
+}
+
+if [[ "$SNAPBOOT" == yes ]]; then
+	check "snapshot folder"  grep -Eq '^[[:space:]]*//[+]?Snapshots' /boot/limine.conf
+	warn  "snapshot entries" snapshot_entries
+	warn  "sync watcher"     systemctl is-active --quiet limine-snapper-sync.service
+	warn  "restore tool"     command -v limine-snapper-restore
+fi
 
 verify_done
 
