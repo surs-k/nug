@@ -3,10 +3,9 @@ services:
   invidious:
     image: quay.io/invidious/invidious:latest
     container_name: invidious
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "127.0.0.1:3000:3000"
-      - "${BIND_INVIDIOUS:-127.0.0.1}:3000:3000"
     environment:
       INVIDIOUS_CONFIG: |
         db:
@@ -28,7 +27,7 @@ services:
         registration_enabled: false
         login_enabled: false
     healthcheck:
-      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/trending || exit 1
+      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/stats || exit 1
       interval: 5m
       timeout: 10s
       retries: 2
@@ -44,7 +43,7 @@ services:
   invidious-companion:
     image: quay.io/invidious/invidious-companion:latest
     container_name: invidious-companion
-    restart: unless-stopped
+    restart: "no"
     environment:
       SERVER_SECRET_KEY: "${COMPANION_KEY}"
     cap_drop:
@@ -61,7 +60,7 @@ services:
   invidious-db:
     image: docker.io/library/postgres:14
     container_name: invidious-db
-    restart: unless-stopped
+    restart: "no"
     environment:
       POSTGRES_DB: invidious
       POSTGRES_USER: kemal
