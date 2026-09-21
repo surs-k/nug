@@ -66,7 +66,7 @@ pac gnome-keyring libsecret seahorse
 
 ## Purge
 
-####### moonlight-qt is here so an install made before v6.14 loses it too
+####### moonlight-qt is here so an install made before v7.0 loses it too
 for p in code firefox moonlight-qt; do
 	if pacman -Qq "$p" &> /dev/null; then
 		soft "remove $p" $SUDO pacman -Rns --noconfirm "$p"
@@ -155,6 +155,40 @@ run "add flathub" $SUDO flatpak remote-add --if-not-exists flathub \
 
 soft "freetube" $SUDO flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube
 soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Vesktop
+
+####### krita for drawing, and the comfyui plugin has a home to be added to
+soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
+
+####### flatseal edits what each flatpak is allowed to touch
+soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
+
+
+#    Bluetooth
+
+
+section "Bluetooth"
+
+####### HyDE turns the bluetooth service on, this machine has nothing that
+####### uses it, and a radio that is never used is only an open door
+####### nothing is removed, so one command brings it back:
+####### sudo systemctl enable --now bluetooth.service
+
+if systemctl list-unit-files bluetooth.service &> /dev/null \
+	&& systemctl is-enabled --quiet bluetooth.service 2>/dev/null; then
+	soft "turn bluetooth off" $SUDO systemctl disable --now bluetooth.service
+	note "bluetooth service off, it was on"
+else
+	note "bluetooth service already off"
+fi
+
+####### the tray applet starts itself from the desktop session, not systemd
+for f in "$HOME/.config/autostart/blueman.desktop" \
+	"$HOME/.config/autostart/blueman-applet.desktop"; do
+	if [[ -f "$f" ]]; then
+		mv "$f" "$f.disabled"
+		note "stopped the bluetooth applet starting with the desktop"
+	fi
+done
 
 
 
@@ -430,6 +464,7 @@ check "signal-desktop"     command -v signal-desktop
 check "dolphin"            command -v dolphin
 check "steam"              command -v steam
 check "flatpak"            command -v flatpak
+check "bluetooth off"      sh -c '! systemctl is-enabled --quiet bluetooth.service'
 check "keyring present"    command -v gnome-keyring-daemon
 check "binds block"        grep -q 'rebuild binds start' "$LUA"
 check "block closed"       grep -q 'rebuild binds end' "$LUA"
@@ -448,6 +483,8 @@ if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
 fi
 warn  "claude desktop"     command -v claude-desktop
 warn  "freetube"           flatpak info io.freetubeapp.FreeTube
+warn  "krita"              flatpak info org.kde.krita
+warn  "flatseal"           flatpak info com.github.tchx84.Flatseal
 warn  "places installed"   test -f "$HOME/.local/share/user-places.xbel"
 warn  "greeter rotate"     test -x /etc/sddm/Xsetup-rebuild
 

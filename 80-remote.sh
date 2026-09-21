@@ -30,8 +30,33 @@ section "Sunshine"
 
 ## Install
 
-####### LizardByte publish their own package as "sunshine", not sunshine-bin
-aur sunshine
+####### sunshine-bin is LizardByte's own prebuilt release, already built with
+####### CUDA, so NVENC works here without the CUDA toolkit being installed
+####### sunshine builds that same release from source, which is what stopped
+####### the v7.0 run on the PC, so it is the fallback rather than the default
+SUN_PKG=""
+
+for pkg in sunshine-bin sunshine; do
+	if installed "$pkg"; then
+		SUN_PKG="$pkg"
+		note "$pkg already installed"
+		break
+	fi
+
+	if aur "$pkg"; then
+		SUN_PKG="$pkg"
+		break
+	fi
+
+	flag "$pkg would not install, trying the next name"
+done
+
+if [[ -z "$SUN_PKG" ]]; then
+	flag "no sunshine package would install, nothing else in this stage can run"
+	printf '\n  Sunshine did not install. The log has the build output:\n' >&2
+	printf '    %s\n\n' "$LOG" >&2
+	exit 1
+fi
 
 
 ## Capture

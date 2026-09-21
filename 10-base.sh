@@ -126,7 +126,7 @@ done
 
 ## Cmdline
 
-####### installs made before v6.14 wrote subvol=@, the snapshot tool only
+####### installs made before v7.0 wrote subvol=@, the snapshot tool only
 ####### recognises subvol=/@, both mount the same thing
 if grep -Eq 'rootflags=subvol=@([[:space:]]|$)' /etc/kernel/cmdline; then
 	$SUDO sed -i -E 's#rootflags=subvol=@([[:space:]]|$)#rootflags=subvol=/@\1#' /etc/kernel/cmdline
@@ -138,9 +138,9 @@ fi
 
 ####### same repair as 05-iso makes on a fresh install, see Fstab in 00-lib
 if ! fstab_root_named /etc/fstab; then
-	$SUDO cp /etc/fstab /etc/fstab.pre-v6.14
+	$SUDO cp /etc/fstab /etc/fstab.pre-v7.0
 	fstab_root_by_name /etc/fstab
-	note "/ in fstab now mounts by name only, old copy at /etc/fstab.pre-v6.14"
+	note "/ in fstab now mounts by name only, old copy at /etc/fstab.pre-v7.0"
 fi
 
 

@@ -39,6 +39,7 @@ QUIET=0
 [[ "${1:-}" == "--quiet" ]] && QUIET=1
 
 BROKEN=()
+IDLE=()
 OK=()
 
 REPORT="$HOME/.rebuild/health.txt"
@@ -49,6 +50,14 @@ mkdir -p "$(dirname "$REPORT")"
 
 pass() { OK+=("$1"); }
 fail() { BROKEN+=("$1: $2"); }
+
+####### a service you stopped on purpose is not a fault
+off()  { IDLE+=("$1: $2"); }
+
+####### every container that is running right now
+RUNNING="$(sudo -n docker ps --format '{{.Names}}' 2>/dev/null || true)"
+
+is_up() { [[ $'\n'"$RUNNING"$'\n' == *$'\n'"$1"$'\n'* ]]; }
 
 capture() { "$@" 2>&1 || true; }
 
@@ -115,7 +124,10 @@ fi
 ####### the stats page answers without YouTube, the video needs it
 ####### the video is the first one ever uploaded, it is not going anywhere
 
-if has "$WANT_ST" "invidious" || has "$WANT_ST" "all"; then
+if ! is_up invidious; then
+	has "$WANT_ST" "invidious" && off "Invidious" "stopped, start it with: stack up invidious"
+
+elif has "$WANT_ST" "invidious" || has "$WANT_ST" "all"; then
 	CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
 		http://127.0.0.1:3000/api/v1/stats)"
 	if [[ "$CODE" != 200 ]]; then
@@ -134,7 +146,10 @@ fi
 
 ####### searxng
 
-if has "$WANT_ST" "searxng" || has "$WANT_ST" "all"; then
+if ! is_up searxng; then
+	has "$WANT_ST" "searxng" && off "SearXNG" "stopped, start it with: stack up searxng"
+
+elif has "$WANT_ST" "searxng" || has "$WANT_ST" "all"; then
 	CODE="$(capture curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:8080/)"
 	if [[ "$CODE" == 200 ]]; then pass "SearXNG"
 	else fail "SearXNG" "not answering, try: sudo docker restart searxng"; fi
@@ -224,6 +239,7 @@ fi
 {
 	printf 'Rebuild health  %s\n\n' "$(date '+%Y-%m-%d %H:%M')"
 	for o in "${OK[@]}";     do printf '  ok      %s\n' "$o"; done
+	for i in "${IDLE[@]}";   do printf '  off     %s\n' "$i"; done
 	for b in "${BROKEN[@]}"; do printf '  BROKEN  %s\n' "$b"; done
 } > "$REPORT"
 
@@ -236,15 +252,21 @@ fi
 
 if (( ${#BROKEN[@]} > 0 )); then
 
-	BODY="$(printf '%s\n' "${BROKEN[@]}")"
-
+	####### one popup per problem, never several stacked into one wall of
+	####### text, and never more than three at once
 	if command -v notify-send > /dev/null; then
-		####### -t 0 means it stays until dismissed
-		notify-send -u critical -t 0 \
-			"Something on this PC needs fixing" \
-			"$BODY
+		SHOWN=0
+		for b in "${BROKEN[@]}"; do
+			(( SHOWN >= 3 )) && break
+			####### -t 0 means it stays until dismissed
+			notify-send -u critical -t 0 "${b%%:*} needs fixing" "${b#*: }" 2>/dev/null || true
+			SHOWN=$(( SHOWN + 1 ))
+		done
 
-Run rebuild-health for detail." 2>/dev/null || true
+		if (( ${#BROKEN[@]} > SHOWN )); then
+			notify-send -u critical -t 0 "More to fix" \
+				"$(( ${#BROKEN[@]} - SHOWN )) more, run rebuild-health" 2>/dev/null || true
+		fi
 	fi
 
 	####### also on every new terminal, in case the popup was missed
@@ -339,6 +361,7 @@ SUDO_TMP="$(mktemp)"
 cat > "$SUDO_TMP" << EOF
 $USERNAME ALL=(root) NOPASSWD: /usr/bin/snapper -c root list --columns number
 $USERNAME ALL=(root) NOPASSWD: /usr/bin/docker ps -a --filter status\=restarting --format {{.Names}}
+$USERNAME ALL=(root) NOPASSWD: /usr/bin/docker ps --format {{.Names}}
 EOF
 
 run "validate sudoers" $SUDO visudo -c -f "$SUDO_TMP"

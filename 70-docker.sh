@@ -349,11 +349,16 @@ $SUDO chown -R "$USERNAME:$USERNAME" /srv/rebuild
 
 ln -sfn "$STACKS_DIR" "$HOME/firelink/stacks"
 
+####### nothing starts itself at boot any more, every compose file says
+####### restart: "no", so a service runs only while you want it to
+####### this is the command that starts and stops them by name
+$SUDO install -m 755 "$REPO/stack.sh" /usr/local/bin/stack
+
 WANT="${WANT_STACKS:-searxng}"
 
 ####### accept the shorthand even if it reached the config by hand
 case "$WANT" in
-	all|ALL)   WANT="searxng,portainer,invidious,comfyui" ;;
+	all|ALL)   WANT="searxng,portainer,invidious,comfyui,jellyfin" ;;
 	none|NONE) WANT="" ;;
 esac
 
@@ -455,6 +460,40 @@ elif contains "$WANT" "comfyui"; then
 fi
 
 
+## Jellyfin
+
+####### a library for the shows you study frame by frame
+####### the server is the container, the player is not: jellyfin-mpv-shim
+####### needs your screen, your sound and your keyboard, so it stays a desktop
+####### app, see Guides/Selfhost.md
+####### media is mounted read only, nothing in here can change your files
+
+if contains "$WANT" "jellyfin"; then
+
+	JF="$STACKS_DIR/jellyfin"
+	MEDIA_DIR="${MEDIA_DIR:-$HOME/Videos}"
+
+	mkdir -p "$MEDIA_DIR"
+	$SUDO mkdir -p "$JF/config" "$JF/cache"
+	$SUDO chown -R "$USERNAME:$USERNAME" "$JF"
+
+	{
+		printf 'WANTED_UID=%s\n' "$(id -u "$USERNAME")"
+		printf 'WANTED_GID=%s\n' "$(id -g "$USERNAME")"
+		printf 'MEDIA_DIR=%s\n'  "$MEDIA_DIR"
+	} > "$JF/.env"
+
+	save_cfg MEDIA_DIR "$MEDIA_DIR"
+
+	stack_up jellyfin -f "$JF/compose.yaml" --env-file "$JF/.env"
+
+	note "jellyfin at http://127.0.0.1:8096, media from $MEDIA_DIR"
+	action "Open http://127.0.0.1:8096 and finish the Jellyfin setup wizard.
+
+Add a library pointing at /media, which is $MEDIA_DIR on this PC."
+fi
+
+
 ## Portainer
 
 if contains "$WANT" "portainer"; then
@@ -471,7 +510,7 @@ if contains "$WANT" "portainer"; then
 	elif ! run "start portainer" $SUDO docker run -d \
 		-p 127.0.0.1:9443:9443 \
 		--name portainer \
-		--restart unless-stopped \
+		--restart no \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v portainer_data:/data \
 		portainer/portainer-ce:latest; then
@@ -538,6 +577,12 @@ if contains "$WANT" "portainer"; then
 	warn  "portainer running"  container_up portainer
 fi
 
+if contains "$WANT" "jellyfin"; then
+	check "jellyfin running"   container_up jellyfin
+fi
+
+check "stack command"      test -x /usr/local/bin/stack
+
 verify_done
 
 stage_done
@@ -551,6 +596,10 @@ section "End"
 
 printf '  Self hosting ready.\n'
 printf '  Everything binds to 127.0.0.1 only. Nothing is on the internet.\n'
-printf '  Read Guides/Selfhost.md for start, stop and update.\n\n'
+printf '  Nothing here starts itself at boot. Start what you need:\n\n'
+printf '    stack list\n'
+printf '    stack up searxng\n'
+printf '    stack down searxng\n\n'
+printf '  Read Guides/Selfhost.md for update and repair.\n\n'
 printf '  Docker commands need sudo, on purpose.\n'
 printf '  You are not in the docker group, it would be root without a password.\n\n'

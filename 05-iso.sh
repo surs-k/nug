@@ -15,7 +15,7 @@ section "Answers"
 ####### every question in the whole install lives in this one block
 ####### after the last password nothing else is asked until the end
 ####### subjects are split by an arrow line, with one extra blank line
-####### after a long subject, as laid out in the v6.14 review
+####### after a long subject, as laid out in the v7.0 review
 
 act_text "Everything you type is in this section.
 

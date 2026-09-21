@@ -93,7 +93,7 @@ fi
 ## Menu
 
 ####### the cmdline only reaches the boot menu when the menu is rewritten
-####### before v6.14 that waited for 50-bkp-net, so the reboot right after
+####### before v7.0 that waited for 50-bkp-net, so the reboot right after
 ####### this stage started the NVIDIA driver without modeset
 run "update boot menu" $SUDO /usr/local/bin/limine-header-fix
 

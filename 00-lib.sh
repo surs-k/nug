@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-####### Rebuild v6.15 shared library
+####### Rebuild v7.2 shared library
 ####### every stage sources this as its first action
 ####### nothing here installs a package or writes to a disk
 
@@ -608,8 +608,18 @@ aur() {
 	####### --noconfirm alone is not enough, yay still stops to ask whether
 	####### you want to see the diff, view the PKGBUILD or edit it, and the
 	####### default answer to those is not always the one that continues
+	local rc=0
+
+	WHY=""
+
 	yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
-		--answeredit=None --removemake "$@" 2> >(tee -a "$LOG" >&2)
+		--answeredit=None --removemake "$@" 2> >(tee -a "$LOG" >&2) || rc=$?
+
+	####### an AUR build that fails otherwise reaches the summary as the whole
+	####### yay command line, which says everything except which package
+	(( rc == 0 )) || WHY="building $* from the AUR failed, exit $rc"
+
+	return "$rc"
 }
 
 
@@ -662,9 +672,10 @@ RETRY_LIMIT=10
 TUNNEL_MTU=1420
 
 ####### seconds the boot menu shows before starting on its own
-####### long enough to see it and press a key for the snapshots, and for a
-####### monitor to wake, short enough that nobody has to press anything
-LIMINE_TIMEOUT=3
+####### three while the nested menu was unproven, one now that it has started
+####### Linux on its own on the real machine
+####### an arrow key still stops the count, it is just a smaller window
+LIMINE_TIMEOUT=1
 
 
 ## Load

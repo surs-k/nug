@@ -237,7 +237,7 @@ sudo_keepalive
 
 ## Ask
 
-STACK_ALL="searxng,portainer,invidious,comfyui"
+STACK_ALL="searxng,portainer,invidious,comfyui,jellyfin"
 
 ####### everything this prints goes to the terminal, not to stdout, because
 ####### the caller captures stdout to get the answer back
@@ -252,6 +252,7 @@ pick_stacks() {
 		act_line "  portainer   web dashboard for managing Docker"
 		act_line "  invidious   private YouTube backend, feeds FreeTube"
 		act_line "  comfyui     AI image generation, uses your GPU"
+		act_line "  jellyfin    your own library of shows and films"
 		act_line ""
 		act_line "  all         every one of them"
 		act_line "  none        skip self hosting"
@@ -271,7 +272,7 @@ pick_stacks() {
 
 		for t in "${parts[@]}"; do
 			case "$t" in
-				searxng|portainer|invidious|comfyui)
+				searxng|portainer|invidious|comfyui|jellyfin)
 					out="${out:+$out,}$t" ;;
 				"") ;;
 				*)
