@@ -1,5 +1,0 @@
-services:
-
-  invidious:
-    ports:
-      - "${BIND_INVIDIOUS}:3000:3000"
