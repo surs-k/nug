@@ -1,0 +1,41 @@
+services:
+
+  searxng:
+    image: ghcr.io/searxng/searxng:latest
+    container_name: searxng
+    restart: "no"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./config:/etc/searxng:rw
+      - ./data:/var/cache/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://127.0.0.1:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET}
+    depends_on:
+      - valkey
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  valkey:
+    image: docker.io/valkey/valkey:8-alpine
+    container_name: searxng-valkey
+    restart: "no"
+    command: valkey-server --save 30 1 --loglevel warning
+    volumes:
+      - valkey-data:/data
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+volumes:
+  valkey-data:
