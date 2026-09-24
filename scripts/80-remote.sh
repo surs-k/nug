@@ -30,10 +30,10 @@ section "Sunshine"
 
 ## Install
 
-####### sunshine-bin is LizardByte's own prebuilt release, already built with
-####### CUDA, so NVENC works here without the CUDA toolkit being installed
-####### sunshine builds that same release from source, which is what stopped
-####### the v7.0 run on the PC, so it is the fallback rather than the default
+	# Ai - sunshine-bin is LizardByte's own prebuilt release, already built with
+	#      CUDA, so NVENC works here without the CUDA toolkit being installed
+	#      sunshine builds that same release from source, which is what stopped
+	#      the v7.0 run on the PC, so it is the fallback rather than the default
 SUN_PKG=""
 
 for pkg in sunshine-bin sunshine; do
@@ -61,12 +61,12 @@ fi
 
 ## Capture
 
-####### sunshine captures the virtual screen made below, through wlr
-####### kms cannot see it, kms only knows real connectors, and with nothing
-####### set sunshine asked the desktop portal instead, which is the screen
-####### picker that popped up over whatever window was open at login
-####### wlr needs no extra privilege, so the cap_sys_admin kms needed is
-####### removed from the binary rather than left on for nothing
+	# Ai - sunshine captures the virtual screen made below, through wlr
+	#      kms cannot see it, kms only knows real connectors, and with nothing
+	#      set sunshine asked the desktop portal instead, which is the screen
+	#      picker that popped up over whatever window was open at login
+	#      wlr needs no extra privilege, so the cap_sys_admin kms needed is
+	#      removed from the binary rather than left on for nothing
 SUN_BIN="$(readlink -f "$(command -v sunshine)")"
 
 SUN_CAPS="$(getcap "$SUN_BIN" 2>/dev/null || true)"
@@ -79,14 +79,14 @@ SUN_CONF="$HOME/.config/sunshine/sunshine.conf"
 mkdir -p "$(dirname "$SUN_CONF")"
 touch "$SUN_CONF"
 
-####### only these two lines are managed, anything set in the web page stays
+	# Ai - only these two lines are managed, anything set in the web page stays
 sed -i '/^capture *=/d; /^output_name *=/d' "$SUN_CONF"
 printf 'capture = wlr\noutput_name = SUNSHINE\n' >> "$SUN_CONF"
 
 
 ## Input
 
-####### the virtual keyboard and mouse are a uinput device
+	# Ai - the virtual keyboard and mouse are a uinput device
 $SUDO tee /etc/udev/rules.d/60-sunshine.rules > /dev/null << 'EOF'
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 EOF
@@ -104,12 +104,12 @@ run "add user to input" $SUDO usermod -aG input "$USERNAME"
 
 section "Headless"
 
-####### the virtual screen gives the laptop its own resolution instead of
-####### mirroring the ultrawide, and it only exists while Sunshine runs
-####### remote on makes it and starts Sunshine, remote off undoes both
+	# Ai - the virtual screen gives the laptop its own resolution instead of
+	#      mirroring the ultrawide, and it only exists while Sunshine runs
+	#      remote on makes it and starts Sunshine, remote off undoes both
 $SUDO install -m 755 "$SCRIPTS/remote.sh" /usr/local/bin/remote
 
-####### earlier versions made the screen at every login, so that goes
+	# Ai - earlier versions made the screen at every login, so that goes
 if [[ -f "$HOME/.config/systemd/user/rebuild-headless.service" ]]; then
 	systemctl --user disable rebuild-headless.service 2>/dev/null || true
 	rm -f "$HOME/.config/systemd/user/rebuild-headless.service"
@@ -127,12 +127,12 @@ run "reload user systemd" systemctl --user daemon-reload
 
 section "Service"
 
-####### the package does not always ship a user unit called sunshine.service,
-####### which is why enabling it failed outright
-####### whatever it ships gets used, and if it ships nothing we write one
+	# Ai - the package does not always ship a user unit called sunshine.service,
+	#      which is why enabling it failed outright
+	#      whatever it ships gets used, and if it ships nothing we write one
 
-####### upstream renamed the user unit for XDG portal compatibility
-####### plain sunshine.service is now an alias that does not always resolve
+	# Ai - upstream renamed the user unit for XDG portal compatibility
+	#      plain sunshine.service is now an alias that does not always resolve
 SUN_UNIT="app-dev.lizardbyte.app.Sunshine.service"
 
 UNITS="$(capture systemctl --user list-unit-files --no-legend)"
@@ -169,8 +169,8 @@ EOF
 	run "reload user systemd" systemctl --user daemon-reload
 fi
 
-####### never at login, only when you ask: remote on
-####### an install made before v7.4 enabled it, so both names are turned off
+	# Ai - never at login, only when you ask: remote on
+	#      an install made before v7.4 enabled it, so both names are turned off
 for u in "$SUN_UNIT" app-dev.lizardbyte.app.Sunshine.service sunshine.service; do
 	if systemctl --user is-enabled --quiet "$u" 2>/dev/null; then
 		soft "sunshine off at login" systemctl --user disable --now "$u"
@@ -184,16 +184,16 @@ done
 
 section "Firewall"
 
-####### only on the tailnet, never on the open lan
-####### sunshine speaks on 47984 47989 48010 tcp and 47998 to 48000 udp
-####### 47990 is the web interface
+	# Ai - only on the tailnet, never on the open lan
+	#      sunshine speaks on 47984 47989 48010 tcp and 47998 to 48000 udp
+	#      47990 is the web interface
 
 if ip link show tailscale0 &> /dev/null; then
 	soft "stream tcp"  $SUDO ufw allow in on tailscale0 to any port 47984,47989,48010 proto tcp
 	soft "stream udp"  $SUDO ufw allow in on tailscale0 to any port 47998:48000 proto udp
 	soft "web ui"      $SUDO ufw allow in on tailscale0 to any port 47990 proto tcp
 else
-	####### one line for one situation, this used to print four
+		# Ai - one line for one situation, this used to print four
 	note "no tailnet yet, so the stream ports stay closed"
 	note "when you want remote access: rebuild --only 35-tailnet"
 	note "then: rebuild --only 80-remote"
@@ -219,7 +219,7 @@ sun_off_at_login() {
 
 check "off at login"       sun_off_at_login
 
-####### only when there is a tailnet, the ports stay shut on purpose otherwise
+	# Ai - only when there is a tailnet, the ports stay shut on purpose otherwise
 if ip link show tailscale0 &> /dev/null; then
 	warn  "tailnet rules"   sh -c 'sudo ufw status > /tmp/_uf; grep -q 47984 /tmp/_uf'
 fi

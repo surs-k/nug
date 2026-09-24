@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
-####### stack
-####### starts and stops the self hosted services by name
-####### nothing starts by itself any more, see Guides/Selfhost.md
-####### installed by 70-docker as /usr/local/bin/stack
+	# Ai - stack
+	#      starts and stops the self hosted services by name
+	#      nothing starts by itself any more, see Guides/Selfhost.md
+	#      installed by 70-docker as /usr/local/bin/stack
 
 set -euo pipefail
 
 STACKS_DIR="${STACKS_DIR:-/srv/rebuild/stacks}"
 
-####### portainer is a single container, not a compose folder
+	# Ai - portainer is a single container, not a compose folder
 PLAIN="portainer"
 
 
@@ -37,7 +37,7 @@ USAGEEOF
 SUDO=""
 [[ $EUID -ne 0 ]] && SUDO=sudo
 
-####### every name that has a folder, plus the plain containers
+	# Ai - every name that has a folder, plus the plain containers
 names() {
 	local d
 	for d in "$STACKS_DIR"/*/; do
@@ -54,8 +54,8 @@ is_plain() {
 	return 1
 }
 
-####### compose needs both files when there is a tailnet one, and the .env
-####### in the folder already names them, so the folder is the way in
+	# Ai - compose needs both files when there is a tailnet one, and the .env
+	#      in the folder already names them, so the folder is the way in
 compose() {
 	local name=$1; shift
 	( cd "$STACKS_DIR/$name" && $SUDO docker compose "$@" )
@@ -89,8 +89,8 @@ exists() {
 
 ## Up
 
-####### start is for containers that already exist, up creates them the first
-####### time, so both are needed and only one of them is right at any moment
+	# Ai - start is for containers that already exist, up creates them the first
+	#      time, so both are needed and only one of them is right at any moment
 up() {
 	local name=$1
 

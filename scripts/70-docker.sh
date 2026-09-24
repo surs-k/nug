@@ -38,11 +38,11 @@ pac docker docker-compose docker-buildx
 
 ## Storage
 
-####### overlay2 on top of btrfs, not the btrfs storage driver
-####### the btrfs driver is deprecated upstream
-####### @docker keeps compression, so no chattr +C here, the two are
-####### mutually exclusive and compression is worth more than the
-####### fragmentation it costs on a home machine
+	# Ai - overlay2 on top of btrfs, not the btrfs storage driver
+	#      the btrfs driver is deprecated upstream
+	#      @docker keeps compression, so no chattr +C here, the two are
+	#      mutually exclusive and compression is worth more than the
+	#      fragmentation it costs on a home machine
 
 $SUDO mkdir -p /etc/docker
 
@@ -63,7 +63,7 @@ fi
 
 run "enable docker" $SUDO systemctl enable --now docker.service
 
-####### docker info prints a page of text, only the answer matters here
+	# Ai - docker info prints a page of text, only the answer matters here
 docker_up() { $SUDO docker info > /dev/null 2>&1; }
 
 wait_for 30 docker_up
@@ -71,14 +71,14 @@ wait_for 30 docker_up
 
 ## Group
 
-####### deliberately NOT adding you to the docker group
-####### the group grants unmediated access to the daemon socket, which means
-####### anything running as you can mount the host root into a container and
-####### own the machine, with no password prompt anywhere
-####### sudo docker costs five keystrokes and closes that off
-####### day to day you use the browser and Portainer, not the terminal
+	# Ai - deliberately NOT adding you to the docker group
+	#      the group grants unmediated access to the daemon socket, which means
+	#      anything running as you can mount the host root into a container and
+	#      own the machine, with no password prompt anywhere
+	#      sudo docker costs five keystrokes and closes that off
+	#      day to day you use the browser and Portainer, not the terminal
 
-####### capture then match, a pipe into grep -q can read as false here
+	# Ai - capture then match, a pipe into grep -q can read as false here
 DGROUPS="$(id -nG "$USERNAME" 2>/dev/null || true)"
 
 if [[ " $DGROUPS " == *" docker "* ]]; then
@@ -91,8 +91,8 @@ fi
 
 ## Ownership
 
-####### containers write bind mounted files as root unless told otherwise
-####### that leaves your ComfyUI models and outputs undeletable from Dolphin
+	# Ai - containers write bind mounted files as root unless told otherwise
+	#      that leaves your ComfyUI models and outputs undeletable from Dolphin
 UID_GID="$(id -u "$USERNAME"):$(id -g "$USERNAME")"
 
 save_cfg CONTAINER_UID "$UID_GID"
@@ -110,8 +110,8 @@ if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 
 	pac nvidia-container-toolkit
 
-	####### cdi is the current path, the old runtime hook is legacy
-	####### this spec has to be regenerated after every driver update
+		# Ai - cdi is the current path, the old runtime hook is legacy
+		#      this spec has to be regenerated after every driver update
 	run "configure runtime" $SUDO nvidia-ctk runtime configure --runtime=docker
 	run "set cdi mode"      $SUDO nvidia-ctk config --in-place --set nvidia-container-runtime.mode=cdi
 
@@ -120,8 +120,8 @@ if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 
 	run "restart docker" $SUDO systemctl restart docker
 
-	####### regenerate automatically so a driver update does not silently
-	####### break every gpu container
+		# Ai - regenerate automatically so a driver update does not silently
+		#      break every gpu container
 	$SUDO mkdir -p /etc/pacman.d/hooks
 
 	$SUDO tee /etc/pacman.d/hooks/99-nvidia-cdi.hook > /dev/null << 'EOF'
@@ -150,10 +150,10 @@ fi
 
 section "Firewall"
 
-####### docker writes its own iptables chains and walks straight past ufw
-####### a published port is reachable even when ufw says it is denied
-####### ufw-docker adds the missing filter block
-####### the stacks below also bind to 127.0.0.1 so nothing is exposed twice
+	# Ai - docker writes its own iptables chains and walks straight past ufw
+	#      a published port is reachable even when ufw says it is denied
+	#      ufw-docker adds the missing filter block
+	#      the stacks below also bind to 127.0.0.1 so nothing is exposed twice
 
 if [[ -x /usr/local/bin/ufw-docker ]]; then
 	note "ufw-docker already installed"
@@ -180,9 +180,9 @@ section "Ollama"
 
 ollama_answers() { curl -fsS --max-time 3 http://127.0.0.1:11434/api/version > /dev/null 2>&1; }
 
-####### native package, not a container
-####### the container adds gpu plumbing for no benefit on a machine that
-####### already has the driver installed
+	# Ai - native package, not a container
+	#      the container adds gpu plumbing for no benefit on a machine that
+	#      already has the driver installed
 
 if [[ "${WANT_OLLAMA:-yes}" == yes ]]; then
 
@@ -192,12 +192,12 @@ if [[ "${WANT_OLLAMA:-yes}" == yes ]]; then
 		pac ollama
 	fi
 
-	####### models are large, keep them on the data disk
-	####### the packaged service runs as its own user and hides all of /home
-	####### from itself with ProtectHome, so the models folder was out of its
-	####### reach and the service died a moment after starting
-	####### ProtectHome=tmpfs with BindPaths shows it that one folder only,
-	####### the rest of /home stays hidden, and the folder belongs to it
+		# Ai - models are large, keep them on the data disk
+		#      the packaged service runs as its own user and hides all of /home
+		#      from itself with ProtectHome, so the models folder was out of its
+		#      reach and the service died a moment after starting
+		#      ProtectHome=tmpfs with BindPaths shows it that one folder only,
+		#      the rest of /home stays hidden, and the folder belongs to it
 	OLLAMA_USER="$(systemctl show -p User --value ollama.service 2>/dev/null || true)"
 	OLLAMA_USER="${OLLAMA_USER:-ollama}"
 
@@ -223,8 +223,8 @@ EOF
 	run "enable ollama"  $SUDO systemctl enable --now ollama
 	run "restart ollama" $SUDO systemctl restart ollama
 
-	####### active is not proof, the old failure was active for one second
-	####### an answer on its port is
+		# Ai - active is not proof, the old failure was active for one second
+		#      an answer on its port is
 	wait_for 20 ollama_answers || flag "ollama is not answering on 127.0.0.1:11434"
 
 	note "pull a model with: ollama pull llama3.2"
@@ -242,12 +242,12 @@ section "Stacks"
 
 ## Helpers
 
-####### one service failing no longer stops the ones after it
-####### each failure is named with its reason, read out of the log, and the
-####### stage still ends unfinished, so rebuild --retry comes back to it
-####### Docker Hub limits downloads per address when you are not logged in,
-####### and a VPN address is shared by many people, so hitting that limit
-####### gets one automatic retry through a different Mullvad server
+	# Ai - one service failing no longer stops the ones after it
+	#      each failure is named with its reason, read out of the log, and the
+	#      stage still ends unfinished, so rebuild --retry comes back to it
+	#      Docker Hub limits downloads per address when you are not logged in,
+	#      and a VPN address is shared by many people, so hitting that limit
+	#      gets one automatic retry through a different Mullvad server
 
 STACK_FAILS=0
 
@@ -277,7 +277,7 @@ pull_reason() {
 	fi
 }
 
-####### downloads, with the one retry described above
+	# Ai - downloads, with the one retry described above
 pull_images() {
 	local name=$1; shift
 
@@ -300,7 +300,7 @@ stack_failed() {
 	WHY=""
 }
 
-####### everything after the name is handed to docker compose as is
+	# Ai - everything after the name is handed to docker compose as is
 stack_up() {
 	local name=$1; shift
 
@@ -315,10 +315,10 @@ stack_up() {
 	return 0
 }
 
-####### the tailnet address is added as a second compose file, only when there
-####### is one, the single file used to list 127.0.0.1 twice when there was not
-####### COMPOSE_FILE in .env makes a plain docker compose in that folder pick up
-####### the same files the script used
+	# Ai - the tailnet address is added as a second compose file, only when there
+	#      is one, the single file used to list 127.0.0.1 twice when there was not
+	#      COMPOSE_FILE in .env makes a plain docker compose in that folder pick up
+	#      the same files the script used
 compose_files() {
 	local dir=$1 var=$2 ip
 
@@ -343,10 +343,10 @@ compose_files() {
 
 $SUDO mkdir -p "$STACKS_DIR"
 
-####### the repo keeps every stack flat in one folder, so GitHub takes them in
-####### one upload: searxng.yaml, searxng-tailnet.yaml, and so on
-####### Docker needs a folder per service, so they are laid out here:
-####### name.yaml becomes name/compose.yaml, name-tailnet.yaml name/tailnet.yaml
+	# Ai - the repo keeps every stack flat in one folder, so GitHub takes them in
+	#      one upload: searxng.yaml, searxng-tailnet.yaml, and so on
+	#      Docker needs a folder per service, so they are laid out here:
+	#      name.yaml becomes name/compose.yaml, name-tailnet.yaml name/tailnet.yaml
 for f in "$STACKS_SRC"/*.yaml; do
 	base="$(basename "$f" .yaml)"
 
@@ -363,14 +363,14 @@ $SUDO chown -R "$USERNAME:$USERNAME" /srv/rebuild
 
 ln -sfn "$STACKS_DIR" "$HOME/firelink/stacks"
 
-####### nothing starts itself at boot any more, every compose file says
-####### restart: "no", so a service runs only while you want it to
-####### this is the command that starts and stops them by name
+	# Ai - nothing starts itself at boot any more, every compose file says
+	#      restart: "no", so a service runs only while you want it to
+	#      this is the command that starts and stops them by name
 $SUDO install -m 755 "$SCRIPTS/stack.sh" /usr/local/bin/stack
 
 WANT="${WANT_STACKS:-searxng}"
 
-####### accept the shorthand even if it reached the config by hand
+	# Ai - accept the shorthand even if it reached the config by hand
 case "$WANT" in
 	all|ALL)   WANT="searxng,portainer,invidious,comfyui,jellyfin" ;;
 	none|NONE) WANT="" ;;
@@ -411,9 +411,9 @@ fi
 
 ## Invidious
 
-####### a local youtube backend for freetube
-####### freetube can only talk to invidious, not piped, so this is the one
-####### the companion key must be exactly 16 characters or invidious refuses
+	# Ai - a local youtube backend for freetube
+	#      freetube can only talk to invidious, not piped, so this is the one
+	#      the companion key must be exactly 16 characters or invidious refuses
 
 if contains "$WANT" "invidious"; then
 
@@ -460,14 +460,14 @@ elif contains "$WANT" "comfyui"; then
 	$SUDO mkdir -p /home/ai/comfyui/run /home/ai/comfyui/basedir
 	$SUDO chown -R "$USERNAME:$USERNAME" /home/ai/comfyui
 
-	####### the image honours these, so models and outputs come out owned by
-	####### you instead of root
+		# Ai - the image honours these, so models and outputs come out owned by
+		#      you instead of root
 	{
 		printf 'WANTED_UID=%s\n' "$(id -u "$USERNAME")"
 		printf 'WANTED_GID=%s\n' "$(id -g "$USERNAME")"
 	} > "$CU/.env"
 
-	####### loopback only, you reach it through Sunshine from the laptop
+		# Ai - loopback only, you reach it through Sunshine from the laptop
 	stack_up comfyui -f "$CU/compose.yaml" --env-file "$CU/.env"
 
 	note "comfyui at http://127.0.0.1:8188, reach it via Sunshine"
@@ -476,11 +476,11 @@ fi
 
 ## Jellyfin
 
-####### a library for the shows you study frame by frame
-####### the server is the container, the player is not: jellyfin-mpv-shim
-####### needs your screen, your sound and your keyboard, so it stays a desktop
-####### app, see Guides/Selfhost.md
-####### media is mounted read only, nothing in here can change your files
+	# Ai - a library for the shows you study frame by frame
+	#      the server is the container, the player is not: jellyfin-mpv-shim
+	#      needs your screen, your sound and your keyboard, so it stays a desktop
+	#      app, see Guides/Selfhost.md
+	#      media is mounted read only, nothing in here can change your files
 
 if contains "$WANT" "jellyfin"; then
 
@@ -512,13 +512,13 @@ fi
 
 if contains "$WANT" "portainer"; then
 
-	####### capture then match, same SIGPIPE reason as everywhere else
+		# Ai - capture then match, same SIGPIPE reason as everywhere else
 	NAMES="$(capture $SUDO docker ps -a --format '{{.Names}}')"
 
 	if contains "$NAMES" "portainer"; then
 		note "portainer already exists"
-		####### one made before v7.2 still carries its old restart policy, and
-		####### docker update changes that in place, nothing is recreated
+			# Ai - one made before v7.2 still carries its old restart policy, and
+			#      docker update changes that in place, nothing is recreated
 		soft "portainer off at boot" $SUDO docker update --restart no portainer
 
 	elif ! pull_images portainer $SUDO docker pull portainer/portainer-ce:latest; then
@@ -534,9 +534,9 @@ if contains "$WANT" "portainer"; then
 		stack_failed portainer
 
 	else
-		####### deliberately loopback only
-		####### Portainer controls every container on the machine, so it is the
-		####### one thing not worth exposing even to your own tailnet
+			# Ai - deliberately loopback only
+			#      Portainer controls every container on the machine, so it is the
+			#      one thing not worth exposing even to your own tailnet
 		note "portainer at https://127.0.0.1:9443, this PC only"
 		action "Open https://127.0.0.1:9443 and set the Portainer admin password.
 
@@ -554,9 +554,9 @@ section "Verify"
 
 check "docker active"    systemctl is-active --quiet docker
 check "docker responds"  $SUDO docker info
-####### you are deliberately NOT in the docker group, so this check could
-####### never pass, and its failure was the whole reason the stage exited 1
-####### the stacks were coming up fine
+	# Ai - you are deliberately NOT in the docker group, so this check could
+	#      never pass, and its failure was the whole reason the stage exited 1
+	#      the stacks were coming up fine
 check "not in docker group" sh -c "id -nG $USERNAME > /tmp/_dg; ! grep -qw docker /tmp/_dg"
 check "stacks copied"    test -d "$STACKS_DIR"
 check "ufw-docker"       test -x /usr/local/bin/ufw-docker
@@ -570,15 +570,15 @@ if [[ "${WANT_OLLAMA:-yes}" == yes ]]; then
 	check "ollama answers"     ollama_answers
 fi
 
-####### exact names, so searxng-valkey can never stand in for searxng
+	# Ai - exact names, so searxng-valkey can never stand in for searxng
 container_up() {
 	local names
 	names="$(capture $SUDO docker ps --format '{{.Names}}')"
 	[[ $'\n'"$names"$'\n' == *$'\n'"$1"$'\n'* ]]
 }
 
-####### a service that did not start keeps this stage unfinished, so
-####### rebuild --retry comes back to it once the reason is gone
+	# Ai - a service that did not start keeps this stage unfinished, so
+	#      rebuild --retry comes back to it once the reason is gone
 check "chosen services started" test "$STACK_FAILS" -eq 0
 
 if contains "$WANT" "searxng"; then
@@ -589,7 +589,7 @@ if contains "$WANT" "invidious"; then
 	check "invidious running"  container_up invidious
 fi
 
-####### a warning only, portainer stops itself when nobody sets a password
+	# Ai - a warning only, portainer stops itself when nobody sets a password
 if contains "$WANT" "portainer"; then
 	warn  "portainer running"  container_up portainer
 fi

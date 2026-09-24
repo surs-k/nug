@@ -12,10 +12,10 @@ stage_banner "05-iso" "partitions, encryption, base system, boot menu" "installe
 
 section "Answers"
 
-####### every question in the whole install lives in this one block
-####### after the last password nothing else is asked until the end
-####### subjects are split by an arrow line, with one extra blank line
-####### after a long subject, as laid out in the v7.0 review
+	# Ai - every question in the whole install lives in this one block
+	#      after the last password nothing else is asked until the end
+	#      subjects are split by an arrow line, with one extra blank line
+	#      after a long subject, as laid out in the v7.0 review
 
 act_text "Everything you type is in this section.
 
@@ -32,9 +32,9 @@ fi
 
 ## Leftovers
 
-####### if an earlier attempt stopped partway it left mappers open and /mnt
-####### mounted, and the retry would then fail on device busy rather than
-####### simply starting over
+	# Ai - if an earlier attempt stopped partway it left mappers open and /mnt
+	#      mounted, and the retry would then fail on device busy rather than
+	#      simply starting over
 
 mountpoint -q /mnt && umount -R /mnt
 
@@ -75,12 +75,12 @@ export USERNAME
 
 ## Disks
 
-####### the listing goes inside the block, so the thing you need and the
-####### thing you need it for are not separated by a border
-####### the wipe is confirmed right here, while the choice is still on screen
-####### it used to come after the passwords, so a wrong disk meant typing
-####### six passwords first and then starting the script over
-####### anything but YES asks for the disks again
+	# Ai - the listing goes inside the block, so the thing you need and the
+	#      thing you need it for are not separated by a border
+	#      the wipe is confirmed right here, while the choice is still on screen
+	#      it used to come after the passwords, so a wrong disk meant typing
+	#      six passwords first and then starting the script over
+	#      anything but YES asks for the disks again
 
 while true; do
 	act_next big
@@ -179,10 +179,10 @@ wait_for 10 test -b "$DATA_PART"
 
 section "Encrypt"
 
-####### one passphrase unlocks both disks
-####### it goes to a file on /run, which is a tmpfs and never touches a disk
-####### not on stdin, because a backgrounded job cannot reliably inherit a pipe
-####### not as an argument, because arguments are visible in the process table
+	# Ai - one passphrase unlocks both disks
+	#      it goes to a file on /run, which is a tmpfs and never touches a disk
+	#      not on stdin, because a backgrounded job cannot reliably inherit a pipe
+	#      not as an argument, because arguments are visible in the process table
 
 KEYTMP=/run/rebuild.key
 
@@ -193,15 +193,15 @@ KEYSUM="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
 
 ## Cost
 
-####### the argon2 memory cost is pinned rather than benchmarked
-####### left to benchmark, luksFormat sizes the cost against whatever RAM is
-####### free at that instant, and every later unlock has to allocate that same
-####### amount again
-####### the second disk is formatted after the first one is already open, so it
-####### can be handed a cost the machine can no longer satisfy, and a keyslot
-####### that cannot be derived reads as a wrong passphrase
-####### 256 MiB is strong for a disk passphrase and fits any machine you will
-####### run this on, including a small test VM
+	# Ai - the argon2 memory cost is pinned rather than benchmarked
+	#      left to benchmark, luksFormat sizes the cost against whatever RAM is
+	#      free at that instant, and every later unlock has to allocate that same
+	#      amount again
+	#      the second disk is formatted after the first one is already open, so it
+	#      can be handed a cost the machine can no longer satisfy, and a keyslot
+	#      that cannot be derived reads as a wrong passphrase
+	#      256 MiB is strong for a disk passphrase and fits any machine you will
+	#      run this on, including a small test VM
 
 LUKSFMT=(
 	--type luks2
@@ -214,7 +214,7 @@ LUKSFMT=(
 
 ## Guard
 
-####### confirm the key file is byte for byte what we wrote, before each use
+	# Ai - confirm the key file is byte for byte what we wrote, before each use
 keyguard() {
 	local now
 	now="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
@@ -232,8 +232,8 @@ encrypt_disk() {
 
 	run "format $name"  cryptsetup luksFormat "${LUKSFMT[@]}" --key-file "$KEYTMP" "$part"
 
-	####### prove the passphrase actually opens it before going further, so a
-	####### mismatch surfaces at the step that caused it rather than later
+		# Ai - prove the passphrase actually opens it before going further, so a
+		#      mismatch surfaces at the step that caused it rather than later
 	run "verify $name"  cryptsetup open --test-passphrase --key-file "$KEYTMP" "$part"
 
 	run "open $name"    cryptsetup open --batch-mode --key-file "$KEYTMP" "$part" "$name"
@@ -260,8 +260,8 @@ run "format data"        mkfs.btrfs -f -L data   /dev/mapper/cryptdata
 
 ## System subvols
 
-####### @snapshots is a sibling of @, never nested inside it
-####### nested snapshots are destroyed by their own rollback
+	# Ai - @snapshots is a sibling of @, never nested inside it
+	#      nested snapshots are destroyed by their own rollback
 run "mount system top"   mount /dev/mapper/cryptsystem /mnt
 run "create @"           btrfs subvolume create /mnt/@
 run "create @snapshots"  btrfs subvolume create /mnt/@snapshots
@@ -292,7 +292,7 @@ mount --mkdir "$SYS_ESP" /mnt/boot
 mount --mkdir -o "$OPTS,subvol=@home"  /dev/mapper/cryptdata /mnt/home
 mount --mkdir -o "$OPTS,subvol=@games" /dev/mapper/cryptdata /mnt/games
 
-####### vm images get no copy on write and no compression
+	# Ai - vm images get no copy on write and no compression
 mkdir -p /mnt/var/lib/libvirt/images
 mount -o noatime,subvol=@vms /dev/mapper/cryptdata /mnt/var/lib/libvirt/images
 chattr +C /mnt/var/lib/libvirt/images
@@ -303,10 +303,10 @@ mount -o "$OPTS,subvol=@docker" /dev/mapper/cryptdata /mnt/var/lib/docker
 mkdir -p /mnt/home/ai
 mount -o "$OPTS,subvol=@ai" /dev/mapper/cryptdata /mnt/home/ai
 
-####### the whole data disk gets an fstab entry in 50-bkp-net so btrbk can
-####### snapshot @home, it is deliberately not mounted here because genfstab
-####### would record it without nofail and a missing data disk would then
-####### stop the machine booting at all
+	# Ai - the whole data disk gets an fstab entry in 50-bkp-net so btrbk can
+	#      snapshot @home, it is deliberately not mounted here because genfstab
+	#      would record it without nofail and a missing data disk would then
+	#      stop the machine booting at all
 
 findmnt -R /mnt >&3
 
@@ -332,8 +332,8 @@ sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
 
 ## Keyring
 
-####### an ISO older than a package signature reads as a bad signature
-####### refreshing the live keyring first removes that whole class of failure
+	# Ai - an ISO older than a package signature reads as a bad signature
+	#      refreshing the live keyring first removes that whole class of failure
 run "refresh package db"  pacman -Sy --noconfirm
 
 soft "update keyring"     pacman -S --noconfirm --needed archlinux-keyring
@@ -341,10 +341,10 @@ soft "update keyring"     pacman -S --noconfirm --needed archlinux-keyring
 
 ## Base
 
-####### a corrupt download is cached, so a plain retry reuses the same bad
-####### file forever and fails identically every time
-####### the cache is purged and the mirrors re-ranked between attempts, so a
-####### single bad mirror cannot end the run
+	# Ai - a corrupt download is cached, so a plain retry reuses the same bad
+	#      file forever and fails identically every time
+	#      the cache is purged and the mirrors re-ranked between attempts, so a
+	#      single bad mirror cannot end the run
 
 pacstrap_retry() {
 	local attempt=1
@@ -385,8 +385,8 @@ pacstrap_retry nano vim bash-completion openssh gobject-introspection reflector
 
 genfstab -U /mnt > /mnt/etc/fstab
 
-####### / is mounted by name only, see Fstab in 00-lib for why
-####### without this a snapshot restore would boot the old broken system
+	# Ai - / is mounted by name only, see Fstab in 00-lib for why
+	#      without this a snapshot restore would boot the old broken system
 fstab_root_by_name /mnt/etc/fstab
 
 
@@ -417,10 +417,10 @@ run "sync clock" arch-chroot /mnt hwclock --systohc
 
 ## Host
 
-####### written directly, never through hostnamectl
-####### arch-chroot bind mounts /run, so hostnamectl in the chroot reaches the
-####### live ISO's systemd over dbus, renames the ISO instead of the install,
-####### and exits 0, so the fallback that writes this file never ran
+	# Ai - written directly, never through hostnamectl
+	#      arch-chroot bind mounts /run, so hostnamectl in the chroot reaches the
+	#      live ISO's systemd over dbus, renames the ISO instead of the install,
+	#      and exits 0, so the fallback that writes this file never ran
 printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
 
 cat > /mnt/etc/hosts << EOF
@@ -469,9 +469,9 @@ unset ROOT_PASS USER_PASS
 
 ## Sudo
 
-####### lecture never, the first sudo of the run otherwise prints a paragraph
-####### of advice in the middle of the question block
-####### proven with visudo before it counts, a broken file here disables sudo
+	# Ai - lecture never, the first sudo of the run otherwise prints a paragraph
+	#      of advice in the middle of the question block
+	#      proven with visudo before it counts, a broken file here disables sudo
 printf '%%wheel ALL=(ALL:ALL) ALL\nDefaults lecture = never\n' > /mnt/etc/sudoers.d/10-wheel
 chmod 440 /mnt/etc/sudoers.d/10-wheel
 
@@ -496,7 +496,7 @@ dd if=/dev/urandom of=/etc/cryptsetup-keys.d/data.key bs=1024 count=4 status=non
 
 chmod 600 /etc/cryptsetup-keys.d/data.key
 
-####### arch-chroot bind mounts /run, so the tmpfs keyfile is visible here
+	# Ai - arch-chroot bind mounts /run, so the tmpfs keyfile is visible here
 cryptsetup luksAddKey --key-file /run/rebuild.key \\
 	$DATA_PART /etc/cryptsetup-keys.d/data.key
 
@@ -505,7 +505,7 @@ DATA_UUID=\$(blkid -s UUID -o value $DATA_PART)
 printf 'cryptdata UUID=%s /etc/cryptsetup-keys.d/data.key luks\n' "\$DATA_UUID" >> /etc/crypttab
 
 
-####### limine ships no deploy hook of its own, both copies are ours to keep current
+	# Ai - limine ships no deploy hook of its own, both copies are ours to keep current
 
 mkdir -p /boot/EFI/limine /boot/EFI/BOOT
 
@@ -528,8 +528,8 @@ Exec = /bin/sh -c "cp /usr/share/limine/BOOTX64.EFI /boot/EFI/limine/limine_x64.
 HOOKEOF
 
 
-####### limine reads the directory holding its own efi binary first
-####### any limine.conf there silently outranks /boot/limine.conf
+	# Ai - limine reads the directory holding its own efi binary first
+	#      any limine.conf there silently outranks /boot/limine.conf
 rm -f /boot/EFI/limine/limine.conf /boot/EFI/BOOT/limine.conf
 
 
@@ -542,11 +542,11 @@ LUKS_UUID=\$(blkid -s UUID -o value $SYS_ROOT)
 systemd-machine-id-setup
 
 
-####### the TPM is enrolled here, not later
-####### this is the only point in the whole run where the passphrase is
-####### already in hand, so nothing has to stop and ask for it
-####### a mismatch later just falls back to the passphrase prompt, which is a
-####### safe failure rather than a lockout, and the passphrase slot always stays
+	# Ai - the TPM is enrolled here, not later
+	#      this is the only point in the whole run where the passphrase is
+	#      already in hand, so nothing has to stop and ask for it
+	#      a mismatch later just falls back to the passphrase prompt, which is a
+	#      safe failure rather than a lockout, and the passphrase slot always stays
 if [[ -e /dev/tpmrm0 ]]; then
 	systemd-cryptenroll --unlock-key-file=/run/rebuild.key \\
 		--tpm2-device=auto --tpm2-pcrs=7 $SYS_ROOT \\
@@ -556,13 +556,13 @@ else
 	echo "no TPM device, skipping"
 fi
 
-####### /@ with the slash, the snapshot tool only recognises that spelling
-####### subvol=@ and subvol=/@ mount the same thing
+	# Ai - /@ with the slash, the snapshot tool only recognises that spelling
+	#      subvol=@ and subvol=/@ mount the same thing
 printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=/@ rw\n' \\
 	"\$LUKS_UUID" > /etc/kernel/cmdline
 
-####### the boot menu is not written here any more
-####### the Menu block below writes it with the same tool 10-base installs
+	# Ai - the boot menu is not written here any more
+	#      the Menu block below writes it with the same tool 10-base installs
 CHROOTEOF
 
 
@@ -572,8 +572,8 @@ arch-chroot /mnt bash /root/_setup.sh
 
 rm -f /mnt/root/_setup.sh
 
-####### shred overwrites disk blocks, and tmpfs has none
-####### what actually protects the key is that it only ever lived in RAM
+	# Ai - shred overwrites disk blocks, and tmpfs has none
+	#      what actually protects the key is that it only ever lived in RAM
 rm -f "$KEYTMP"
 
 unset LUKS_PASS
@@ -581,13 +581,13 @@ unset LUKS_PASS
 
 ## Menu
 
-####### one tool writes the boot menu, here and on every later change
-####### it builds the menu from the real kernel files and the cmdline above,
-####### checks the result would start on its own, and only then saves it
-####### nested shape: /+Arch Linux is an open folder, Linux is the first
-####### thing in it, default_entry 2 points at Linux, quiet stays off
-####### the old black screen was default_entry pointing at the folder with
-####### quiet hiding why, the check refuses exactly that
+	# Ai - one tool writes the boot menu, here and on every later change
+	#      it builds the menu from the real kernel files and the cmdline above,
+	#      checks the result would start on its own, and only then saves it
+	#      nested shape: /+Arch Linux is an open folder, Linux is the first
+	#      thing in it, default_entry 2 points at Linux, quiet stays off
+	#      the old black screen was default_entry pointing at the folder with
+	#      quiet hiding why, the check refuses exactly that
 install -Dm755 "$SCRIPTS/limine-header-fix.sh" /mnt/usr/local/bin/limine-header-fix
 
 printf 'BOOT_MODE=nested\nBOOT_TIMEOUT=%s\n' "$LIMINE_TIMEOUT" > /mnt/etc/rebuild-boot.conf
@@ -606,7 +606,7 @@ section "Handover"
 
 ## Repo
 
-####### the whole repo travels with the install so the next stages are local
+	# Ai - the whole repo travels with the install so the next stages are local
 install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/Rebuild"
 
 cp -r "$REPO/." "/mnt/home/$USERNAME/Rebuild/"
@@ -615,9 +615,9 @@ chown -R 1000:1000 "/mnt/home/$USERNAME/Rebuild"
 
 find "/mnt/home/$USERNAME/Rebuild" -name '*.sh' -exec chmod +x {} +
 
-####### git records the executable bit, so the chmod above shows up as a local
-####### change to every script, and git pull then refuses to overwrite them
-####### telling git to ignore modes makes pulls clean from here on
+	# Ai - git records the executable bit, so the chmod above shows up as a local
+	#      change to every script, and git pull then refuses to overwrite them
+	#      telling git to ignore modes makes pulls clean from here on
 if [[ -d "/mnt/home/$USERNAME/Rebuild/.git" ]]; then
 	arch-chroot /mnt sudo -u "$USERNAME" \
 		git -C "/home/$USERNAME/Rebuild" config core.fileMode false || true

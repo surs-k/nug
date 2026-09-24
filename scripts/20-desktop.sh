@@ -21,7 +21,7 @@ require_stage 10-base
 
 section "Firelink"
 
-####### one folder of shortcuts to everything that lives off the root disk
+	# Ai - one folder of shortcuts to everything that lives off the root disk
 
 mkdir -p "$HOME/firelink"
 
@@ -41,19 +41,19 @@ done
 
 section "Graphics"
 
-####### lspci lives in pciutils, which was not installed until 60-uprefs
-####### so this ran with no lspci at all, matched nothing, and quietly chose
-####### mesa on a machine with an NVIDIA card in it
+	# Ai - lspci lives in pciutils, which was not installed until 60-uprefs
+	#      so this ran with no lspci at all, matched nothing, and quietly chose
+	#      mesa on a machine with an NVIDIA card in it
 pac pciutils
 
-####### sysfs is the fallback, 0x10de is NVIDIA's PCI vendor id
-####### it needs no packages and cannot go missing
+	# Ai - sysfs is the fallback, 0x10de is NVIDIA's PCI vendor id
+	#      it needs no packages and cannot go missing
 VENDORS="$(capture cat /sys/bus/pci/devices/*/vendor)"
 
-####### capture then match
-####### lspci | grep -q can take SIGPIPE and return 141, and under pipefail
-####### that reads as failure, so the branch gets skipped exactly when it
-####### should have run
+	# Ai - capture then match
+	#      lspci | grep -q can take SIGPIPE and return 141, and under pipefail
+	#      that reads as failure, so the branch gets skipped exactly when it
+	#      should have run
 PCI="$(capture lspci)"
 
 if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia" || contains "$VENDORS" "0x10de"; then
@@ -65,7 +65,7 @@ if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia" || contains "$VENDORS" "
 	$SUDO sed -i 's/^MODULES=.*/MODULES=(i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' \
 		/etc/mkinitcpio.conf
 
-	####### wayland compositors need this, and so does sunshine later
+		# Ai - wayland compositors need this, and so does sunshine later
 	if ! grep -q 'nvidia_drm.modeset=1' /etc/kernel/cmdline 2>/dev/null; then
 		$SUDO sed -i 's/$/ nvidia_drm.modeset=1/' /etc/kernel/cmdline
 		note "added nvidia_drm.modeset=1 to the kernel cmdline"
@@ -73,15 +73,15 @@ if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia" || contains "$VENDORS" "
 
 	run "rebuild initramfs" $SUDO mkinitcpio -P
 
-	####### save_cfg only writes the file, the Verify block below reads the
-	####### variable, so on a first run it never saw yes and skipped the checks
+		# Ai - save_cfg only writes the file, the Verify block below reads the
+		#      variable, so on a first run it never saw yes and skipped the checks
 	HAS_NVIDIA=yes
 	save_cfg HAS_NVIDIA yes
 
 else
-	####### mesa is the open driver stack for Intel and AMD
-	####### seeing this on a machine with an NVIDIA card means detection
-	####### failed, not that the card is unsupported
+		# Ai - mesa is the open driver stack for Intel and AMD
+		#      seeing this on a machine with an NVIDIA card means detection
+		#      failed, not that the card is unsupported
 	note "no NVIDIA card found, using mesa"
 	note "if this machine has an NVIDIA card, stop and say so"
 	pac mesa vulkan-icd-loader
@@ -92,9 +92,9 @@ fi
 
 ## Menu
 
-####### the cmdline only reaches the boot menu when the menu is rewritten
-####### before v7.0 that waited for 50-bkp-net, so the reboot right after
-####### this stage started the NVIDIA driver without modeset
+	# Ai - the cmdline only reaches the boot menu when the menu is rewritten
+	#      before v7.0 that waited for 50-bkp-net, so the reboot right after
+	#      this stage started the NVIDIA driver without modeset
 run "update boot menu" $SUDO /usr/local/bin/limine-header-fix
 
 
@@ -107,7 +107,7 @@ section "Desktop"
 
 ## Deps
 
-####### both of these were found missing mid install before, so they go first
+	# Ai - both of these were found missing mid install before, so they go first
 pac luarocks gobject-introspection archlinux-keyring
 
 
@@ -122,7 +122,7 @@ fi
 
 ## Install
 
-####### this one stays loud, it is long and silence looks like a hang
+	# Ai - this one stays loud, it is long and silence looks like a hang
 printf '\n  HyDE installer starts now. This takes a while.\n\n'
 
 ( cd "$HOME/HyDE/Scripts" && ./install.sh -n )
@@ -149,10 +149,10 @@ fi
 
 section "Keyboard"
 
-####### hyprland.lua is what Hyprland actually reads on this machine
-####### it writes that file itself at first launch and then ignores
-####### hyprland.conf entirely, which is why every .conf edit did nothing
-####### the layout goes in the lua, and nothing here touches .conf again
+	# Ai - hyprland.lua is what Hyprland actually reads on this machine
+	#      it writes that file itself at first launch and then ignores
+	#      hyprland.conf entirely, which is why every .conf edit did nothing
+	#      the layout goes in the lua, and nothing here touches .conf again
 
 LUA="$HOME/.config/hypr/hyprland.lua"
 
@@ -161,7 +161,7 @@ mkdir -p "$(dirname "$LUA")"
 
 ## Restore
 
-####### an earlier version renamed this file aside, put it back as the base
+	# Ai - an earlier version renamed this file aside, put it back as the base
 if [[ ! -f "$LUA" && -f "$LUA.disabled" ]]; then
 	mv "$LUA.disabled" "$LUA"
 	note "restored hyprland.lua, an earlier version had moved it aside"
@@ -178,7 +178,7 @@ soft "apply console keymap" $SUDO loadkeys "$KEYMAP"
 
 soft "set x11 keymap" $SUDO localectl --no-convert set-x11-keymap us pc105 "$KEYMAP"
 
-####### the passphrase prompt at boot comes from the initramfs
+	# Ai - the passphrase prompt at boot comes from the initramfs
 run "rebuild initramfs" $SUDO mkinitcpio -P
 
 
@@ -204,9 +204,9 @@ note "colemak written to hyprland.lua"
 
 ## Command
 
-####### one short word to put the layout back
-####### when this breaks you cannot type, and every fix so far has been a
-####### paragraph of qwerty guesswork
+	# Ai - one short word to put the layout back
+	#      when this breaks you cannot type, and every fix so far has been a
+	#      paragraph of qwerty guesswork
 $SUDO tee /usr/local/bin/kbfix > /dev/null << KBEOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -274,7 +274,7 @@ check "console keymap"    grep -q "$KEYMAP" /etc/vconsole.conf
 check "lua keymap"        grep -q 'kb_variant' "$HOME/.config/hypr/hyprland.lua"
 check "kbfix command"     test -x /usr/local/bin/kbfix
 
-####### the file being right proves nothing, this asks hyprland itself
+	# Ai - the file being right proves nothing, this asks hyprland itself
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
 	warn "layout live" sh -c "hyprctl getoption input:kb_variant | grep -q $KEYMAP"
 fi
@@ -285,8 +285,8 @@ if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
 	check "modeset in menu"    grep -q 'nvidia_drm.modeset=1' /boot/limine.conf
 fi
 
-####### this stage ends in the one reboot of the run, so the menu is proven
-####### right before it rather than after
+	# Ai - this stage ends in the one reboot of the run, so the menu is proven
+	#      right before it rather than after
 check "menu starts alone" $SUDO /usr/local/bin/limine-header-fix --check
 
 warn  "sddm enabled"      systemctl is-enabled sddm

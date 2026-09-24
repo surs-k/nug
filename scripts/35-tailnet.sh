@@ -10,13 +10,13 @@ source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
 section "Check"
 
-####### tailscale is the most fragile piece in the whole pipeline
-####### it has to leave outside the Mullvad tunnel, which means a cgroup
-####### exclusion, a daemon restart and a browser login all lining up, and
-####### when any of that misses you lose DNS and it looks like the internet died
-####### so it is its own stage, off unless you ask for it, and nothing else
-####### depends on it
-####### the PC is fully usable without it, you only need it for the laptop
+	# Ai - tailscale is the most fragile piece in the whole pipeline
+	#      it has to leave outside the Mullvad tunnel, which means a cgroup
+	#      exclusion, a daemon restart and a browser login all lining up, and
+	#      when any of that misses you lose DNS and it looks like the internet died
+	#      so it is its own stage, off unless you ask for it, and nothing else
+	#      depends on it
+	#      the PC is fully usable without it, you only need it for the laptop
 
 sudo_keepalive
 
@@ -52,9 +52,9 @@ pac tailscale inotify-tools
 
 ## Exclude
 
-####### tailscale traffic has to leave outside the mullvad tunnel or the
-####### kill switch drops it, mullvad-exclude puts the daemon in a cgroup
-####### that is marked to bypass the tunnel
+	# Ai - tailscale traffic has to leave outside the mullvad tunnel or the
+	#      kill switch drops it, mullvad-exclude puts the daemon in a cgroup
+	#      that is marked to bypass the tunnel
 
 TS_UNIT=/usr/lib/systemd/system/tailscaled.service
 TS_DROP=/etc/systemd/system/tailscaled.service.d/mullvad-exclude.conf
@@ -98,17 +98,17 @@ tailnet_up() {
 	! contains "$s" "Logged out" && ! contains "$s" "Tailscale is stopped"
 }
 
-####### accept-dns stays off, magicdns fights systemd-resolved and mullvad
+	# Ai - accept-dns stays off, magicdns fights systemd-resolved and mullvad
 if tailnet_up; then
 	note "already logged in"
 	soft "keep dns local" $SUDO tailscale set --accept-dns=false
 
 else
-	####### tailscale up blocks silently while it reaches the control server,
-	####### and if it cannot get there you stare at a cursor until it times
-	####### out with nothing on screen to explain why
-	####### this runs it in the background, watches for the link, and shows
-	####### the link the moment it exists plus a count while it waits
+		# Ai - tailscale up blocks silently while it reaches the control server,
+		#      and if it cannot get there you stare at a cursor until it times
+		#      out with nothing on screen to explain why
+		#      this runs it in the background, watches for the link, and shows
+		#      the link the moment it exists plus a count while it waits
 
 	TS_OUT="$(mktemp)"
 
@@ -197,8 +197,8 @@ stage_done
 
 section "End"
 
-####### this stage runs last, so the services were set up before a tailnet
-####### address existed and are still bound to this PC only
+	# Ai - this stage runs last, so the services were set up before a tailnet
+	#      address existed and are still bound to this PC only
 printf '  Tailnet up. SSH is reachable over it now.\n\n'
 printf '  To open your services to the tailnet as well, run both:\n\n'
 printf '    rebuild --only 70-docker\n'

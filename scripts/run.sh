@@ -12,8 +12,8 @@ source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
 ## Mode
 
-####### how this run is scoped
-####### plain rebuild resumes, the flags are for after you fix something
+	# Ai - how this run is scoped
+	#      plain rebuild resumes, the flags are for after you fix something
 
 MODE=resume
 TARGET=""
@@ -51,7 +51,7 @@ done
 
 ## Stages
 
-####### run in this order, the marker name always equals the file name
+	# Ai - run in this order, the marker name always equals the file name
 STAGES=(
 	10-base
 	20-desktop
@@ -68,7 +68,7 @@ STAGES=(
 
 ## About
 
-####### one line each, printed under the stage name in the big banner
+	# Ai - one line each, printed under the stage name in the big banner
 declare -A ABOUT=(
 	[10-base]="locale, boot menu, swap, AUR helper"
 	[20-desktop]="graphics driver and HyDE"
@@ -85,7 +85,7 @@ declare -A ABOUT=(
 
 ## Listing
 
-####### an early exit, so asking what is done does not print banners at you
+	# Ai - an early exit, so asking what is done does not print banners at you
 if [[ "$MODE" == list ]]; then
 	printf '\n'
 	for st in "${STAGES[@]}"; do
@@ -105,10 +105,10 @@ section "Order"
 
 ## Depends
 
-####### what each stage actually needs, rather than just the one before it
-####### the old chain was a straight line, so a failed 40-virt blocked your
-####### apps and your self hosting for no real reason
-####### 60-uprefs only needs a desktop, it has nothing to do with VMs
+	# Ai - what each stage actually needs, rather than just the one before it
+	#      the old chain was a straight line, so a failed 40-virt blocked your
+	#      apps and your self hosting for no real reason
+	#      60-uprefs only needs a desktop, it has nothing to do with VMs
 declare -A DEPENDS=(
 	[10-base]=""
 	[20-desktop]="10-base"
@@ -125,10 +125,10 @@ declare -A DEPENDS=(
 
 ## Reboots
 
-####### only one reboot in the whole run
-####### 40-virt used to force a second one purely for libvirt and kvm group
-####### membership, but groups are only needed when you actually use
-####### virt-manager, not by any later stage, so it applies at next login
+	# Ai - only one reboot in the whole run
+	#      40-virt used to force a second one purely for libvirt and kvm group
+	#      membership, but groups are only needed when you actually use
+	#      virt-manager, not by any later stage, so it applies at next login
 declare -A REBOOT=(
 	[20-desktop]="the desktop and the graphics driver only load after a restart"
 )
@@ -140,8 +140,8 @@ declare -A REBOOT=(
 
 section "Scope"
 
-####### markers are what make a stage get skipped, so changing scope means
-####### clearing the ones in range, which is the rm -f you were typing by hand
+	# Ai - markers are what make a stage get skipped, so changing scope means
+	#      clearing the ones in range, which is the rm -f you were typing by hand
 
 clear_marker() { rm -f "$MARKERS/$1"; }
 
@@ -177,7 +177,7 @@ case "$MODE" in
 		note "running only $TARGET" ;;
 
 	retry)
-		####### notes are not problems, so they never make a stage run again
+			# Ai - notes are not problems, so they never make a stage run again
 		BAD="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | sort -u || true)"
 		if [[ -z "${BAD//[[:space:]]/}" ]]; then
 			printf '\n  Nothing reported a problem. Nothing to retry.\n\n'
@@ -200,14 +200,14 @@ section "Answers"
 
 ## Fresh
 
-####### only this run's problems, the rest move to the history file
+	# Ai - only this run's problems, the rest move to the history file
 roll_failures
 
 
 ## Network
 
-####### three stages failing one after another because the network is down
-####### is a bad way to find out the network is down
+	# Ai - three stages failing one after another because the network is down
+	#      is a bad way to find out the network is down
 
 if ! routed; then
 	printf '\n  %sNo route out. Nothing here can download anything.%s\n\n' "$C_FAIL" "$C_OFF" >&2
@@ -225,8 +225,8 @@ if ! resolves; then
 	exit 1
 fi
 
-####### every question for every remaining stage is asked here, once
-####### after this block the run is hands off until a reboot or the end
+	# Ai - every question for every remaining stage is asked here, once
+	#      after this block the run is hands off until a reboot or the end
 
 
 ## Sudo
@@ -240,8 +240,8 @@ sudo_keepalive
 
 STACK_ALL="searxng,portainer,invidious,comfyui,jellyfin"
 
-####### everything this prints goes to the terminal, not to stdout, because
-####### the caller captures stdout to get the answer back
+	# Ai - everything this prints goes to the terminal, not to stdout, because
+	#      the caller captures stdout to get the answer back
 pick_stacks() {
 	local reply t bad out parts
 
@@ -293,13 +293,13 @@ pick_stacks() {
 }
 
 
-####### each answer is checked on its own rather than behind one flag
-####### a single ANSWERED gate meant any question added later was skipped
-####### forever on a machine that had already answered the earlier ones
+	# Ai - each answer is checked on its own rather than behind one flag
+	#      a single ANSWERED gate meant any question added later was skipped
+	#      forever on a machine that had already answered the earlier ones
 need() { [[ -z "${!1:-}" ]]; }
 
-####### every question starts with an arrow line gap, and the one after the
-####### long service list gets the bigger gap
+	# Ai - every question starts with an arrow line gap, and the one after the
+	#      long service list gets the bigger gap
 NEXT_GAP=small
 
 gap() {
@@ -348,7 +348,7 @@ Nothing installs until you are through them."
 
 	## Tailnet
 
-	####### the reasons Tailscale is off by default live in the README
+		# Ai - the reasons Tailscale is off by default live in the README
 	if need WANT_TAILSCALE; then
 		gap
 		if yesno "Set up Tailscale remote access now" n; then
@@ -397,8 +397,8 @@ Nothing installs until you are through them."
 
 	## Lockdown
 
-	####### asked here now, it used to be asked by 90-health near the very
-	####### end, which stopped an unattended run with the summary unprinted
+		# Ai - asked here now, it used to be asked by 90-health near the very
+		#      end, which stopped an unattended run with the summary unprinted
 	if need WANT_LOCKDOWN; then
 		gap
 		act_line "Lockdown mode blocks all traffic whenever the VPN is down."
@@ -431,7 +431,7 @@ DID=0
 
 BROKEN=""
 
-####### position in the run order, for the banner
+	# Ai - position in the run order, for the banner
 stage_number() {
 	local i
 	for i in "${!STAGES[@]}"; do
@@ -440,8 +440,8 @@ stage_number() {
 	printf '?'
 }
 
-####### a stage is blocked when anything it depends on failed, directly or
-####### further back up the chain
+	# Ai - a stage is blocked when anything it depends on failed, directly or
+	#      further back up the chain
 blocked_by() {
 	local stage=$1 dep
 	for dep in ${DEPENDS[$stage]:-}; do
@@ -476,13 +476,13 @@ for s in "${STAGES[@]}"; do
 		continue
 	fi
 
-	####### the big banner, so each stage start can be found while scrolling
+		# Ai - the big banner, so each stage start can be found while scrolling
 	stage_banner "$s" "${ABOUT[$s]:-}" "stage $(stage_number "$s") of ${#STAGES[@]}   $(date +%H:%M)"
 
 	if bash "$SH"; then
 		DID=$(( DID + 1 ))
 	else
-		####### carry on with anything that does not depend on this
+			# Ai - carry on with anything that does not depend on this
 		BROKEN="$BROKEN $s"
 
 		printf '\n'
@@ -529,7 +529,7 @@ else
 	printf '  Reboot once more to land on a settled system.\n\n'
 fi
 
-####### the last thing on screen is what still needs attention
+	# Ai - the last thing on screen is what still needs attention
 show_failures all
 
 RETRY="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"

@@ -59,25 +59,25 @@ fi
 
 ## Settings
 
-####### local network sharing has to be on or the vm bridge, docker bridge
-####### and tailscale all get cut off by the kill switch
+	# Ai - local network sharing has to be on or the vm bridge, docker bridge
+	#      and tailscale all get cut off by the kill switch
 run "allow local network" $SUDO mullvad lan set allow
 
 run "auto connect on"     $SUDO mullvad auto-connect set on
 
-####### lockdown mode is deliberately left until 50-bkp-net
-####### turning it on here would cut Tailscale off before the exclusion that
-####### lets it through has been set up, and remote access would never connect
+	# Ai - lockdown mode is deliberately left until 50-bkp-net
+	#      turning it on here would cut Tailscale off before the exclusion that
+	#      lets it through has been set up, and remote access would never connect
 
 
 ## Blocking
 
-####### every content blocker, this is the biggest privacy win for daily use
-####### each one is soft on its own, so a flag that gets renamed upstream
-####### shows up in the failure list instead of ending the stage
-####### one call, not one per blocker
-####### each dns set replaces the whole config, so chaining them was six
-####### rewrites of the resolver settings for no benefit
+	# Ai - every content blocker, this is the biggest privacy win for daily use
+	#      each one is soft on its own, so a flag that gets renamed upstream
+	#      shows up in the failure list instead of ending the stage
+	#      one call, not one per blocker
+	#      each dns set replaces the whole config, so chaining them was six
+	#      rewrites of the resolver settings for no benefit
 if $SUDO mullvad dns set default \
 	--block-ads --block-trackers --block-malware \
 	--block-adult-content --block-gambling --block-social-media >&3 2>&1; then
@@ -91,17 +91,17 @@ fi
 
 ## Multihop
 
-####### not set here, the switch and the entry location are both yours to
-####### set in the Mullvad app, once, and the app keeps them from then on
-####### earlier versions set the entry and tried the switch, and every check
-####### on it failed on a fresh install before the app had been opened
+	# Ai - not set here, the switch and the entry location are both yours to
+	#      set in the Mullvad app, once, and the app keeps them from then on
+	#      earlier versions set the entry and tried the switch, and every check
+	#      on it failed on a fresh install before the app had been opened
 
 
 ## Ipv6
 
-####### in tunnel IPv6 with no IPv6 route is what killed DNS
-####### the resolver tries v6 first and sits there until it times out, which
-####### is the 10 second per mirror stall that looked like the internet dying
+	# Ai - in tunnel IPv6 with no IPv6 route is what killed DNS
+	#      the resolver tries v6 first and sits there until it times out, which
+	#      is the 10 second per mirror stall that looked like the internet dying
 have_ipv6() {
 	local addr route
 	addr="$(capture ip -6 addr show scope global)"
@@ -120,7 +120,7 @@ fi
 
 ## Autostart
 
-####### auto-connect is the daemon, this is the app window itself
+	# Ai - auto-connect is the daemon, this is the app window itself
 GUI=""
 for d in mullvad-vpn.desktop mullvad-gui.desktop; do
 	[[ -f "/usr/share/applications/$d" ]] && { GUI="$d"; break; }
@@ -153,9 +153,9 @@ fi
 
 ## Dns
 
-####### everything after this point downloads something
-####### a tunnel that is up but cannot resolve names looks exactly like a dead
-####### internet three stages later, so it gets caught here instead
+	# Ai - everything after this point downloads something
+	#      a tunnel that is up but cannot resolve names looks exactly like a dead
+	#      internet three stages later, so it gets caught here instead
 
 if wait_for 45 resolves; then
 	note "DNS working through the tunnel"
@@ -184,8 +184,8 @@ fi
 
 section "Firewall"
 
-####### mullvad already drops everything that is not in the tunnel, so ufw
-####### is here for inbound only, outbound filtering would be duplicate work
+	# Ai - mullvad already drops everything that is not in the tunnel, so ufw
+	#      is here for inbound only, outbound filtering would be duplicate work
 
 pac ufw
 

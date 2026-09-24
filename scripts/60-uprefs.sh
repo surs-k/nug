@@ -49,24 +49,24 @@ section "Packages"
 
 ## Repo
 
-####### librewolf is in extra now, no AUR build needed
-####### moonlight-qt is gone from this list, it is the client that runs on
-####### the laptop and connects to Sunshine on this PC, it was left here when
-####### v6.0 moved it from the AUR to the official repo, which is why it
-####### installed even with Sunshine turned off
+	# Ai - librewolf is in extra now, no AUR build needed
+	#      moonlight-qt is gone from this list, it is the client that runs on
+	#      the laptop and connects to Sunshine on this PC, it was left here when
+	#      v6.0 moved it from the AUR to the official repo, which is why it
+	#      installed even with Sunshine turned off
 pac signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
 
 
 ## Keyring
 
-####### 1password and claude desktop both refuse to start without a secret
-####### service, this supplies one without touching pam
+	# Ai - 1password and claude desktop both refuse to start without a secret
+	#      service, this supplies one without touching pam
 pac gnome-keyring libsecret seahorse
 
 
 ## Purge
 
-####### moonlight-qt is here so an install made before v7.0 loses it too
+	# Ai - moonlight-qt is here so an install made before v7.0 loses it too
 for p in code firefox moonlight-qt; do
 	if pacman -Qq "$p" &> /dev/null; then
 		soft "remove $p" $SUDO pacman -Rns --noconfirm "$p"
@@ -114,8 +114,8 @@ soft "1password"      yay -S --needed --noconfirm 1password
 soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
 soft "vscodium"       yay -S --needed --noconfirm vscodium-bin
 
-####### AUR names move around, so each of these tries its alternates before
-####### being recorded as a failure
+	# Ai - AUR names move around, so each of these tries its alternates before
+	#      being recorded as a failure
 try_aur() {
 	local label=$1; shift
 	local pkg
@@ -134,23 +134,23 @@ try_aur() {
 }
 
 if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
-	####### librewolf is in extra now, the AUR build is the fallback
+		# Ai - librewolf is in extra now, the AUR build is the fallback
 	pac librewolf || try_aur "librewolf" librewolf-bin
 fi
 
-####### unofficial repackaging of the official build
-####### claude-desktop tracks the official Linux build, the others are
-####### community repackaging
+	# Ai - unofficial repackaging of the official build
+	#      claude-desktop tracks the official Linux build, the others are
+	#      community repackaging
 try_aur "claude desktop" claude-desktop claude-desktop-bin claude-desktop-native
 
 
 
 ## Search
 
-####### SearXNG goes into Mullvad Browser as a keyword bookmark, made once by
-####### hand, see Search in Guides/Selfhost.md
-####### v7.3 wrote a policy file for it instead, the browser never took it, so
-####### a file of ours left in the browser's folder is removed again
+	# Ai - SearXNG goes into Mullvad Browser as a keyword bookmark, made once by
+	#      hand, see Search in Guides/Selfhost.md
+	#      v7.3 wrote a policy file for it instead, the browser never took it, so
+	#      a file of ours left in the browser's folder is removed again
 
 MB_FILES="$(pacman -Qlq mullvad-browser-bin 2>/dev/null || true)"
 
@@ -179,10 +179,10 @@ run "add flathub" $SUDO flatpak remote-add --if-not-exists flathub \
 soft "freetube" $SUDO flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube
 soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Vesktop
 
-####### krita for drawing, and the comfyui plugin has a home to be added to
+	# Ai - krita for drawing, and the comfyui plugin has a home to be added to
 soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
 
-####### flatseal edits what each flatpak is allowed to touch
+	# Ai - flatseal edits what each flatpak is allowed to touch
 soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
 
 
@@ -191,10 +191,10 @@ soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tch
 
 section "Bluetooth"
 
-####### HyDE turns the bluetooth service on, this machine has nothing that
-####### uses it, and a radio that is never used is only an open door
-####### nothing is removed, so one command brings it back:
-####### sudo systemctl enable --now bluetooth.service
+	# Ai - HyDE turns the bluetooth service on, this machine has nothing that
+	#      uses it, and a radio that is never used is only an open door
+	#      nothing is removed, so one command brings it back:
+	#      sudo systemctl enable --now bluetooth.service
 
 if systemctl list-unit-files bluetooth.service &> /dev/null \
 	&& systemctl is-enabled --quiet bluetooth.service 2>/dev/null; then
@@ -204,7 +204,7 @@ else
 	note "bluetooth service already off"
 fi
 
-####### the tray applet starts itself from the desktop session, not systemd
+	# Ai - the tray applet starts itself from the desktop session, not systemd
 for f in "$HOME/.config/autostart/blueman.desktop" \
 	"$HOME/.config/autostart/blueman-applet.desktop"; do
 	if [[ -f "$f" ]]; then
@@ -235,7 +235,7 @@ sed -i '/^-- rebuild binds start$/,/^-- rebuild binds end$/d' "$LUA"
 
 ## Write
 
-####### lua, because that is the file Hyprland reads on this machine
+	# Ai - lua, because that is the file Hyprland reads on this machine
 
 cat >> "$LUA" << 'LUAEOF'
 -- rebuild binds start
@@ -296,9 +296,9 @@ fi
 
 section "Keyboard"
 
-####### 20-desktop already wrote this, it is re-asserted here at the end of
-####### the file so nothing added in between can win
-####### in lua the last assignment is the one that counts
+	# Ai - 20-desktop already wrote this, it is re-asserted here at the end of
+	#      the file so nothing added in between can win
+	#      in lua the last assignment is the one that counts
 
 LUA="$HOME/.config/hypr/hyprland.lua"
 
@@ -347,8 +347,8 @@ section "Monitors"
 
 sed -i '/^-- rebuild monitors start$/,/^-- rebuild monitors end$/d' "$MON"
 
-####### transform 1 is 90 degrees, 3 is 270
-####### change ROTATE in ~/.install-config if the monitor moves again
+	# Ai - transform 1 is 90 degrees, 3 is 270
+	#      change ROTATE in ~/.install-config if the monitor moves again
 cat >> "$MON" << MONEOF
 -- rebuild monitors start
 
@@ -384,12 +384,12 @@ MONEOF
 
 $SUDO mkdir -p /etc/sddm /etc/sddm.conf.d
 
-####### left is 90 degrees, right is 270
+	# Ai - left is 90 degrees, right is 270
 ROTDIR=right
 [[ "${ROTATE:-3}" == 1 ]] && ROTDIR=left
 
-####### only ROTDIR is expanded here, everything else has to reach the file
-####### literally or the greeter script would run with an empty output name
+	# Ai - only ROTDIR is expanded here, everything else has to reach the file
+	#      literally or the greeter script would run with an empty output name
 $SUDO tee /etc/sddm/Xsetup-rebuild > /dev/null << XEOF
 #!/bin/sh
 OUT=\$(xrandr --query | awk '/ connected/{o=\$1} o!="" && /^ +1920x1080/ && /\\+/{print o; exit}')
@@ -411,26 +411,26 @@ SEOF
 
 section "Brightness"
 
-####### brightness follows the time of day and learns from your changes
-####### ddcutil talks to the monitors over DDC/CI, and ddcutil-service is how
-####### wluma reads them, raw reads came back garbled on this PC's NVIDIA card
-####### the time schedule stands in for a light sensor, which a desktop lacks
+	# Ai - brightness follows the time of day and learns from your changes
+	#      ddcutil talks to the monitors over DDC/CI, and ddcutil-service is how
+	#      wluma reads them, raw reads came back garbled on this PC's NVIDIA card
+	#      the time schedule stands in for a light sensor, which a desktop lacks
 
 pac ddcutil
 
 try_aur "ddcutil-service" ddcutil-service
 try_aur "wluma" wluma
 
-####### the kernel module DDC/CI goes through, loaded at every boot
+	# Ai - the kernel module DDC/CI goes through, loaded at every boot
 printf 'i2c-dev\n' | $SUDO tee /etc/modules-load.d/i2c-dev.conf > /dev/null
 soft "load i2c-dev" $SUDO modprobe i2c-dev
 
 
 ## Config
 
-####### written only when missing, so tuning you do later is never replaced
-####### to carry your tuning into the next install, copy it into the repo:
-####### cp ~/.config/wluma/config.toml ~/Rebuild/Configs/wluma.toml
+	# Ai - written only when missing, so tuning you do later is never replaced
+	#      to carry your tuning into the next install, copy it into the repo:
+	#      cp ~/.config/wluma/config.toml ~/Rebuild/Configs/wluma.toml
 WLUMA_CONF="$HOME/.config/wluma/config.toml"
 
 if [[ -f "$WLUMA_CONF" ]]; then
@@ -444,9 +444,9 @@ fi
 
 ## Service
 
-####### starts with your session from now on
-####### a wluma already running by hand in a terminal should be closed first,
-####### two copies would fight over the same monitors
+	# Ai - starts with your session from now on
+	#      a wluma already running by hand in a terminal should be closed first,
+	#      two copies would fight over the same monitors
 if command -v wluma > /dev/null; then
 	soft "wluma at login" systemctl --user enable --now wluma.service
 fi
@@ -498,8 +498,8 @@ fi
 
 section "Configs"
 
-####### this used to point at config, the directory is configs
-####### the block silently did nothing every single run
+	# Ai - this used to point at config, the directory is configs
+	#      the block silently did nothing every single run
 CFG="$REPO/Configs"
 
 if [[ -d "$CFG" ]]; then
@@ -551,7 +551,7 @@ check "dolphin config"     test -f "$HOME/.config/dolphinrc"
 warn  "codium"             command -v codium
 warn  "1password"          command -v 1password
 warn  "mullvad-browser"    command -v mullvad-browser
-####### only when you asked for it, a skipped install is not a problem
+	# Ai - only when you asked for it, a skipped install is not a problem
 if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
 	warn  "librewolf"        command -v librewolf
 fi

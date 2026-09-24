@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-####### Rebuild v7.4 shared library
-####### every stage sources this as its first action
-####### nothing here installs a package or writes to a disk
+	# Ai - Rebuild v7.4 shared library
+	#      every stage sources this as its first action
+	#      nothing here installs a package or writes to a disk
 
 
 set -Eeuo pipefail
@@ -33,9 +33,9 @@ unset _f
 
 ## Repo
 
-####### every script sits in Scripts, one level below the repo
-####### SCRIPTS is that folder, REPO is the repo itself, where Configs,
-####### Stacks and Guides live, and the stage is the file name
+	# Ai - every script sits in Scripts, one level below the repo
+	#      SCRIPTS is that folder, REPO is the repo itself, where Configs,
+	#      Stacks and Guides live, and the stage is the file name
 SCRIPTS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
 REPO="$(dirname "$SCRIPTS")"
@@ -60,8 +60,8 @@ mkdir -p "$LOGDIR"
 
 LOG="$LOGDIR/$STAGE.log"
 
-####### fd 3 is the log
-####### stdout stays a real terminal so prompts and progress bars survive
+	# Ai - fd 3 is the log
+	#      stdout stays a real terminal so prompts and progress bars survive
 exec 3>>"$LOG"
 
 printf '\n===== %s  %s =====\n' "$STAGE" "$(date -Is)" >&3
@@ -69,15 +69,15 @@ printf '\n===== %s  %s =====\n' "$STAGE" "$(date -Is)" >&3
 
 ## Failures
 
-####### every failure lands here, from any path, and stays there
-####### this file is what gets printed at the end of a stage and at the end of
-####### the whole run, including when a stage dies part way through
+	# Ai - every failure lands here, from any path, and stays there
+	#      this file is what gets printed at the end of a stage and at the end of
+	#      the whole run, including when a stage dies part way through
 FAILLOG="$LOGDIR/failures.txt"
 FAILHIST="$LOGDIR/failures-history.txt"
 
-####### run.sh rolls this over before the stages start
-####### it used to accumulate forever, so problems fixed weeks ago kept
-####### reappearing in the summary with nothing to say they were old
+	# Ai - run.sh rolls this over before the stages start
+	#      it used to accumulate forever, so problems fixed weeks ago kept
+	#      reappearing in the summary with nothing to say they were old
 roll_failures() {
 	if [[ -s "$FAILLOG" ]]; then
 		{
@@ -90,8 +90,8 @@ roll_failures() {
 
 touch "$FAILLOG"
 
-####### the tag is what separates "skipped this, carried on" from
-####### "this is where the script stopped"
+	# Ai - the tag is what separates "skipped this, carried on" from
+	#      "this is where the script stopped"
 record_fail() {
 	printf '%s\t%-12s %s\n' "${2:-soft}" "$STAGE" "$1" >> "$FAILLOG"
 }
@@ -99,11 +99,11 @@ record_fail() {
 
 ## Colour
 
-####### colour never carries meaning on its own, it is always paired with a
-####### word in brackets
-####### roughly one in twelve men has red green colour blindness, and red
-####### green is exactly the fail/ok pairing a terminal reaches for first
-####### NO_COLOR, a dumb terminal, or piping to a file all turn it off
+	# Ai - colour never carries meaning on its own, it is always paired with a
+	#      word in brackets
+	#      roughly one in twelve men has red green colour blindness, and red
+	#      green is exactly the fail/ok pairing a terminal reaches for first
+	#      NO_COLOR, a dumb terminal, or piping to a file all turn it off
 
 if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
 	C_OK=$'\033[32m'
@@ -121,9 +121,9 @@ fi
 
 ## Action
 
-####### anything that needs you to do something by hand
-####### deliberately a different shape and colour from every other block, so
-####### it registers from the corner of your eye without being read
+	# Ai - anything that needs you to do something by hand
+	#      deliberately a different shape and colour from every other block, so
+	#      it registers from the corner of your eye without being read
 ACT_IS_OPEN=0
 ACT_LINES=0
 
@@ -141,13 +141,13 @@ act_rule() {
 	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 }
 
-####### one blank marker line, room inside a single subject
+	# Ai - one blank marker line, room inside a single subject
 act_gap() {
 	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
 }
 
-####### between two short subjects: blank, arrow line, blank
-####### nothing when no block is open, a fresh block header is gap enough
+	# Ai - between two short subjects: blank, arrow line, blank
+	#      nothing when no block is open, a fresh block header is gap enough
 act_split() {
 	(( ACT_IS_OPEN )) || return 0
 	act_gap
@@ -155,7 +155,7 @@ act_split() {
 	act_gap
 }
 
-####### after a long subject, the same with one more blank for extra room
+	# Ai - after a long subject, the same with one more blank for extra room
 act_break() {
 	(( ACT_IS_OPEN )) || return 0
 	act_gap
@@ -164,8 +164,8 @@ act_break() {
 	act_gap
 }
 
-####### the start of the next subject: a gap inside an open block, or a new
-####### block when none is open, pass big after a long subject
+	# Ai - the start of the next subject: a gap inside an open block, or a new
+	#      block when none is open, pass big after a long subject
 act_next() {
 	if (( ! ACT_IS_OPEN )); then
 		act_open
@@ -176,13 +176,13 @@ act_next() {
 	fi
 }
 
-####### no automatic rules, spacing is placed deliberately or not at all
+	# Ai - no automatic rules, spacing is placed deliberately or not at all
 act_line() {
 	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" > /dev/tty
 }
 
-####### anything piped in gets wrapped, so a disk listing stays inside the
-####### block instead of sitting outside it as loose text
+	# Ai - anything piped in gets wrapped, so a disk listing stays inside the
+	#      block instead of sitting outside it as loose text
 act_feed() {
 	local line
 	while IFS= read -r line; do
@@ -199,8 +199,8 @@ act_close() {
 	printf '\n' > /dev/tty
 }
 
-####### the first line should always be an instruction, not context
-####### act_text only prints, every gap around it is placed by the caller
+	# Ai - the first line should always be an instruction, not context
+	#      act_text only prints, every gap around it is placed by the caller
 act_text() {
 	local line
 
@@ -214,7 +214,7 @@ act_text() {
 	printf 'ACTION NEEDED: %s\n' "$*" >&3
 }
 
-####### the same, with a small gap before it when it follows another one
+	# Ai - the same, with a small gap before it when it follows another one
 action() {
 	if (( ACT_IS_OPEN && ACT_LINES > 0 )); then
 		act_split
@@ -248,9 +248,9 @@ flag() {
 	record_fail "$*"
 }
 
-####### worth knowing, but nothing on this PC is broken: an outside service
-####### refusing this VPN address, or a choice you made showing its effect
-####### listed apart from the problems, and never a reason to retry
+	# Ai - worth knowing, but nothing on this PC is broken: an outside service
+	#      refusing this VPN address, or a choice you made showing its effect
+	#      listed apart from the problems, and never a reason to retry
 aside() {
 	act_close
 	printf '  %s[note]%s %s\n' "$C_DIM" "$C_OFF" "$*" >&2
@@ -274,7 +274,7 @@ STEP=0
 
 ## Banner
 
-####### the section name is kept, so a failure can say where it happened
+	# Ai - the section name is kept, so a failure can say where it happened
 SECTION=""
 
 section() {
@@ -292,12 +292,12 @@ section() {
 
 ## Stage
 
-####### the start of every stage, letters five rows tall across a full width
-####### band, so a stage can be found by eye while scrolling back
-####### X is a filled cell and a dot an empty one, the solid block is put in
-####### at print time so this file stays plain ASCII
-####### the block characters exist in the console font too, so this also
-####### shows on the text console before the desktop is installed
+	# Ai - the start of every stage, letters five rows tall across a full width
+	#      band, so a stage can be found by eye while scrolling back
+	#      X is a filled cell and a dot an empty one, the solid block is put in
+	#      at print time so this file stays plain ASCII
+	#      the block characters exist in the console font too, so this also
+	#      shows on the text console before the desktop is installed
 
 BIG_FULL=$'\xe2\x96\x88'
 BIG_LOW=$'\xe2\x96\x84'
@@ -373,7 +373,7 @@ big_render() {
 	done
 }
 
-####### the real width when there is a terminal to ask, 80 when there is not
+	# Ai - the real width when there is a terminal to ask, 80 when there is not
 term_cols() {
 	local r c
 	if read -r r c < <(stty size 2>/dev/null < /dev/tty) \
@@ -398,9 +398,9 @@ stage_banner() {
 
 	printf '\n\n%s%s%s\n\n' "$C_BIG" "${bar// /$BIG_LOW}" "$C_OFF"
 
-	####### the tall letters already say the name, the line under them only
-	####### says what the stage does and where it sits
-	####### too narrow for the letters, the name takes their place instead
+		# Ai - the tall letters already say the name, the line under them only
+		#      says what the stage does and where it sits
+		#      too narrow for the letters, the name takes their place instead
 	if (( BIG_WIDTH + 4 <= cols )); then
 		for row in "${BIG_ROWS[@]}"; do
 			printf '  %s%s%s\n' "$C_BIG" "$row" "$C_OFF"
@@ -431,16 +431,16 @@ VERBOSE="${REBUILD_VERBOSE:-0}"
 
 ## Why
 
-####### the last helper that failed writes down what it was doing here
-####### a stop otherwise reaches the error trap as a bare return line, which
-####### is how the summary ended up saying only: return "$rc"
+	# Ai - the last helper that failed writes down what it was doing here
+	#      a stop otherwise reaches the error trap as a bare return line, which
+	#      is how the summary ended up saying only: return "$rc"
 WHY=""
 
 
 ## Quiet
 
-####### run hides output and shows one spinner line
-####### never give run an interactive command, it has no terminal
+	# Ai - run hides output and shows one spinner line
+	#      never give run an interactive command, it has no terminal
 run() {
 	act_close
 	local label=$1; shift
@@ -457,8 +457,8 @@ run() {
 		"$@" >&3 2>&1 &
 		pid=$!
 		while kill -0 "$pid" 2>/dev/null; do
-			####### a spinner alone cannot tell you whether this is a minute
-			####### or ten, the count can
+				# Ai - a spinner alone cannot tell you whether this is a minute
+				#      or ten, the count can
 			printf '\r  [%s]    %s   %ss' \
 				"${frames:i++%4:1}" "$label" "$(( SECONDS - start ))"
 			sleep 0.2
@@ -480,8 +480,8 @@ run() {
 		printf '  %s[FAIL]%s %s   exit %s\n' "$C_FAIL" "$C_OFF" "$label" "$rc" >&2
 		printf 'FAILED %s exit %s\n' "$*" "$rc" >&3
 
-		####### put the error on screen
-		####### a path to a log file is not a message, it is homework
+			# Ai - put the error on screen
+			#      a path to a log file is not a message, it is homework
 		printf '\n  what it actually said:\n\n' >&2
 		tail -n 15 "$LOG" 2>/dev/null | sed 's/^/    /' >&2 || true
 		printf '\n  full log  %s\n\n' "$LOG" >&2
@@ -495,7 +495,7 @@ run() {
 
 ## Soft
 
-####### same as run but a failure is advisory
+	# Ai - same as run but a failure is advisory
 soft() {
 	local label=$1; shift
 	if ! run "$label" "$@"; then
@@ -507,8 +507,8 @@ soft() {
 
 ## Report
 
-####### printed at the end of every stage and again at the end of the run
-####### duplicates are collapsed, because re-running a stage appends again
+	# Ai - printed at the end of every stage and again at the end of the run
+	#      duplicates are collapsed, because re-running a stage appends again
 show_failures() {
 	local scope=${1:-all}
 	local raw softs stops asides title
@@ -529,7 +529,7 @@ show_failures() {
 	stops="$(printf '%s\n' "$raw" | sed -n 's/^stop\t//p' || true)"
 	asides="$(printf '%s\n' "$raw" | sed -n 's/^aside\t//p' || true)"
 
-	####### only real problems get the red banner, notes get their own below
+		# Ai - only real problems get the red banner, notes get their own below
 	if [[ -n "${softs//[[:space:]]/}${stops//[[:space:]]/}" ]]; then
 		printf '\n' >&2
 		printf '%s========================================%s\n' "$C_FAIL" "$C_OFF" >&2
@@ -558,11 +558,11 @@ show_failures() {
 
 ## Refresh
 
-####### never called on a schedule, only when an install has already failed
-####### -Sy on its own is the thing that causes partial upgrades, so the
-####### refresh has to be a full -Syu or it makes the system worse
-####### a kernel upgrade mid run removes the running kernel's modules, which
-####### breaks anything that loads one until a reboot, so that gets flagged
+	# Ai - never called on a schedule, only when an install has already failed
+	#      -Sy on its own is the thing that causes partial upgrades, so the
+	#      refresh has to be a full -Syu or it makes the system worse
+	#      a kernel upgrade mid run removes the running kernel's modules, which
+	#      breaks anything that loads one until a reboot, so that gets flagged
 
 refresh_db() {
 	local before after
@@ -583,18 +583,18 @@ refresh_db() {
 
 ## Pacman
 
-####### stderr is copied into the log while stdout stays a terminal
-####### the progress bar needs a real terminal, the error needs to be findable
+	# Ai - stderr is copied into the log while stdout stays a terminal
+	#      the progress bar needs a real terminal, the error needs to be findable
 pac() {
 	local start=$SECONDS plan
 
 	printf '\n  packages   %s\n\n' "$*"
 	printf 'pacman -S %s\n' "$*" >&3
 
-	####### --noconfirm answers every prompt with the default, which includes
-	####### "yes, remove that" on a conflict
-	####### a dry run first means an unexpected removal stops the stage
-	####### instead of quietly happening while nobody is watching
+		# Ai - --noconfirm answers every prompt with the default, which includes
+		#      "yes, remove that" on a conflict
+		#      a dry run first means an unexpected removal stops the stage
+		#      instead of quietly happening while nobody is watching
 	plan="$(capture $SUDO pacman -S --needed --print-format '%n' "$@")"
 
 	if contains "$plan" "removing" || contains "$plan" "conflicts"; then
@@ -609,9 +609,9 @@ pac() {
 		return 0
 	fi
 
-	####### every mirror answering 404 for one filename means the local
-	####### database is older than the mirrors, not that the network is down
-	####### retrying the same request cannot fix that, only a refresh can
+		# Ai - every mirror answering 404 for one filename means the local
+		#      database is older than the mirrors, not that the network is down
+		#      retrying the same request cannot fix that, only a refresh can
 	flag "install failed, refreshing the database once and trying again"
 
 	refresh_db
@@ -625,9 +625,9 @@ pac() {
 aur() {
 	printf '\n  aur build  %s\n\n' "$*"
 	printf 'yay -S %s\n' "$*" >&3
-	####### --noconfirm alone is not enough, yay still stops to ask whether
-	####### you want to see the diff, view the PKGBUILD or edit it, and the
-	####### default answer to those is not always the one that continues
+		# Ai - --noconfirm alone is not enough, yay still stops to ask whether
+		#      you want to see the diff, view the PKGBUILD or edit it, and the
+		#      default answer to those is not always the one that continues
 	local rc=0
 
 	WHY=""
@@ -635,8 +635,8 @@ aur() {
 	yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
 		--answeredit=None --removemake "$@" 2> >(tee -a "$LOG" >&2) || rc=$?
 
-	####### an AUR build that fails otherwise reaches the summary as the whole
-	####### yay command line, which says everything except which package
+		# Ai - an AUR build that fails otherwise reaches the summary as the whole
+		#      yay command line, which says everything except which package
 	(( rc == 0 )) || WHY="building $* from the AUR failed, exit $rc"
 
 	return "$rc"
@@ -666,7 +666,7 @@ installed() { pacman -Qq "$1" &>/dev/null; }
 MARKERS="$HOME/.install-state"
 mkdir -p "$MARKERS"
 
-####### marker name always equals the file name, no hand typed strings
+	# Ai - marker name always equals the file name, no hand typed strings
 stage_done()    { touch "$MARKERS/${1:-$STAGE}"; }
 
 stage_is_done() { [[ -f "$MARKERS/${1:-$STAGE}" ]]; }
@@ -681,8 +681,8 @@ require_stage() {
 
 ## Defaults
 
-####### HOSTNAME is also a bash variable, so it is set here and only
-####### overwritten by the config file, never by the environment
+	# Ai - HOSTNAME is also a bash variable, so it is set here and only
+	#      overwritten by the config file, never by the environment
 HOSTNAME="CHANGEME"
 USERNAME="CHANGEME"
 KEYMAP="colemak"
@@ -691,10 +691,10 @@ LOCALE="en_US.UTF-8"
 RETRY_LIMIT=10
 TUNNEL_MTU=1420
 
-####### seconds the boot menu shows before starting on its own
-####### three while the nested menu was unproven, one now that it has started
-####### Linux on its own on the real machine
-####### an arrow key still stops the count, it is just a smaller window
+	# Ai - seconds the boot menu shows before starting on its own
+	#      three while the nested menu was unproven, one now that it has started
+	#      Linux on its own on the real machine
+	#      an arrow key still stops the count, it is just a smaller window
 LIMINE_TIMEOUT=1
 
 
@@ -709,7 +709,7 @@ export USERNAME
 
 ## Save
 
-####### never save a password, a passphrase or an account number here
+	# Ai - never save a password, a passphrase or an account number here
 save_cfg() {
 	local k=$1 v=$2
 	touch "$CONFIG"
@@ -725,22 +725,22 @@ save_cfg() {
 
 ## Match
 
-####### capture then match
-####### a pipeline into grep -q can take SIGPIPE and return 141 under pipefail
+	# Ai - capture then match
+	#      a pipeline into grep -q can take SIGPIPE and return 141 under pipefail
 contains() { [[ "$1" == *"$2"* ]]; }
 
 
 ## Capture
 
-####### capture returns the error text when a command fails or is missing
-####### so a non empty result does NOT mean success, and treating it as a
-####### value is how an error string ended up in a docker env file
+	# Ai - capture returns the error text when a command fails or is missing
+	#      so a non empty result does NOT mean success, and treating it as a
+	#      value is how an error string ended up in a docker env file
 capture() { "$@" 2>&1 || true; }
 
 
 ## Tailnet
 
-####### empty unless there is a real tailnet address, checked by shape
+	# Ai - empty unless there is a real tailnet address, checked by shape
 tailnet_ip() {
 	command -v tailscale > /dev/null 2>&1 || return 1
 
@@ -760,8 +760,8 @@ tailnet_ip() {
 
 ## Line
 
-####### the prompt itself gets the marker, so a question never appears as a
-####### bare line with nothing saying it is still your turn
+	# Ai - the prompt itself gets the marker, so a question never appears as a
+	#      bare line with nothing saying it is still your turn
 act_prompt() { printf '%s>>%s  %s' "$C_ACT" "$C_OFF" "$*"; }
 
 ask() {
@@ -778,7 +778,7 @@ ask() {
 
 ## Yes
 
-####### the capital letter is the default, that is the whole convention
+	# Ai - the capital letter is the default, that is the whole convention
 yesno() {
 	local prompt=$1 default=${2:-n} hint reply
 
@@ -798,8 +798,8 @@ yesno() {
 
 ## Confirm
 
-####### YES in capitals says yes, anything else returns false so the caller
-####### can ask again instead of ending the whole run
+	# Ai - YES in capitals says yes, anything else returns false so the caller
+	#      can ask again instead of ending the whole run
 confirmed() {
 	local reply
 	read -rp "$(act_prompt "${1:-Type YES to continue}: ")" reply < /dev/tty
@@ -819,7 +819,7 @@ secret() {
 
 ## Twice
 
-####### every password is typed twice, a typo you cannot see is a reinstall
+	# Ai - every password is typed twice, a typo you cannot see is a reinstall
 secret_twice() {
 	local label=$1 a b
 	while true; do
@@ -847,11 +847,11 @@ secret_twice() {
 
 ## Online
 
-####### a slow ping in a VM is almost never the internet
-####### ping resolves AAAA first and then sits waiting on an ipv6 route that
-####### does not exist, so ipv4 is forced and every probe gets a deadline
-####### routing and name resolution are tested separately, because they break
-####### for different reasons and need different fixes
+	# Ai - a slow ping in a VM is almost never the internet
+	#      ping resolves AAAA first and then sits waiting on an ipv6 route that
+	#      does not exist, so ipv4 is forced and every probe gets a deadline
+	#      routing and name resolution are tested separately, because they break
+	#      for different reasons and need different fixes
 
 PING_HOSTS=(1.1.1.1 9.9.9.9 8.8.8.8)
 
@@ -924,7 +924,7 @@ KEEPALIVE_PID=""
 
 sudo_keepalive() {
 	[[ -n "$SUDO" ]] || return 0
-	####### the prompt carries the block marker, so it reads as part of the block
+		# Ai - the prompt carries the block marker, so it reads as part of the block
 	sudo -v -p "$(act_prompt 'Password for %p: ')"
 	(
 		while true; do
@@ -972,10 +972,10 @@ pick_disk() {
 
 ## Fstab
 
-####### genfstab pins every btrfs mount by id as well as by name
-####### only the / line matters, a restore swaps in a new subvolume under the
-####### name @ with a new id, and a snapshot boot mounts another id again
-####### so / keeps the name alone, the other mounts never move
+	# Ai - genfstab pins every btrfs mount by id as well as by name
+	#      only the / line matters, a restore swaps in a new subvolume under the
+	#      name @ with a new id, and a snapshot boot mounts another id again
+	#      so / keeps the name alone, the other mounts never move
 fstab_root_by_name() {
 	local f=$1 old new
 	old="$(cat "$f")"
@@ -1011,7 +1011,7 @@ require_disk() {
 
 FAILED=0
 
-####### set once a stop is in the failure list, so it is never listed twice
+	# Ai - set once a stop is in the failure list, so it is never listed twice
 STOP_RECORDED=0
 
 
@@ -1061,20 +1061,20 @@ verify_done() {
 ## Exit
 
 cleanup() {
-	####### captured first, before anything below can clobber it
+		# Ai - captured first, before anything below can clobber it
 	local rc=$?
 
 	if [[ -n "$KEEPALIVE_PID" ]]; then
 		kill "$KEEPALIVE_PID" 2>/dev/null || true
 	fi
 
-	####### this runs whether the stage finished or died, which is the whole
-	####### point, a stage that stops half way still has to tell you what
-	####### went wrong before it stopped
+		# Ai - this runs whether the stage finished or died, which is the whole
+		#      point, a stage that stops half way still has to tell you what
+		#      went wrong before it stopped
 	act_close
 
-	####### a deliberate exit never passes through the error trap first, so the
-	####### stop is written down here, before the stage summary is printed
+		# Ai - a deliberate exit never passes through the error trap first, so the
+		#      stop is written down here, before the stage summary is printed
 	if (( rc != 0 && STOP_RECORDED == 0 )); then
 		STOP_RECORDED=1
 		if (( FAILED )); then
@@ -1086,8 +1086,8 @@ cleanup() {
 		fi
 	fi
 
-	####### run.sh prints the full list itself as its last word, repeating its
-	####### own part here would push that list up the screen
+		# Ai - run.sh prints the full list itself as its last word, repeating its
+		#      own part here would push that list up the screen
 	if [[ "$STAGE" != run || "$rc" != 0 ]]; then
 		show_failures stage
 	fi
@@ -1100,8 +1100,8 @@ trap cleanup EXIT
 
 ## Error
 
-####### every failure path shows the error, not only the ones inside run()
-####### only the first stop is written down, anything after it is fallout
+	# Ai - every failure path shows the error, not only the ones inside run()
+	#      only the first stop is written down, anything after it is fallout
 on_err() {
 	local rc=$?
 	local what="$BASH_COMMAND"
@@ -1111,11 +1111,11 @@ on_err() {
 
 	case "$what" in
 		exit*)
-			####### the exit handler already wrote this one down
+				# Ai - the exit handler already wrote this one down
 			return "$rc" ;;
 		return*)
-			####### a helper that failed has already put its output on screen,
-			####### only the name of the step is missing
+				# Ai - a helper that failed has already put its output on screen,
+				#      only the name of the step is missing
 			STOP_RECORDED=1
 			what="${WHY:-a step failed with exit $rc}"
 			printf '\n  STOPPED  %s, in %s\n\n' "$what" "$where" >&2

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-####### limine-header-fix
-####### writes /boot/limine.conf in the one shape that starts on its own AND
-####### has room for snapshot entries, and checks that it really does
-####### not a stage, 05-iso runs it from the repo and 10-base installs it as
-####### /usr/local/bin/limine-header-fix, so there is only one copy of the logic
+	# Ai - limine-header-fix
+	#      writes /boot/limine.conf in the one shape that starts on its own AND
+	#      has room for snapshot entries, and checks that it really does
+	#      not a stage, 05-iso runs it from the repo and 10-base installs it as
+	#      /usr/local/bin/limine-header-fix, so there is only one copy of the logic
 
 set -euo pipefail
 
@@ -65,8 +65,8 @@ KERNEL_NAME="Linux"
 
 ## Read
 
-####### BOOT_MODE and BOOT_TIMEOUT live in /etc/rebuild-boot.conf
-####### read line by line rather than sourced, so nothing in it can run
+	# Ai - BOOT_MODE and BOOT_TIMEOUT live in /etc/rebuild-boot.conf
+	#      read line by line rather than sourced, so nothing in it can run
 BOOT_MODE=nested
 BOOT_TIMEOUT=3
 
@@ -91,7 +91,7 @@ case "$BOOT_MODE" in
 	*) printf 'BOOT_MODE must be nested or flat, got: %s\n' "$BOOT_MODE" >&2; exit 2 ;;
 esac
 
-####### a number only, "no" would mean never start on its own
+	# Ai - a number only, "no" would mean never start on its own
 if [[ ! "$BOOT_TIMEOUT" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
 	printf 'BOOT_TIMEOUT must be a number of seconds, got: %s\n' "$BOOT_TIMEOUT" >&2
 	exit 2
@@ -103,11 +103,11 @@ fi
 
 ## Menu
 
-####### reads a limine.conf and reports which entry limine will start
-####### limine numbers the entries it shows, and a folder only shows its
-####### contents when it is expanded with a plus, so both are tracked here
-####### the same number is also counted as a flat list, and the two have to
-####### agree, so the answer does not depend on which way limine counts
+	# Ai - reads a limine.conf and reports which entry limine will start
+	#      limine numbers the entries it shows, and a folder only shows its
+	#      contents when it is expanded with a plus, so both are tracked here
+	#      the same number is also counted as a flat list, and the two have to
+	#      agree, so the answer does not depend on which way limine counts
 MENU_AWK='
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
 
@@ -216,10 +216,10 @@ END {
 
 ## Split
 
-####### takes an existing limine.conf apart into the pieces worth keeping
-####### the Arch entry itself is always rebuilt from the real files, what is
-####### kept is everything under it except the kernel, which is where the
-####### snapshot tool writes its entries, plus any other top level entries
+	# Ai - takes an existing limine.conf apart into the pieces worth keeping
+	#      the Arch entry itself is always rebuilt from the real files, what is
+	#      kept is everything under it except the kernel, which is where the
+	#      snapshot tool writes its entries, plus any other top level entries
 SPLIT_AWK='
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
 
@@ -266,8 +266,8 @@ BEGIN { zone = "hdr"; seen = 0; sz = "own" }
 
 ## Paths
 
-####### boot():/x means /x on the partition holding limine.conf, which is
-####### the ESP mounted at /boot
+	# Ai - boot():/x means /x on the partition holding limine.conf, which is
+	#      the ESP mounted at /boot
 boot_file() {
 	local p=$1
 	p="${p%%#*}"
@@ -329,7 +329,7 @@ check_conf() {
 
 	row "file" "$shown"
 
-	####### every line below that says FAIL is a reason it would not start alone
+		# Ai - every line below that says FAIL is a reason it would not start alone
 	if [[ "$has_timeout" != 1 ]]; then
 		row "timeout" "FAIL  missing"
 		bad=1
@@ -366,8 +366,8 @@ check_conf() {
 			row "default entry" "#$default  $title"
 		fi
 
-		####### a folder has nothing of its own to check, and it is the
-		####### one reason that matters, the rest would only be noise
+			# Ai - a folder has nothing of its own to check, and it is the
+			#      one reason that matters, the rest would only be noise
 		if (( dir == 1 )); then
 			row "shape" "FAIL  that entry is a folder, limine will not start a folder"
 			bad=1
@@ -466,8 +466,8 @@ if [[ ! -d "$BOOT" ]]; then
 	exit 1
 fi
 
-####### the snapshot tool runs this after every save, and a stage may run it
-####### at the same moment, so only one copy writes at a time
+	# Ai - the snapshot tool runs this after every save, and a stage may run it
+	#      at the same moment, so only one copy writes at a time
 if command -v flock > /dev/null && [[ -d /run/lock ]]; then
 	exec 9> /run/lock/limine-header-fix.lock
 	flock -w 60 9 || { printf 'another copy is still writing, giving up\n' >&2; exit 1; }
@@ -476,7 +476,7 @@ fi
 
 ## Inputs
 
-####### refuse to write anything without a real cmdline to put in it
+	# Ai - refuse to write anything without a real cmdline to put in it
 CMDLINE=""
 [[ -f "$CMDFILE" ]] && CMDLINE="$(tr -s '[:space:]' ' ' < "$CMDFILE")"
 CMDLINE="${CMDLINE# }"
@@ -490,8 +490,8 @@ fi
 MID=""
 [[ -f "$MIDFILE" ]] && MID="$(tr -d '[:space:]' < "$MIDFILE")"
 
-####### snapshot entries only have a home while the tool that makes them is
-####### installed, once it is gone its old entries go too
+	# Ai - snapshot entries only have a home while the tool that makes them is
+	#      installed, once it is gone its old entries go too
 SNAPTOOL=no
 [[ -x "$ROOT/usr/bin/limine-snapper-sync" ]] && SNAPTOOL=yes
 
@@ -517,8 +517,8 @@ if [[ -f "$CONF" ]]; then
 		"$SPLIT_AWK" "$CONF"
 fi
 
-####### blank lines at either end of a piece are dropped, the gaps between
-####### pieces are put back one at a time below
+	# Ai - blank lines at either end of a piece are dropped, the gaps between
+	#      pieces are put back one at a time below
 squeeze() {
 	awk '
 		NF { for (; blank > 0; blank--) print ""; print; started = 1; next }
@@ -530,8 +530,8 @@ HDR="$(squeeze "$WORK/hdr")"
 KEEP="$(squeeze "$WORK/keep")"
 REST="$(squeeze "$WORK/rest")"
 
-####### the flat shape cannot hold anything under the entry, a single sub
-####### entry turns it back into a folder
+	# Ai - the flat shape cannot hold anything under the entry, a single sub
+	#      entry turns it back into a folder
 [[ "$BOOT_MODE" == flat ]] && KEEP=""
 
 if [[ "$BOOT_MODE" == nested && "$SNAPTOOL" == yes && "$KEEP" != *//Snapshots* && "$KEEP" != *//+Snapshots* ]]; then
@@ -541,11 +541,11 @@ fi
 
 ## Build
 
-####### nested is the normal shape
-####### the folder is expanded with the plus, the kernel is the first thing in
-####### it, so entry 1 is the folder and entry 2 is the kernel, and
-####### default_entry points straight at the kernel
-####### flat is the escape hatch, one bootable entry and nothing under it
+	# Ai - nested is the normal shape
+	#      the folder is expanded with the plus, the kernel is the first thing in
+	#      it, so entry 1 is the folder and entry 2 is the kernel, and
+	#      default_entry points straight at the kernel
+	#      flat is the escape hatch, one bootable entry and nothing under it
 
 kernel_lines() {
 	local pad=$1
@@ -587,8 +587,8 @@ kernel_lines() {
 
 ## Prove
 
-####### the new file has to pass the same check, or it is not written at all
-####### a menu that cannot start is never put in place of one that can
+	# Ai - the new file has to pass the same check, or it is not written at all
+	#      a menu that cannot start is never put in place of one that can
 if ! REPORT="$(check_conf "$NEW" "$CONF")"; then
 	printf '\n  refusing to write, the result would not start on its own\n\n' >&2
 	printf '%s\n\n' "$REPORT" >&2
@@ -598,8 +598,8 @@ fi
 
 ## Save
 
-####### a choice given on the command line is remembered for every later run,
-####### including the ones the snapshot tool starts on its own
+	# Ai - a choice given on the command line is remembered for every later run,
+	#      including the ones the snapshot tool starts on its own
 if [[ -n "$MODE_ARG$TIMEOUT_ARG" || ! -f "$SETTINGS" ]]; then
 	mkdir -p "$(dirname "$SETTINGS")"
 	printf 'BOOT_MODE=%s\nBOOT_TIMEOUT=%s\n' "$BOOT_MODE" "$BOOT_TIMEOUT" > "$SETTINGS"
@@ -620,9 +620,9 @@ printf '%s\n' "$REPORT"
 
 ## Watcher
 
-####### the sync tool cannot work with the flat shape and would complain on
-####### every snapshot, so it is paused with it and resumed with nested
-####### only on a running system, never inside --root
+	# Ai - the sync tool cannot work with the flat shape and would complain on
+	#      every snapshot, so it is paused with it and resumed with nested
+	#      only on a running system, never inside --root
 if [[ -z "$ROOT" && -n "$MODE_ARG" ]] && command -v systemctl > /dev/null; then
 	if systemctl cat limine-snapper-sync.service > /dev/null 2>&1 \
 		&& [[ "$SNAPTOOL" == yes ]]; then

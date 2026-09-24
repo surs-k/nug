@@ -25,12 +25,12 @@ done
 
 section "Resolver"
 
-####### this used to force resolv.conf at the systemd-resolved stub no matter
-####### what, but 30-security has already connected Mullvad by now, and
-####### Mullvad owns DNS inside its tunnel
-####### pointing resolv.conf somewhere else left resolved with an upstream the
-####### kill switch blocks, so name resolution died and the stage timed out
-####### when Mullvad is up it keeps DNS, and this only verifies it works
+	# Ai - this used to force resolv.conf at the systemd-resolved stub no matter
+	#      what, but 30-security has already connected Mullvad by now, and
+	#      Mullvad owns DNS inside its tunnel
+	#      pointing resolv.conf somewhere else left resolved with an upstream the
+	#      kill switch blocks, so name resolution died and the stage timed out
+	#      when Mullvad is up it keeps DNS, and this only verifies it works
 
 $SUDO mkdir -p /etc/NetworkManager/conf.d
 
@@ -55,8 +55,8 @@ fi
 
 ## Confirm
 
-####### routing and name resolution are reported separately, because a stage
-####### that just says timeout tells you nothing about which half broke
+	# Ai - routing and name resolution are reported separately, because a stage
+	#      that just says timeout tells you nothing about which half broke
 
 if ! wait_for 60 resolves; then
 
@@ -89,10 +89,10 @@ $SUDO tee /etc/ssh/sshd_config.d/10-harden.conf > /dev/null << 'EOF'
 PermitRootLogin no
 EOF
 
-####### a key from the laptop replaces your password for SSH logins only
-####### the login screen and sudo on this PC keep using the password
-####### the firewall only opens SSH on the tailnet, so with Tailscale off
-####### nothing can reach it at all, see Guides/Network.md
+	# Ai - a key from the laptop replaces your password for SSH logins only
+	#      the login screen and sudo on this PC keep using the password
+	#      the firewall only opens SSH on the tailnet, so with Tailscale off
+	#      nothing can reach it at all, see Guides/Network.md
 if [[ -s "$HOME/.ssh/authorized_keys" ]]; then
 	printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' \
 		| $SUDO tee -a /etc/ssh/sshd_config.d/10-harden.conf > /dev/null
@@ -125,7 +125,7 @@ else
 	mountpoint -q /.snapshots && $SUDO umount /.snapshots
 	$SUDO rm -rf /.snapshots
 	run "create root config" $SUDO snapper -c root create-config /
-	####### snapper makes a nested .snapshots, we want the sibling instead
+		# Ai - snapper makes a nested .snapshots, we want the sibling instead
 	soft "remove nested subvol" $SUDO btrfs subvolume delete /.snapshots
 	$SUDO mkdir -p /.snapshots
 fi
@@ -185,12 +185,12 @@ run "enable cleanup timer"  $SUDO systemctl enable --now snapper-cleanup.timer
 
 section "Snapboot"
 
-####### snapshots in the boot menu, beside the normal entry
-####### the menu keeps its nested shape: an open Arch Linux folder with
-####### Linux first inside it, which is what starts on its own, then a
-####### Snapshots folder that stays closed until you open it
-####### limine-snapper-sync fills that folder and runs limine-header-fix
-####### after every save, which re-checks the menu still starts on its own
+	# Ai - snapshots in the boot menu, beside the normal entry
+	#      the menu keeps its nested shape: an open Arch Linux folder with
+	#      Linux first inside it, which is what starts on its own, then a
+	#      Snapshots folder that stays closed until you open it
+	#      limine-snapper-sync fills that folder and runs limine-header-fix
+	#      after every save, which re-checks the menu still starts on its own
 
 
 ## Install
@@ -201,9 +201,9 @@ if pacman -Qi limine-snapper-sync &> /dev/null; then
 	SNAPBOOT=yes
 	note "already installed"
 else
-	####### the AUR name has a git variant, try both before giving up
-	####### output goes to the log here, so any yay question would sit waiting
-	####### where nobody can see it, the answer flags remove the questions
+		# Ai - the AUR name has a git variant, try both before giving up
+		#      output goes to the log here, so any yay question would sit waiting
+		#      where nobody can see it, the answer flags remove the questions
 	for pkg in limine-snapper-sync limine-snapper-sync-git; do
 		if yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
 			--answeredit=None --removemake "$pkg" >&3 2>&1; then
@@ -218,8 +218,8 @@ else
 		|| flag "limine-snapper-sync would not build, snapshot boot entries skipped"
 fi
 
-####### the watcher that adds entries as snapshots appear is built on this,
-####### and it is only an optional dependency of the package
+	# Ai - the watcher that adds entries as snapshots appear is built on this,
+	#      and it is only an optional dependency of the package
 if [[ "$SNAPBOOT" == yes ]]; then
 	pac inotify-tools
 fi
@@ -227,12 +227,12 @@ fi
 
 ## Defaults
 
-####### read by limine-snapper-sync
-####### ROOT_SUBVOLUME_PATH has to match the cmdline spelling exactly, /@
-####### COMMANDS_BEFORE_SAVE is emptied, the packaged default can call a tool
-####### from limine-entry-tool, which is not installed here
-####### KERNEL_CMDLINE is copied from /etc/kernel/cmdline so the two cannot
-####### disagree, only limine-entry-tool reads it
+	# Ai - read by limine-snapper-sync
+	#      ROOT_SUBVOLUME_PATH has to match the cmdline spelling exactly, /@
+	#      COMMANDS_BEFORE_SAVE is emptied, the packaged default can call a tool
+	#      from limine-entry-tool, which is not installed here
+	#      KERNEL_CMDLINE is copied from /etc/kernel/cmdline so the two cannot
+	#      disagree, only limine-entry-tool reads it
 
 if [[ "$SNAPBOOT" == yes ]]; then
 
@@ -267,9 +267,9 @@ if [[ "$SNAPBOOT" == yes ]]; then
 	[[ -f /boot/limine.conf ]] \
 		|| { printf '/boot/limine.conf missing, do not reboot\n' >&2; exit 1; }
 
-	####### now that the sync tool is installed, the menu tool adds the empty
-	####### Snapshots folder inside the Arch entry, after Linux, which is the
-	####### one place the sync tool looks for it
+		# Ai - now that the sync tool is installed, the menu tool adds the empty
+		#      Snapshots folder inside the Arch entry, after Linux, which is the
+		#      one place the sync tool looks for it
 	run "add snapshot folder" $SUDO /usr/local/bin/limine-header-fix
 
 	soft "baseline snapshot" $SUDO snapper -c root create --description "rebuild baseline"
@@ -278,8 +278,8 @@ if [[ "$SNAPBOOT" == yes ]]; then
 
 	soft "enable sync watcher" $SUDO systemctl enable --now limine-snapper-sync.service
 
-	####### the sync rewrote the file, so it is proven once more
-	####### if this fails, do not reboot, Guides/Bootmenu.md has the way back
+		# Ai - the sync rewrote the file, so it is proven once more
+		#      if this fails, do not reboot, Guides/Bootmenu.md has the way back
 	run "check boot menu" $SUDO /usr/local/bin/limine-header-fix
 fi
 
@@ -290,9 +290,9 @@ fi
 
 section "Homesnaps"
 
-####### root snapshots do not cover /home, it lives on the other disk
-####### btrbk snapshots @home and @ai in place, which costs almost nothing
-####### and is the difference between losing a file and losing an afternoon
+	# Ai - root snapshots do not cover /home, it lives on the other disk
+	#      btrbk snapshots @home and @ai in place, which costs almost nothing
+	#      and is the difference between losing a file and losing an afternoon
 
 pac btrbk
 
@@ -326,10 +326,10 @@ else
 	[[ -f /etc/btrbk/btrbk.conf ]] && $SUDO cp /etc/btrbk/btrbk.conf /etc/btrbk/btrbk.conf.bak-rebuild
 
 	$SUDO tee /etc/btrbk/btrbk.conf > /dev/null << 'EOF'
-####### rebuild managed
-####### snapshots only, on the same disk
-####### this is not a backup, it is an undo button
-####### for a real backup, plug in a second disk and fill in the target below
+	# Ai - rebuild managed
+	#      snapshots only, on the same disk
+	#      this is not a backup, it is an undo button
+	#      for a real backup, plug in a second disk and fill in the target below
 
 transaction_log            /var/log/btrbk.log
 lockfile                   /var/lock/btrbk.lock
@@ -347,12 +347,12 @@ volume /mnt/data-root
   subvolume @home
   subvolume @ai
 
-####### uncomment after mounting a second disk at /mnt/backup
-####### volume /mnt/data-root
-#######   subvolume @home
-#######     target /mnt/backup/home
-#######   subvolume @ai
-#######     target /mnt/backup/ai
+	# Ai - uncomment after mounting a second disk at /mnt/backup
+	#volume /mnt/data-root
+	#  subvolume @home
+	#    target /mnt/backup/home
+	#  subvolume @ai
+	#    target /mnt/backup/ai
 EOF
 fi
 
@@ -365,8 +365,8 @@ run "dry run btrbk" $SUDO btrbk -n run
 
 run "enable daily snapshots" $SUDO systemctl enable --now btrbk.timer
 
-####### one real run now, so the first undo point for /home exists today
-####### and the health report does not call backups broken on day one
+	# Ai - one real run now, so the first undo point for /home exists today
+	#      and the health report does not call backups broken on day one
 soft "first home snapshot" $SUDO btrbk run
 
 
@@ -391,7 +391,7 @@ check "menu starts alone"  $SUDO /usr/local/bin/limine-header-fix --check
 check "no stray conf"      sh -c '! test -f /boot/EFI/limine/limine.conf'
 check "fstab / by name"    fstab_root_named /etc/fstab
 
-####### entries three slashes deep are the snapshot entries themselves
+	# Ai - entries three slashes deep are the snapshot entries themselves
 snapshot_entries() {
 	local n
 	n="$(grep -Ec '^[[:space:]]*///' /boot/limine.conf || true)"

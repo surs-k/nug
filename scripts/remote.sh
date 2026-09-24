@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-####### remote
-####### Sunshine runs only when you ask for it, never at login
-####### on makes the virtual screen first, then starts Sunshine, because
-####### Sunshine reads the screen name once when it starts
-####### off stops Sunshine, then removes the virtual screen, so nothing is
-####### left for the mouse or a window to wander into
-####### installed by 80-remote as /usr/local/bin/remote
+	# Ai - remote
+	#      Sunshine runs only when you ask for it, never at login
+	#      on makes the virtual screen first, then starts Sunshine, because
+	#      Sunshine reads the screen name once when it starts
+	#      off stops Sunshine, then removes the virtual screen, so nothing is
+	#      left for the mouse or a window to wander into
+	#      installed by 80-remote as /usr/local/bin/remote
 
 set -euo pipefail
 
@@ -30,13 +30,13 @@ USAGEEOF
 #    Helpers
 
 
-####### over ssh there is no Hyprland variable, so the newest session is used
+	# Ai - over ssh there is no Hyprland variable, so the newest session is used
 if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
 	SIG="$(ls -t "/run/user/$(id -u)/hypr" 2>/dev/null | head -n 1 || true)"
 	[[ -n "$SIG" ]] && export HYPRLAND_INSTANCE_SIGNATURE="$SIG"
 fi
 
-####### upstream renamed the unit, whichever exists is used
+	# Ai - upstream renamed the unit, whichever exists is used
 unit() {
 	local u
 	for u in app-dev.lizardbyte.app.Sunshine.service sunshine.service; do

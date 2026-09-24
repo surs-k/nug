@@ -23,17 +23,17 @@ pac libnotify
 
 section "Checker"
 
-####### everything on this machine that can fail without telling you
-####### freetube showing an error is not a notification, it is a symptom
-####### this turns silence into a popup you cannot miss
+	# Ai - everything on this machine that can fail without telling you
+	#      freetube showing an error is not a notification, it is a symptom
+	#      this turns silence into a popup you cannot miss
 
 $SUDO tee /usr/local/bin/rebuild-health > /dev/null << 'HEALTHEOF'
 #!/usr/bin/env bash
 
 set -uo pipefail
 
-####### deliberately not set -e
-####### a failing check is the point, it must not abort the run
+	# Ai - deliberately not set -e
+	#      a failing check is the point, it must not abort the run
 
 QUIET=0
 [[ "${1:-}" == "--quiet" ]] && QUIET=1
@@ -47,19 +47,19 @@ REPORT="$HOME/.rebuild/health.txt"
 mkdir -p "$(dirname "$REPORT")"
 
 
-####### helpers
+	# Ai - helpers
 
 pass() { OK+=("$1"); }
 fail() { BROKEN+=("$1: $2"); }
 
-####### worth knowing, nothing to fix here, never a popup
+	# Ai - worth knowing, nothing to fix here, never a popup
 aside() { NOTES+=("$1: $2"); }
 
-####### a check that needs root asks through the sudo rules 90-health writes
-####### when a rule is missing, sudo says a password is required, and that
-####### is reported once, instead of as two unrelated sounding problems
-####### the answer comes back in ROOT_OUT, not on stdout, because a $( )
-####### is a subshell and a flag set in there never reaches this script
+	# Ai - a check that needs root asks through the sudo rules 90-health writes
+	#      when a rule is missing, sudo says a password is required, and that
+	#      is reported once, instead of as two unrelated sounding problems
+	#      the answer comes back in ROOT_OUT, not on stdout, because a $( )
+	#      is a subshell and a flag set in there never reaches this script
 NO_RULE=0
 ROOT_OUT=""
 
@@ -74,10 +74,10 @@ asroot() {
 	return "$rc"
 }
 
-####### a service you stopped on purpose is not a fault
+	# Ai - a service you stopped on purpose is not a fault
 off()  { IDLE+=("$1: $2"); }
 
-####### every container that is running right now
+	# Ai - every container that is running right now
 RUNNING=""
 asroot docker ps --format '{{.Names}}' && RUNNING="$ROOT_OUT"
 
@@ -87,16 +87,16 @@ capture() { "$@" 2>&1 || true; }
 
 has() { [[ "$1" == *"$2"* ]]; }
 
-####### the answers from the install, read, never sourced
+	# Ai - the answers from the install, read, never sourced
 answer() { sed -n "s/^$1=//p" "$HOME/.install-config" 2>/dev/null | tail -n 1; }
 
 WANT_TS="$(answer WANT_TAILSCALE)"
 WANT_ST="$(answer WANT_STACKS)"
 
 
-####### vpn
-####### a missing command is a failure, not a pass, these are all things
-####### the install put there and their absence means something ate them
+	# Ai - vpn
+	#      a missing command is a failure, not a pass, these are all things
+	#      the install put there and their absence means something ate them
 
 if ! command -v mullvad > /dev/null; then
 	fail "Mullvad" "the command is gone, the package was removed"
@@ -107,8 +107,8 @@ else
 fi
 
 
-####### tailnet
-####### only a failure when it was chosen, Tailscale is off unless asked for
+	# Ai - tailnet
+	#      only a failure when it was chosen, Tailscale is off unless asked for
 
 if ! command -v tailscale > /dev/null && [[ "$WANT_TS" != yes ]]; then
 	:
@@ -124,11 +124,11 @@ else
 fi
 
 
-####### containers stuck restarting
-####### you are not in the docker group, so this asks through one sudo rule
-####### that allows exactly this listing and nothing else
-####### it used to ask as you, got permission denied, and called that text a
-####### container stuck in a restart loop
+	# Ai - containers stuck restarting
+	#      you are not in the docker group, so this asks through one sudo rule
+	#      that allows exactly this listing and nothing else
+	#      it used to ask as you, got permission denied, and called that text a
+	#      container stuck in a restart loop
 
 if command -v docker > /dev/null; then
 	if asroot docker ps -a --filter status=restarting --format '{{.Names}}'; then
@@ -144,10 +144,10 @@ if command -v docker > /dev/null; then
 fi
 
 
-####### invidious, the one that youtube actively breaks
-####### two questions, is it running at all, and can it still reach YouTube
-####### the stats page answers without YouTube, the video needs it
-####### the video is the first one ever uploaded, it is not going anywhere
+	# Ai - invidious, the one that youtube actively breaks
+	#      two questions, is it running at all, and can it still reach YouTube
+	#      the stats page answers without YouTube, the video needs it
+	#      the video is the first one ever uploaded, it is not going anywhere
 
 if (( NO_RULE )); then
 	:
@@ -166,14 +166,14 @@ elif has "$WANT_ST" "invidious" || has "$WANT_ST" "all"; then
 		if [[ "$CODE" == 200 ]]; then
 			pass "Invidious"
 		else
-			####### YouTube blocks VPN addresses, which is not a fault on this PC
+				# Ai - YouTube blocks VPN addresses, which is not a fault on this PC
 			aside "Invidious" "YouTube is refusing this VPN address, mullvad reconnect may help"
 		fi
 	fi
 fi
 
 
-####### searxng
+	# Ai - searxng
 
 if (( NO_RULE )); then
 	:
@@ -188,7 +188,7 @@ elif has "$WANT_ST" "searxng" || has "$WANT_ST" "all"; then
 fi
 
 
-####### backups actually ran
+	# Ai - backups actually ran
 
 if [[ -f /var/log/btrbk.log ]]; then
 	AGE=$(( ( $(date +%s) - $(stat -c %Y /var/log/btrbk.log) ) / 86400 ))
@@ -199,10 +199,10 @@ else
 fi
 
 
-####### snapshots exist
+	# Ai - snapshots exist
 
-####### the output has to contain an actual snapshot number, an error
-####### message is also non empty and would otherwise read as success
+	# Ai - the output has to contain an actual snapshot number, an error
+	#      message is also non empty and would otherwise read as success
 
 if ! command -v snapper > /dev/null; then
 	fail "Snapshots" "snapper is gone"
@@ -217,7 +217,7 @@ else
 fi
 
 
-####### the esp fills up with a kernel per snapshot entry
+	# Ai - the esp fills up with a kernel per snapshot entry
 
 USE="$(capture df --output=pcent /boot)"
 USE="${USE//[^0-9]/}"
@@ -228,7 +228,7 @@ else
 fi
 
 
-####### root disk
+	# Ai - root disk
 
 USE="$(capture df --output=pcent /)"
 USE="${USE//[^0-9]/}"
@@ -239,8 +239,8 @@ else
 fi
 
 
-####### boot menu still starts on its own
-####### the same check the install used, first failing reason is reported
+	# Ai - boot menu still starts on its own
+	#      the same check the install used, first failing reason is reported
 
 if [[ ! -x /usr/local/bin/limine-header-fix ]]; then
 	fail "Boot menu" "limine-header-fix is gone, rerun: rebuild --only 10-base"
@@ -259,7 +259,7 @@ else
 fi
 
 
-####### anything systemd gave up on
+	# Ai - anything systemd gave up on
 
 S="$(capture systemctl --failed --no-legend --plain)"
 if [[ -n "${S//[[:space:]]/}" ]]; then
@@ -270,15 +270,15 @@ else
 fi
 
 
-####### one problem, not two, when the root checks could not ask at all
+	# Ai - one problem, not two, when the root checks could not ask at all
 
 if (( NO_RULE )); then
 	fail "Health check" "cannot ask as root, its sudo rule is missing, rerun: rebuild --only 90-health"
 fi
 
 
-####### report
-####### least serious first, so the lines that need you sit at the bottom
+	# Ai - report
+	#      least serious first, so the lines that need you sit at the bottom
 
 {
 	printf 'Rebuild health  %s\n\n' "$(date '+%Y-%m-%d %H:%M')"
@@ -293,17 +293,17 @@ if (( QUIET == 0 )); then
 fi
 
 
-####### shout
+	# Ai - shout
 
 if (( ${#BROKEN[@]} > 0 )); then
 
-	####### one popup per problem, never several stacked into one wall of
-	####### text, and never more than three at once
+		# Ai - one popup per problem, never several stacked into one wall of
+		#      text, and never more than three at once
 	if command -v notify-send > /dev/null; then
 		SHOWN=0
 		for b in "${BROKEN[@]}"; do
 			(( SHOWN >= 3 )) && break
-			####### -t 0 means it stays until dismissed
+				# Ai - -t 0 means it stays until dismissed
 			notify-send -u critical -t 0 "${b%%:*} needs fixing" "${b#*: }" 2>/dev/null || true
 			SHOWN=$(( SHOWN + 1 ))
 		done
@@ -314,7 +314,7 @@ if (( ${#BROKEN[@]} > 0 )); then
 		fi
 	fi
 
-	####### also on every new terminal, in case the popup was missed
+		# Ai - also on every new terminal, in case the popup was missed
 	exit 1
 fi
 
@@ -330,14 +330,14 @@ $SUDO chmod 755 /usr/local/bin/rebuild-health
 
 section "Sudoers"
 
-####### ahead of the timer on purpose: enabling the timer can run the check
-####### at once, and before these rules exist every root check fails, which
-####### is where no root snapshots found and could not ask Docker came from
+	# Ai - ahead of the timer on purpose: enabling the timer can run the check
+	#      at once, and before these rules exist every root check fails, which
+	#      is where no root snapshots found and could not ask Docker came from
 
-####### two read only listings without a password, nothing else is granted
-####### snapper for the snapshot check, docker for the restart loop check
-####### the file is proven with visudo before it is put in place, a broken
-####### file in sudoers.d stops sudo working for everything
+	# Ai - two read only listings without a password, nothing else is granted
+	#      snapper for the snapshot check, docker for the restart loop check
+	#      the file is proven with visudo before it is put in place, a broken
+	#      file in sudoers.d stops sudo working for everything
 
 SUDO_TMP="$(mktemp)"
 
@@ -395,13 +395,13 @@ run "enable health timer" systemctl --user enable --now rebuild-health.timer
 
 section "Greeting"
 
-####### if the last check found something, say so when a terminal opens
-####### a popup can be missed, a login cannot
+	# Ai - if the last check found something, say so when a terminal opens
+	#      a popup can be missed, a login cannot
 
 SNIP="$HOME/.config/rebuild-health.sh"
 
 cat > "$SNIP" << 'EOF'
-####### rebuild health greeting
+	# Ai - rebuild health greeting
 if [[ -f "$HOME/.rebuild/health.txt" ]] && grep -q BROKEN "$HOME/.rebuild/health.txt"; then
 	printf '\n  Something needs fixing:\n\n'
 	grep BROKEN "$HOME/.rebuild/health.txt" | sed 's/^/  /'
@@ -426,13 +426,13 @@ done
 
 section "Lockdown"
 
-####### this goes absolutely last
-####### lockdown blocks everything outside the tunnel, and it was previously
-####### switched on in 50-bkp-net, before the package installs that came after
-####### it, which is what killed that stage part way through
-####### nothing after this point needs to download anything
+	# Ai - this goes absolutely last
+	#      lockdown blocks everything outside the tunnel, and it was previously
+	#      switched on in 50-bkp-net, before the package installs that came after
+	#      it, which is what killed that stage part way through
+	#      nothing after this point needs to download anything
 
-####### answered at the start of the run now, so the end never waits on you
+	# Ai - answered at the start of the run now, so the end never waits on you
 
 TS_DOWN=no
 if command -v tailscale > /dev/null; then
@@ -489,9 +489,9 @@ printf '    rebuild-health\n\n'
 
 ## First
 
-####### the first report on a fresh machine
-####### anything it calls broken goes into the summary by name, instead of
-####### one line saying the first run did not succeed
+	# Ai - the first report on a fresh machine
+	#      anything it calls broken goes into the summary by name, instead of
+	#      one line saying the first run did not succeed
 HEALTH_NOW="$(capture /usr/local/bin/rebuild-health)"
 
 printf '%s\n' "$HEALTH_NOW"

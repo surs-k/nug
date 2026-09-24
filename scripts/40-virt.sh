@@ -31,8 +31,8 @@ section "Libvirt"
 
 ## Install
 
-####### ebtables is no longer needed, libvirt uses its own private nftables
-####### table and does not go through the system filter table at all
+	# Ai - ebtables is no longer needed, libvirt uses its own private nftables
+	#      table and does not go through the system filter table at all
 pac qemu-full virt-manager libvirt dnsmasq iptables-nft edk2-ovmf swtpm
 
 
@@ -91,9 +91,9 @@ if [[ "$HAVE" =~ 192\.168\.([0-9]+)\.1/ ]]; then
 else
 	REBUILD_NET=yes
 
-	####### this only needs stopping if it is actually running
-	####### on a fresh install it never is, and reporting that as a failure
-	####### was pure noise in the list
+		# Ai - this only needs stopping if it is actually running
+		#      on a fresh install it never is, and reporting that as a failure
+		#      was pure noise in the list
 	RUNNING="$(capture $SUDO virsh net-list --name)"
 
 	if contains "$RUNNING" "default"; then
@@ -115,12 +115,12 @@ fi
 
 ## Define
 
-####### the element is <name>, not <n>
-####### libvirt silently refuses to define a network without a real name tag,
-####### which is why the default network kept coming back missing
-####### the mtu tag is the fix for guests that connect but hang on anything
-####### large, mullvad wireguard runs about 1420 and a 1500 byte guest packet
-####### is dropped with no error anywhere
+	# Ai - the element is <name>, not <n>
+	#      libvirt silently refuses to define a network without a real name tag,
+	#      which is why the default network kept coming back missing
+	#      the mtu tag is the fix for guests that connect but hang on anything
+	#      large, mullvad wireguard runs about 1420 and a 1500 byte guest packet
+	#      is dropped with no error anywhere
 
 if [[ "$REBUILD_NET" == yes ]]; then
 
@@ -150,11 +150,11 @@ run "autostart default" $SUDO virsh net-autostart default
 
 if ip link show virbr0 &> /dev/null; then
 
-	####### guests reach the host dnsmasq for dhcp and dns
+		# Ai - guests reach the host dnsmasq for dhcp and dns
 	soft "allow guest dhcp" $SUDO ufw allow in on virbr0 to any port 67 proto udp
 	soft "allow guest dns"  $SUDO ufw allow in on virbr0 to any port 53
 
-	####### guests must not reach the rest of the lan
+		# Ai - guests must not reach the rest of the lan
 	soft "block lan 10"     $SUDO ufw route deny in on virbr0 to 10.0.0.0/8
 	soft "block lan 172"    $SUDO ufw route deny in on virbr0 to 172.16.0.0/12
 	soft "block lan 192"    $SUDO ufw route deny in on virbr0 to 192.168.0.0/16
