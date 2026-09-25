@@ -111,6 +111,19 @@ fi
 ## Builds
 
 soft "1password"      yay -S --needed --noconfirm 1password
+	# Ai - the browser is signed by the Tor Browser developers key
+	#      yay asks the keyservers for it and they returned nothing, which
+	#      stopped the build, so it is fetched by fingerprint first
+MB_KEY=EF6E286DDA85EA2A4BA7DE684E2C6E8793298290
+
+if gpg --list-keys "$MB_KEY" &> /dev/null; then
+	note "mullvad browser key already imported"
+else
+	run "fetch mullvad browser key" curl -fsSL -o /tmp/mullvad-browser.asc \
+		"https://keys.openpgp.org/vks/v1/by-fingerprint/$MB_KEY"
+	soft "import mullvad browser key" gpg --import /tmp/mullvad-browser.asc
+fi
+
 soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
 soft "vscodium"       yay -S --needed --noconfirm vscodium-bin
 
