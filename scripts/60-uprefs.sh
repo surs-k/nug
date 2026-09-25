@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 20-desktop
+require_stage 30-desktop
 
 LUA="$HOME/.config/hypr/hyprland.lua"
 BINDS="$HOME/.local/share/hypr/lua/key_binds.lua"
@@ -296,7 +296,7 @@ fi
 
 section "Keyboard"
 
-	# Ai - 20-desktop already wrote this, it is re-asserted here at the end of
+	# Ai - 30-desktop already wrote this, it is re-asserted here at the end of
 	#      the file so nothing added in between can win
 	#      in lua the last assignment is the one that counts
 

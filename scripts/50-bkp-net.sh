@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 30-security
+require_stage 20-security
 
 for c in mullvad ufw snapper btrfs mountpoint yay; do
 	command -v "$c" > /dev/null || { printf 'missing command: %s\n' "$c" >&2; exit 1; }
@@ -26,7 +26,7 @@ done
 section "Resolver"
 
 	# Ai - this used to force resolv.conf at the systemd-resolved stub no matter
-	#      what, but 30-security has already connected Mullvad by now, and
+	#      what, but 20-security has already connected Mullvad by now, and
 	#      Mullvad owns DNS inside its tunnel
 	#      pointing resolv.conf somewhere else left resolved with an upstream the
 	#      kill switch blocks, so name resolution died and the stage timed out

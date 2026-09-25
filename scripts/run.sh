@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
 
   rebuild                    carry on from the first unfinished stage
   rebuild --from 50-bkp-net  start there and run everything after it
-  rebuild --only 30-security just that one stage
+  rebuild --only 20-security just that one stage
   rebuild --retry            re-run every stage that reported a problem
   rebuild --all              start over from the beginning
   rebuild --list             show what is done and what is not
@@ -54,8 +54,8 @@ done
 	# Ai - run in this order, the marker name always equals the file name
 STAGES=(
 	10-base
-	30-security
-	20-desktop
+	20-security
+	30-desktop
 	40-virt
 	50-bkp-net
 	60-uprefs
@@ -71,8 +71,8 @@ STAGES=(
 	# Ai - one line each, printed under the stage name in the big banner
 declare -A ABOUT=(
 	[10-base]="locale, boot menu, swap, AUR helper"
-	[20-desktop]="graphics driver and HyDE"
-	[30-security]="Mullvad VPN and the firewall"
+	[30-desktop]="graphics driver and HyDE"
+	[20-security]="Mullvad VPN and the firewall"
 	[40-virt]="KVM and the VM network"
 	[50-bkp-net]="SSH, snapshots, backups, snapshot boot entries"
 	[60-uprefs]="apps, keybinds, monitors"
@@ -111,15 +111,15 @@ section "Order"
 	#      60-uprefs only needs a desktop, it has nothing to do with VMs
 declare -A DEPENDS=(
 	[10-base]=""
-	[20-desktop]="10-base"
-	[30-security]="10-base"
-	[40-virt]="30-security"
-	[50-bkp-net]="30-security"
-	[60-uprefs]="20-desktop"
-	[70-docker]="20-desktop 30-security"
-	[80-remote]="20-desktop 30-security"
+	[30-desktop]="10-base"
+	[20-security]="10-base"
+	[40-virt]="20-security"
+	[50-bkp-net]="20-security"
+	[60-uprefs]="30-desktop"
+	[70-docker]="30-desktop 20-security"
+	[80-remote]="30-desktop 20-security"
 	[90-health]="10-base"
-	[35-tailnet]="30-security"
+	[35-tailnet]="20-security"
 )
 
 
@@ -130,7 +130,7 @@ declare -A DEPENDS=(
 	#      membership, but groups are only needed when you actually use
 	#      virt-manager, not by any later stage, so it applies at next login
 declare -A REBOOT=(
-	[20-desktop]="the desktop and the graphics driver only load after a restart"
+	[30-desktop]="the desktop and the graphics driver only load after a restart"
 )
 
 
@@ -407,15 +407,15 @@ fi
 
 ## Mullvad
 
-	# Ai - asked with the rest, so 30-security never stops the run to ask
-	#      held in memory only and handed to 30-security, never written anywhere
-	#      30-security runs before the desktop reboot, so memory still has it
+	# Ai - asked with the rest, so 20-security never stops the run to ask
+	#      held in memory only and handed to 20-security, never written anywhere
+	#      20-security runs before the desktop reboot, so memory still has it
 mullvad_logged_in() {
 	command -v mullvad > /dev/null || return 1
 	! contains "$(capture $SUDO mullvad account get)" "Not logged in"
 }
 
-if ! stage_is_done 30-security && ! mullvad_logged_in; then
+if ! stage_is_done 20-security && ! mullvad_logged_in; then
 	action "Mullvad needs your account number. It is kept in memory only."
 	MULLVAD_ACCT="$(secret 'Mullvad account number')"
 	act_close
@@ -484,7 +484,7 @@ for s in "${STAGES[@]}"; do
 
 	if bash "$SH"; then
 		DID=$(( DID + 1 ))
-		[[ "$s" == 30-security ]] && unset MULLVAD_ACCT
+		[[ "$s" == 20-security ]] && unset MULLVAD_ACCT
 	else
 			# Ai - carry on with anything that does not depend on this
 		BROKEN="$BROKEN $s"
