@@ -33,8 +33,12 @@ ___
 ___
 
 
+**Done:**
+renamed on `audit`, so this should no longer happen
+
+
 **Witness:**
-at the end of 05-iso, `[FAIL] could not confirm: repo copied`, then the install stops before its last instructions
+at the end of 05-iso, `[ok]   repo copied`. Before the rename it said `[FAIL] could not confirm: repo copied`
 
 
 **Change:**
@@ -55,13 +59,7 @@ Renaming is three commands. Changing the code instead means editing five lines o
 well-supported
 
 
-#Ai - which copy does the VM install from, a clone of this GitHub repo, or a copy from your PC?
-
-
-#Ai - do the folders on your PC have capitals?
-
-
-#Ai - want me to do the rename on `audit` now, so the VM install doesn't hit this?
+#Ai - do the folders on your PC have capitals? If not, your local copy needs the same rename
 
 
 # 05-iso

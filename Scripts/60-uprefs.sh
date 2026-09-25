@@ -498,7 +498,7 @@ fi
 
 section "Configs"
 
-	# Ai - this used to point at config, the directory is configs
+	# Ai - this used to point at config, the directory is Configs
 	#      the block silently did nothing every single run
 CFG="$REPO/Configs"
 
