@@ -33,9 +33,9 @@ unset _f
 
 ## Repo
 
-	# Ai - every script sits in Scripts, one level below the repo
-	#      SCRIPTS is that folder, REPO is the repo itself, where Configs,
-	#      Stacks and Guides live, and the stage is the file name
+	# Ai - every script sits in scripts, one level below the repo
+	#      SCRIPTS is that folder, REPO is the repo itself, where configs,
+	#      stacks and guides live, and the stage is the file name
 SCRIPTS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
 REPO="$(dirname "$SCRIPTS")"

@@ -136,7 +136,7 @@ fi
 
 ## Fstab
 
-	# Ai - same repair as 05-iso makes on a fresh install, see Fstab in 00-lib
+	# Ai - same repair as iso.sh makes on a fresh install, see Fstab in 00-lib
 if ! fstab_root_named /etc/fstab; then
 	$SUDO cp /etc/fstab /etc/fstab.pre-v7.0
 	fstab_root_by_name /etc/fstab
@@ -146,7 +146,7 @@ fi
 
 ## Enforcer
 
-	# Ai - the same file 05-iso used to write the menu, now installed for good
+	# Ai - the same file iso.sh used to write the menu, now installed for good
 	#      the snapshot tool runs it after every save, and so does 20-desktop
 	#      after it changes the cmdline
 $SUDO install -m 755 "$SCRIPTS/limine-header-fix.sh" /usr/local/bin/limine-header-fix
@@ -264,9 +264,9 @@ $SUDO chmod 755 /usr/local/bin/rebuild-update
 	# Ai - one word from anywhere, no cd and no executable bit to care about
 $SUDO tee /usr/local/bin/rebuild > /dev/null << 'EOF'
 #!/usr/bin/env bash
-	# Ai - the scripts moved into Scripts in v7.5, an older checkout still works
-if [[ -f "$HOME/Rebuild/Scripts/run.sh" ]]; then
-	exec bash "$HOME/Rebuild/Scripts/run.sh" "$@"
+	# Ai - the scripts moved into scripts in v7.5, an older checkout still works
+if [[ -f "$HOME/Rebuild/scripts/run.sh" ]]; then
+	exec bash "$HOME/Rebuild/scripts/run.sh" "$@"
 fi
 exec bash "$HOME/Rebuild/run.sh" "$@"
 EOF
@@ -293,14 +293,15 @@ else
 
 	run "clone yay-bin" git clone --depth 1 https://aur.archlinux.org/yay-bin.git /tmp/yay-bin
 
-		# Ai - makepkg calls sudo itself to install what it built
-		#      run() puts the command in the background where it has no terminal,
-		#      so sudo cannot reuse the unlocked session and prompts instead, and
-		#      that prompt lands in the middle of the spinner line
-		#      package work is visible anyway, so this stays in the foreground
+		# Ai - makepkg only builds here, it never calls sudo itself
+		#      its own sudo call asked for the password again mid stage, so the
+		#      install goes through the sudo this stage already unlocked
+		#      package work is visible anyway, so the build stays in the foreground
 	printf '\n  building yay-bin, this takes a minute\n\n'
 
-	( cd /tmp/yay-bin && makepkg -si --noconfirm )
+	( cd /tmp/yay-bin && makepkg --noconfirm )
+
+	run "install yay-bin" bash -c "$SUDO pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.zst"
 fi
 
 

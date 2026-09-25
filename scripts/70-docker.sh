@@ -20,7 +20,7 @@ if [[ "${WANT_DOCKER:-yes}" != yes ]]; then
 	exit 0
 fi
 
-STACKS_SRC="$REPO/Stacks"
+STACKS_SRC="$REPO/stacks"
 STACKS_DIR="/srv/rebuild/stacks"
 
 

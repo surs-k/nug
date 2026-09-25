@@ -3,7 +3,7 @@
 	# Ai - limine-header-fix
 	#      writes /boot/limine.conf in the one shape that starts on its own AND
 	#      has room for snapshot entries, and checks that it really does
-	#      not a stage, 05-iso runs it from the repo and 10-base installs it as
+	#      not a stage, iso.sh runs it from the repo and 10-base installs it as
 	#      /usr/local/bin/limine-header-fix, so there is only one copy of the logic
 
 set -euo pipefail

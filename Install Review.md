@@ -34,7 +34,7 @@ ___
 
 
 **Done:**
-renamed on `audit`, so this should no longer happen
+you chose lowercase, so the folders stay scripts, configs and stacks and the code now uses lowercase. 05-iso is now iso.sh
 
 
 **Witness:**
@@ -59,7 +59,7 @@ Renaming is three commands. Changing the code instead means editing five lines o
 well-supported
 
 
-#Ai - do the folders on your PC have capitals? If not, your local copy needs the same rename
+#Ai - your local copy on the PC needs the same lowercase names and iso.sh rename
 
 
 # 05-iso
@@ -231,47 +231,15 @@ ___
 ___
 
 
+**Done:**
+option A. run.sh asks for the number at first boot with the other questions, keeps it in memory only, and 30-security now runs before 20-desktop, so it's used before the reboot wipes memory
+
+
 **Witness:**
-after the reboot, `rebuild` runs 30-security, and it stops with `YOUR TURN` and `Mullvad needs your account number.`
+at first boot, after the sudo password, `Mullvad needs your account number. It is kept in memory only.` Then 10-base, 30-security, 20-desktop in that order
 
 
-**Change:**
-ask for the number once, with your other manual steps, keep it in memory only, and log in without putting it on the command line
-
-
-**Why change:**
-
-The run stops for you partway through, and you want to answer everything at once. The number is also passed on the command line right now (30-security.sh:53), where any program can see it with `ps`.
-
-
-**Why this:**
-
-The number never touches the disk, which keeps the rule at 00-lib.sh:712. The catch is the reboot after 20-desktop, which wipes memory. So the question has to come in the same run that does 30-security. There are two ways to do that.
-
-
-• **Option A, reorder:**
-
-run 30-security before 20-desktop, so it's asked in the first question block with everything else, and HyDE downloads through the VPN too
-
-
-• **Option B, after reboot:**
-
-keep the order, and ask it right after the reboot, next to the sudo password, then hands off
-
-
-**My pick:**
-
-A. Everything is asked once, and more of the install goes through the VPN. It's untested, so this VM is the place to try it.
-
-
-**Evidence:**
-well-supported
-
-
-#Ai - A or B?
-
-
-#Ai - while the run is going, programs running as you could read the number from memory, the same as the disk passphrase during 05-iso, is that okay?
+#Ai - the reorder is untested, watch that HyDE installs fine with the VPN already on
 
 
 # 50-bkp-net
@@ -422,31 +390,31 @@ ___
 ___
 
 
+**Done, lockdown part:**
+
+the install never turns lockdown on now, you turn it on in the Mullvad app when your settings are done
+
+
 **Witness:**
-90-health prints `lockdown mode is on`, then a stage banner says 35-TAILNET, stage 10 of 10
+a stage banner says 35-TAILNET, stage 10 of 10
 
 
 **Change:**
-rename 35-tailnet to 95-tailnet, and move the Lockdown block from 90-health to the very end of run.sh
+rename 35-tailnet to 95-tailnet
 
 
 **Why change:**
 
-The name says 35 but it runs last, which is confusing in `rebuild --list`. Lockdown also turns on before Tailscale is set up, the order 30-security.sh:68 warns cuts Tailscale off. And your services are set up before a tailnet address exists, so 70-docker and 80-remote have to run again.
+The name says 35 but it runs last, which is confusing in `rebuild --list`. And your services are set up before a tailnet address exists, so 70-docker and 80-remote have to run again.
 
 
 **Why this:**
 
-Running it last is a good call, since it's fragile and nothing needs it. This keeps it last and makes the name match. Moving lockdown to the end of run.sh makes it truly the last thing.
+Running it last is a good call, since it's fragile and nothing needs it. This keeps it last and makes the name match.
 
 
 **Evidence:**
-contested, Mullvad may let Tailscale through lockdown anyway
-
-
-**VM test:**
-
-If you turn Tailscale on in the VM, watch whether 35-tailnet shows a login link and connects. That settles the contested part.
+practice only
 
 
 #Ai - will you turn Tailscale on in the VM?

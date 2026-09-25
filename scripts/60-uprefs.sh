@@ -430,14 +430,14 @@ soft "load i2c-dev" $SUDO modprobe i2c-dev
 
 	# Ai - written only when missing, so tuning you do later is never replaced
 	#      to carry your tuning into the next install, copy it into the repo:
-	#      cp ~/.config/wluma/config.toml ~/Rebuild/Configs/wluma.toml
+	#      cp ~/.config/wluma/config.toml ~/Rebuild/configs/wluma.toml
 WLUMA_CONF="$HOME/.config/wluma/config.toml"
 
 if [[ -f "$WLUMA_CONF" ]]; then
 	note "wluma config already there, left exactly as it is"
 else
 	mkdir -p "$(dirname "$WLUMA_CONF")"
-	cp "$REPO/Configs/wluma.toml" "$WLUMA_CONF"
+	cp "$REPO/configs/wluma.toml" "$WLUMA_CONF"
 	note "wluma config written, change the hours in it to match your day"
 fi
 
@@ -498,9 +498,9 @@ fi
 
 section "Configs"
 
-	# Ai - this used to point at config, the directory is Configs
+	# Ai - this used to point at config, the directory is configs
 	#      the block silently did nothing every single run
-CFG="$REPO/Configs"
+CFG="$REPO/configs"
 
 if [[ -d "$CFG" ]]; then
 

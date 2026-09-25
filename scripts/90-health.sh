@@ -421,42 +421,6 @@ done
 
 
 
-#    Lockdown
-
-
-section "Lockdown"
-
-	# Ai - this goes absolutely last
-	#      lockdown blocks everything outside the tunnel, and it was previously
-	#      switched on in 50-bkp-net, before the package installs that came after
-	#      it, which is what killed that stage part way through
-	#      nothing after this point needs to download anything
-
-	# Ai - answered at the start of the run now, so the end never waits on you
-
-TS_DOWN=no
-if command -v tailscale > /dev/null; then
-	TS="$(capture tailscale status)"
-	if contains "$TS" "Logged out" || contains "$TS" "stopped"; then
-		TS_DOWN=yes
-	fi
-fi
-
-if [[ "${WANT_LOCKDOWN:-yes}" != yes ]]; then
-	note "lockdown mode left off, as answered at the start"
-
-elif [[ "$TS_DOWN" == yes ]]; then
-	flag "Tailscale is down, leaving lockdown mode off so you keep remote access"
-
-else
-	soft "lockdown mode on" $SUDO mullvad lockdown-mode set on
-	note "lockdown mode is on"
-	note "if anything loses network later, this is the first thing to check"
-	note "to undo: sudo mullvad lockdown-mode set off"
-fi
-
-
-
 #    Verify
 
 
@@ -483,6 +447,8 @@ printf '  Health checks installed.\n\n'
 printf '  Runs every 12 hours and at boot.\n'
 printf '  A popup appears when something breaks, and every new\n'
 printf '  terminal repeats it until it is fixed.\n\n'
+printf '  Lockdown mode is left off. Turn it on in the Mullvad app\n'
+printf '  once your settings are done.\n\n'
 printf '  Check any time with:\n\n'
 printf '    rebuild-health\n\n'
 

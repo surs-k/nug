@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
-stage_banner "05-iso" "partitions, encryption, base system, boot menu" "installer   $(date +%H:%M)"
+stage_banner "iso" "partitions, encryption, base system, boot menu" "installer   $(date +%H:%M)"
 
 
 #    Answers
@@ -660,7 +660,7 @@ check "deploy hook"      test -f /mnt/etc/pacman.d/hooks/99-limine-deploy.hook
 check "efi binary"       test -f /mnt/boot/EFI/limine/limine_x64.efi
 check "fallback binary"  test -f /mnt/boot/EFI/BOOT/BOOTX64.EFI
 check "crypttab"         grep -q cryptdata /mnt/etc/crypttab
-check "repo copied"      test -f "/mnt/home/$USERNAME/Rebuild/Scripts/run.sh"
+check "repo copied"      test -f "/mnt/home/$USERNAME/Rebuild/scripts/run.sh"
 
 verify_done
 
@@ -686,7 +686,7 @@ printf '  on Linux, it is always the second line.\n'
 printf '\n'
 printf '  Then log in and run:\n'
 printf '\n'
-printf '    bash ~/Rebuild/Scripts/run.sh\n'
+printf '    bash ~/Rebuild/scripts/run.sh\n'
 printf '\n'
 printf '  After that first run it is just:\n'
 printf '\n'

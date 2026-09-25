@@ -54,8 +54,8 @@ done
 	# Ai - run in this order, the marker name always equals the file name
 STAGES=(
 	10-base
-	20-desktop
 	30-security
+	20-desktop
 	40-virt
 	50-bkp-net
 	60-uprefs
@@ -78,7 +78,7 @@ declare -A ABOUT=(
 	[60-uprefs]="apps, keybinds, monitors"
 	[70-docker]="Docker, Ollama, self hosted services"
 	[80-remote]="Sunshine, so the laptop can drive this PC"
-	[90-health]="health report, alerts, lockdown mode"
+	[90-health]="health report and alerts"
 	[35-tailnet]="Tailscale remote access, off unless chosen"
 )
 
@@ -309,7 +309,7 @@ gap() {
 
 if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
 	|| need WANT_TAILSCALE || need WANT_OLLAMA \
-	|| need WANT_SUNSHINE || need WANT_LIBREWOLF || need WANT_LOCKDOWN; then
+	|| need WANT_SUNSHINE || need WANT_LIBREWOLF; then
 
 	action "Answer a few questions. Press enter to take each default.
 
@@ -395,21 +395,6 @@ Nothing installs until you are through them."
 	fi
 
 
-	## Lockdown
-
-		# Ai - asked here now, it used to be asked by 90-health near the very
-		#      end, which stopped an unattended run with the summary unprinted
-	if need WANT_LOCKDOWN; then
-		gap
-		act_line "Lockdown mode blocks all traffic whenever the VPN is down."
-		if yesno "Turn on lockdown mode at the end of the run" y; then
-			save_cfg WANT_LOCKDOWN yes
-		else
-			save_cfg WANT_LOCKDOWN no
-		fi
-	fi
-
-
 	act_close
 	note "Saved. Only questions without an answer are asked."
 	note "Edit $CONFIG to change any answer."
@@ -417,6 +402,24 @@ Nothing installs until you are through them."
 
 else
 	note "Every question already has an answer in $CONFIG"
+fi
+
+
+## Mullvad
+
+	# Ai - asked with the rest, so 30-security never stops the run to ask
+	#      held in memory only and handed to 30-security, never written anywhere
+	#      30-security runs before the desktop reboot, so memory still has it
+mullvad_logged_in() {
+	command -v mullvad > /dev/null || return 1
+	! contains "$(capture $SUDO mullvad account get)" "Not logged in"
+}
+
+if ! stage_is_done 30-security && ! mullvad_logged_in; then
+	action "Mullvad needs your account number. It is kept in memory only."
+	MULLVAD_ACCT="$(secret 'Mullvad account number')"
+	act_close
+	export MULLVAD_ACCT
 fi
 
 
@@ -481,6 +484,7 @@ for s in "${STAGES[@]}"; do
 
 	if bash "$SH"; then
 		DID=$(( DID + 1 ))
+		[[ "$s" == 30-security ]] && unset MULLVAD_ACCT
 	else
 			# Ai - carry on with anything that does not depend on this
 		BROKEN="$BROKEN $s"

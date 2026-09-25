@@ -42,6 +42,13 @@ logged_in() {
 if logged_in; then
 	note "already logged in"
 else
+		# Ai - run.sh asks up front and passes it in memory, used once here
+	if [[ -n "${MULLVAD_ACCT:-}" ]]; then
+		$SUDO mullvad account login "$MULLVAD_ACCT" >&3 2>&1 \
+			|| printf '  the number from the start was rejected, asking again\n' >&2
+	fi
+	unset MULLVAD_ACCT
+
 	attempt=1
 	until logged_in; do
 		if (( attempt > RETRY_LIMIT )); then
@@ -65,9 +72,8 @@ run "allow local network" $SUDO mullvad lan set allow
 
 run "auto connect on"     $SUDO mullvad auto-connect set on
 
-	# Ai - lockdown mode is deliberately left until 50-bkp-net
-	#      turning it on here would cut Tailscale off before the exclusion that
-	#      lets it through has been set up, and remote access would never connect
+	# Ai - lockdown mode is never turned on by the install
+	#      you turn it on in the Mullvad app once your settings are done
 
 
 ## Blocking
