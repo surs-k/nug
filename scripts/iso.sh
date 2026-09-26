@@ -607,20 +607,20 @@ section "Handover"
 ## Repo
 
 	# Ai - the whole repo travels with the install so the next stages are local
-install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/Rebuild"
+install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/rebuild"
 
-cp -r "$REPO/." "/mnt/home/$USERNAME/Rebuild/"
+cp -r "$REPO/." "/mnt/home/$USERNAME/rebuild/"
 
-chown -R 1000:1000 "/mnt/home/$USERNAME/Rebuild"
+chown -R 1000:1000 "/mnt/home/$USERNAME/rebuild"
 
-find "/mnt/home/$USERNAME/Rebuild" -name '*.sh' -exec chmod +x {} +
+find "/mnt/home/$USERNAME/rebuild" -name '*.sh' -exec chmod +x {} +
 
 	# Ai - git records the executable bit, so the chmod above shows up as a local
 	#      change to every script, and git pull then refuses to overwrite them
 	#      telling git to ignore modes makes pulls clean from here on
-if [[ -d "/mnt/home/$USERNAME/Rebuild/.git" ]]; then
+if [[ -d "/mnt/home/$USERNAME/rebuild/.git" ]]; then
 	arch-chroot /mnt sudo -u "$USERNAME" \
-		git -C "/home/$USERNAME/Rebuild" config core.fileMode false || true
+		git -C "/home/$USERNAME/rebuild" config core.fileMode false || true
 fi
 
 
@@ -660,7 +660,7 @@ check "deploy hook"      test -f /mnt/etc/pacman.d/hooks/99-limine-deploy.hook
 check "efi binary"       test -f /mnt/boot/EFI/limine/limine_x64.efi
 check "fallback binary"  test -f /mnt/boot/EFI/BOOT/BOOTX64.EFI
 check "crypttab"         grep -q cryptdata /mnt/etc/crypttab
-check "repo copied"      test -f "/mnt/home/$USERNAME/Rebuild/scripts/run.sh"
+check "repo copied"      test -f "/mnt/home/$USERNAME/rebuild/scripts/run.sh"
 
 verify_done
 
@@ -680,13 +680,9 @@ lsblk
 printf '\n'
 printf '  Remove the USB and reboot.\n'
 printf '\n'
-printf '  The boot menu shows for %s seconds with Linux highlighted,\n' "$LIMINE_TIMEOUT"
-printf '  then starts on its own. If it ever waits instead, press Enter\n'
-printf '  on Linux, it is always the second line.\n'
-printf '\n'
 printf '  Then log in and run:\n'
 printf '\n'
-printf '    bash ~/Rebuild/scripts/run.sh\n'
+printf '    bash ~/rebuild/scripts/run.sh\n'
 printf '\n'
 printf '  After that first run it is just:\n'
 printf '\n'

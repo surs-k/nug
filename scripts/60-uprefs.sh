@@ -443,7 +443,7 @@ soft "load i2c-dev" $SUDO modprobe i2c-dev
 
 	# Ai - written only when missing, so tuning you do later is never replaced
 	#      to carry your tuning into the next install, copy it into the repo:
-	#      cp ~/.config/wluma/config.toml ~/Rebuild/configs/wluma.toml
+	#      cp ~/.config/wluma/config.toml ~/rebuild/configs/wluma.toml
 WLUMA_CONF="$HOME/.config/wluma/config.toml"
 
 if [[ -f "$WLUMA_CONF" ]]; then

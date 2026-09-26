@@ -236,7 +236,7 @@ $SUDO tee /usr/local/bin/rebuild-update > /dev/null << 'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="$HOME/Rebuild"
+REPO="$HOME/rebuild"
 
 cd "$REPO"
 
@@ -264,17 +264,13 @@ $SUDO chmod 755 /usr/local/bin/rebuild-update
 	# Ai - one word from anywhere, no cd and no executable bit to care about
 $SUDO tee /usr/local/bin/rebuild > /dev/null << 'EOF'
 #!/usr/bin/env bash
-	# Ai - the scripts moved into scripts in v7.5, an older checkout still works
-if [[ -f "$HOME/Rebuild/scripts/run.sh" ]]; then
-	exec bash "$HOME/Rebuild/scripts/run.sh" "$@"
-fi
-exec bash "$HOME/Rebuild/run.sh" "$@"
+exec bash "$HOME/rebuild/scripts/run.sh" "$@"
 EOF
 
 $SUDO chmod 755 /usr/local/bin/rebuild
 
-if [[ -d "$HOME/Rebuild/.git" ]]; then
-	soft "let git ignore file modes" git -C "$HOME/Rebuild" config core.fileMode false
+if [[ -d "$HOME/rebuild/.git" ]]; then
+	soft "let git ignore file modes" git -C "$HOME/rebuild" config core.fileMode false
 fi
 
 
