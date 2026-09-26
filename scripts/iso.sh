@@ -46,9 +46,10 @@ for m in cryptsystem cryptdata; do
 done
 
 
-## Console
+## Clock
 
-loadkeys "$KEYMAP"
+	# Ai - no loadkeys here, you load your layout before starting because you
+	#      type the commands in it, and every password after uses that same one
 
 timedatectl set-ntp true
 
@@ -357,7 +358,8 @@ pacstrap_retry() {
 			return 1
 		fi
 
-		flag "download was corrupt, purging the cache and switching mirrors"
+			# Ai - announced, not listed, a retry that works leaves nothing to fix
+		info "download was corrupt, purging the cache and switching mirrors"
 
 		rm -f /mnt/var/cache/pacman/pkg/*.pkg.tar.zst 2>/dev/null || true
 		rm -f /var/cache/pacman/pkg/*.pkg.tar.zst     2>/dev/null || true
@@ -487,18 +489,26 @@ section "Bootloader"
 
 ## Keyfile
 
+	# Ai - the data disk gets a second key, a random file on the encrypted
+	#      system disk, so it unlocks at boot without a second passphrase
+	#      added from the ISO rather than inside the chroot, so it uses the
+	#      same cryptsetup and the same key file that formatted the disk
+install -d -m 700 /mnt/etc/cryptsetup-keys.d
+
+dd if=/dev/urandom of=/mnt/etc/cryptsetup-keys.d/data.key bs=1024 count=4 status=none
+
+chmod 600 /mnt/etc/cryptsetup-keys.d/data.key
+
+keyguard
+
+run "add data disk key" cryptsetup luksAddKey --key-file "$KEYTMP" \
+	"$DATA_PART" /mnt/etc/cryptsetup-keys.d/data.key
+
+
+## Setup
+
 cat > /mnt/root/_setup.sh << CHROOTEOF
 set -euo pipefail
-
-mkdir -p /etc/cryptsetup-keys.d
-
-dd if=/dev/urandom of=/etc/cryptsetup-keys.d/data.key bs=1024 count=4 status=none
-
-chmod 600 /etc/cryptsetup-keys.d/data.key
-
-	# Ai - arch-chroot bind mounts /run, so the tmpfs keyfile is visible here
-cryptsetup luksAddKey --key-file /run/rebuild.key \\
-	$DATA_PART /etc/cryptsetup-keys.d/data.key
 
 DATA_UUID=\$(blkid -s UUID -o value $DATA_PART)
 

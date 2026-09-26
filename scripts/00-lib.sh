@@ -104,10 +104,11 @@ record_fail() {
 	#      roughly one in twelve men has red green colour blindness, and red
 	#      green is exactly the fail/ok pairing a terminal reaches for first
 	#      NO_COLOR, a dumb terminal, or piping to a file all turn it off
+	#      orange is a problem the run carried on past, red is one that stopped it
 
 if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
 	C_OK=$'\033[32m'
-	C_WARN=$'\033[33m'
+	C_WARN=$'\033[38;5;208m'
 	C_FAIL=$'\033[31m'
 	C_HEAD=$'\033[1;36m'
 	C_ACT=$'\033[1;35m'
@@ -509,18 +510,31 @@ soft() {
 
 	# Ai - printed at the end of every stage and again at the end of the run
 	#      duplicates are collapsed, because re-running a stage appends again
+	#      each kind of problem gets its own banner in its own colour, so the
+	#      orange block and the red block read apart at a glance
+fail_block() {
+	local colour=$1 title=$2 lines=$3
+
+	[[ -n "${lines//[[:space:]]/}" ]] || return 0
+
+	printf '\n' >&2
+	printf '%s========================================%s\n' "$colour" "$C_OFF" >&2
+	printf '%s %s%s\n' "$colour" "$title" "$C_OFF" >&2
+	printf '%s========================================%s\n\n' "$colour" "$C_OFF" >&2
+	printf '%s\n' "$lines" | sed 's/^/    /' >&2
+}
+
 show_failures() {
 	local scope=${1:-all}
-	local raw softs stops asides title
+	local raw softs stops asides where=""
 
 	[[ -s "$FAILLOG" ]] || return 0
 
 	if [[ "$scope" == stage ]]; then
 		raw="$(grep -P "\t$STAGE " "$FAILLOG" 2>/dev/null | awk '!seen[$0]++' || true)"
-		title="PROBLEMS IN $STAGE"
+		where="   $STAGE"
 	else
 		raw="$(awk '!seen[$0]++' "$FAILLOG" 2>/dev/null || true)"
-		title="EVERYTHING THAT HAD A PROBLEM"
 	fi
 
 	[[ -n "${raw//[[:space:]]/}" ]] || return 0
@@ -529,23 +543,8 @@ show_failures() {
 	stops="$(printf '%s\n' "$raw" | sed -n 's/^stop\t//p' || true)"
 	asides="$(printf '%s\n' "$raw" | sed -n 's/^aside\t//p' || true)"
 
-		# Ai - only real problems get the red banner, notes get their own below
-	if [[ -n "${softs//[[:space:]]/}${stops//[[:space:]]/}" ]]; then
-		printf '\n' >&2
-		printf '%s========================================%s\n' "$C_FAIL" "$C_OFF" >&2
-		printf '%s %s%s\n' "$C_FAIL" "$title" "$C_OFF" >&2
-		printf '%s========================================%s\n' "$C_FAIL" "$C_OFF" >&2
-	fi
-
-	if [[ -n "${softs//[[:space:]]/}" ]]; then
-		printf '\n  %sSKIPPED, the run carried on%s\n\n' "$C_WARN" "$C_OFF" >&2
-		printf '%s\n' "$softs" | sed 's/^/    /' >&2
-	fi
-
-	if [[ -n "${stops//[[:space:]]/}" ]]; then
-		printf '\n  %sSTOPPED THE SCRIPT%s\n\n' "$C_FAIL" "$C_OFF" >&2
-		printf '%s\n' "$stops" | sed 's/^/    /' >&2
-	fi
+	fail_block "$C_WARN" "SKIPPED, THE RUN CARRIED ON$where" "$softs"
+	fail_block "$C_FAIL" "STOPPED THE SCRIPT$where" "$stops"
 
 	if [[ -n "${asides//[[:space:]]/}" ]]; then
 		printf '\n  %sWORTH KNOWING, nothing is broken%s\n\n' "$C_HEAD" "$C_OFF" >&2
@@ -612,7 +611,10 @@ pac() {
 		# Ai - every mirror answering 404 for one filename means the local
 		#      database is older than the mirrors, not that the network is down
 		#      retrying the same request cannot fix that, only a refresh can
-	flag "install failed, refreshing the database once and trying again"
+
+		# Ai - only the retry is announced here, the list gets a line only if
+		#      the retry fails too, a problem that fixed itself is not one
+	info "install failed, refreshing the database once and trying again"
 
 	refresh_db
 

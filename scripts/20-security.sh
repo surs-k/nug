@@ -166,13 +166,13 @@ fi
 if wait_for 45 resolves; then
 	note "DNS working through the tunnel"
 else
-	flag "DNS stopped working after connecting, backing IPv6 out"
+	info "DNS stopped working after connecting, backing IPv6 out"
 
 	soft "disable in tunnel ipv6" $SUDO mullvad tunnel set ipv6 off
 	soft "reconnect"              $SUDO mullvad reconnect
 
 	if wait_for 60 resolves; then
-		note "DNS recovered"
+		aside "IPv6 in the tunnel is off, DNS stopped working with it on"
 	else
 		printf '\n  DNS is not working through the VPN.\n' >&2
 		printf '  Nothing after this can download anything.\n\n' >&2

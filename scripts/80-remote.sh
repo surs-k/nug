@@ -48,7 +48,7 @@ for pkg in sunshine-bin sunshine; do
 		break
 	fi
 
-	flag "$pkg would not install, trying the next name"
+	info "$pkg would not install, trying the next name"
 done
 
 if [[ -z "$SUN_PKG" ]]; then
