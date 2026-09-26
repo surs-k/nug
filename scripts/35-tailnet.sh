@@ -20,7 +20,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 20-security
+require_stage 30-security
 
 if [[ "${WANT_TAILSCALE:-no}" != yes ]]; then
 	note "tailnet remote access is off"

@@ -146,7 +146,7 @@ well-supported
 #Ai - with the editor off, the way back from a bad boot is the ISO or `limine-header-fix --flat`, is that okay?
 
 
-# 30-desktop
+# 20-desktop
 ___
 
 
@@ -200,12 +200,12 @@ ___
 
 
 **Change:**
-make kbfix check first and only write when the block is missing or wrong, then have 30-desktop and 60-uprefs just call `kbfix`
+make kbfix check first and only write when the block is missing or wrong, then have 20-desktop and 60-uprefs just call `kbfix`
 
 
 **Why change:**
 
-The same keyboard block is written in three places: 30-desktop.sh:187, inside kbfix at 30-desktop.sh:210, and 60-uprefs.sh:308. Changing the layout means three edits, and missing one makes them disagree.
+The same keyboard block is written in three places: 20-desktop.sh:187, inside kbfix at 20-desktop.sh:210, and 60-uprefs.sh:308. Changing the layout means three edits, and missing one makes them disagree.
 
 
 **Why this:**
@@ -223,7 +223,7 @@ well-supported
 #Ai - is it always colemak, or might you change KEYMAP one day?
 
 
-# 20-security
+# 30-security
 ___
 
 
@@ -232,14 +232,14 @@ ___
 
 
 **Done:**
-option A. run.sh asks for the number at first boot with the other questions, keeps it in memory only, and 20-security now runs before 30-desktop, so it's used before the reboot wipes memory
+option B. The desktop installs and reboots first, as before. The run after the reboot asks for the number with the sudo password, keeps it in memory only, and 30-security uses it
 
 
 **Witness:**
-at first boot, after the sudo password, `Mullvad needs your account number. It is kept in memory only.` Then 10-base, 20-security, 30-desktop in that order
+after the reboot, `rebuild` asks for your sudo password, then `Mullvad needs your account number. It is kept in memory only.` Then it runs hands off
 
 
-#Ai - the reorder is untested, watch that HyDE installs fine with the VPN already on
+#Ai - option A, security before the desktop, broke HyDE's installer in the VM, so it was dropped
 
 
 # 50-bkp-net

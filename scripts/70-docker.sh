@@ -12,7 +12,7 @@ section "Check"
 
 sudo_keepalive
 
-require_stage 20-security
+require_stage 30-security
 
 if [[ "${WANT_DOCKER:-yes}" != yes ]]; then
 	note "self hosting turned off in $CONFIG"

@@ -147,7 +147,7 @@ fi
 ## Enforcer
 
 	# Ai - the same file iso.sh used to write the menu, now installed for good
-	#      the snapshot tool runs it after every save, and so does 30-desktop
+	#      the snapshot tool runs it after every save, and so does 20-desktop
 	#      after it changes the cmdline
 $SUDO install -m 755 "$SCRIPTS/limine-header-fix.sh" /usr/local/bin/limine-header-fix
 
