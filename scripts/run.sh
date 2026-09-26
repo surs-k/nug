@@ -203,6 +203,8 @@ section "Answers"
 	# Ai - only this run's problems, the rest move to the history file
 roll_failures
 
+roll_todos
+
 
 ## Network
 
@@ -435,6 +437,10 @@ DID=0
 
 BROKEN=""
 
+	# Ai - tells a stage it runs under run.sh, which prints the todo list
+	#      itself at the end instead of the stage printing it
+export REBUILD_RUN=1
+
 	# Ai - position in the run order, for the banner
 stage_number() {
 	local i
@@ -499,6 +505,7 @@ for s in "${STAGES[@]}"; do
 	fi
 
 	if [[ -n "${REBOOT[$s]:-}" ]]; then
+		show_todos
 		action "Reboot now.
 
 Why   ${REBOOT[$s]}
@@ -542,3 +549,6 @@ RETRY="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | 
 if [[ -n "${RETRY//[[:space:]]/}" ]]; then
 	printf '  To have another go at just those:  rebuild --retry\n\n' >&2
 fi
+
+	# Ai - the very last thing, after the problems, so it is what you see
+show_todos

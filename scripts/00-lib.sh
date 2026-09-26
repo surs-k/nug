@@ -90,6 +90,26 @@ roll_failures() {
 
 touch "$FAILLOG"
 
+
+## Later
+
+	# Ai - anything you have to do by hand that did not hold the run up
+	#      a YOUR TURN block printed mid stage scrolled past before it was
+	#      read, so these are kept and printed as the very last thing
+TODOLOG="$LOGDIR/todo.txt"
+
+touch "$TODOLOG"
+
+roll_todos() { : > "$TODOLOG"; }
+
+todo() {
+	{
+		printf '=== %s\n' "$STAGE"
+		printf '%s\n' "$*"
+	} >> "$TODOLOG"
+	printf 'LATER: %s\n' "$*" >&3
+}
+
 	# Ai - the tag is what separates "skipped this, carried on" from
 	#      "this is where the script stopped"
 record_fail() {
@@ -223,6 +243,32 @@ action() {
 
 	act_text "$@"
 }
+
+## Todos
+
+	# Ai - one block, one gap per item, the file path last so it can be
+	#      found again after the screen has moved on
+show_todos() {
+	local line
+
+	[[ -s "$TODOLOG" ]] || return 0
+
+	act_open
+	act_line "Finish these by hand. None of them held the run up."
+
+	while IFS= read -r line; do
+		if [[ "$line" == "=== "* ]]; then
+			act_break
+		else
+			act_line "$line"
+		fi
+	done < "$TODOLOG"
+
+	act_gap
+	act_line "kept at  $TODOLOG"
+	act_close
+}
+
 
 ## Say
 
@@ -438,6 +484,31 @@ VERBOSE="${REBUILD_VERBOSE:-0}"
 WHY=""
 
 
+## Spin
+
+	# Ai - the spinner line itself, output goes to the log
+	#      a spinner alone cannot tell you whether this is a minute or ten,
+	#      the count can
+spin() {
+	local label=$1; shift
+	local frames='|/-\' i=0 pid start=$SECONDS rc=0
+
+	"$@" >&3 2>&1 &
+	pid=$!
+	while kill -0 "$pid" 2>/dev/null; do
+		printf '\r  [%s]    %s   %ss' \
+			"${frames:i++%4:1}" "$label" "$(( SECONDS - start ))"
+		sleep 0.2
+	done
+	wait "$pid" || rc=$?
+	ELAPSED=$(( SECONDS - start ))
+	printf '\r'
+	blank
+
+	return "$rc"
+}
+
+
 ## Quiet
 
 	# Ai - run hides output and shows one spinner line
@@ -454,20 +525,7 @@ run() {
 		printf '  ..     %s\n' "$label"
 		"$@" || rc=$?
 	else
-		local frames='|/-\' i=0 pid start=$SECONDS
-		"$@" >&3 2>&1 &
-		pid=$!
-		while kill -0 "$pid" 2>/dev/null; do
-				# Ai - a spinner alone cannot tell you whether this is a minute
-				#      or ten, the count can
-			printf '\r  [%s]    %s   %ss' \
-				"${frames:i++%4:1}" "$label" "$(( SECONDS - start ))"
-			sleep 0.2
-		done
-		wait "$pid" || rc=$?
-		ELAPSED=$(( SECONDS - start ))
-		printf '\r'
-		blank
+		spin "$label" "$@" || rc=$?
 	fi
 
 	if (( rc == 0 )); then
@@ -488,6 +546,35 @@ run() {
 		printf '\n  full log  %s\n\n' "$LOG" >&2
 
 		WHY="$label failed, exit $rc"
+	fi
+
+	return "$rc"
+}
+
+
+## Try
+
+	# Ai - the same spinner, but a failure is one dim line and no log dump
+	#      for a step that has another way to go when this one does not work
+	#      a silent build looked like a hang, this shows it is still going
+try() {
+	local label=$1; shift
+	local rc=0 ELAPSED=0
+
+	printf 'TRY %s\n' "$*" >&3
+
+	if [[ "$VERBOSE" == 1 ]]; then
+		printf '  ..     %s\n' "$label"
+		"$@" || rc=$?
+	else
+		spin "$label" "$@" || rc=$?
+	fi
+
+	if (( rc == 0 )); then
+		printf '  %s[ok]%s   %s\n' "$C_OK" "$C_OFF" "$label"
+	else
+		printf '  %s..%s     %s did not work, trying another way\n' "$C_DIM" "$C_OFF" "$label"
+		printf 'TRY FAILED %s exit %s\n' "$*" "$rc" >&3
 	fi
 
 	return "$rc"
@@ -1092,6 +1179,10 @@ cleanup() {
 		#      own part here would push that list up the screen
 	if [[ "$STAGE" != run || "$rc" != 0 ]]; then
 		show_failures stage
+	fi
+
+	if [[ "$STAGE" != run && -z "${REBUILD_RUN:-}" ]]; then
+		show_todos
 	fi
 
 	return "$rc"

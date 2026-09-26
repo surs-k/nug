@@ -502,9 +502,9 @@ if contains "$WANT" "jellyfin"; then
 	stack_up jellyfin -f "$JF/compose.yaml" --env-file "$JF/.env"
 
 	note "jellyfin at http://127.0.0.1:8096, media from $MEDIA_DIR"
-	action "Open http://127.0.0.1:8096 and finish the Jellyfin setup wizard.
-
-Add a library pointing at /media, which is $MEDIA_DIR on this PC."
+	todo "Open http://127.0.0.1:8096 and finish the Jellyfin setup wizard.
+Add a library at /media, which is $MEDIA_DIR on this PC.
+If the page does not load first:  stack up jellyfin"
 fi
 
 
@@ -538,10 +538,9 @@ if contains "$WANT" "portainer"; then
 			#      Portainer controls every container on the machine, so it is the
 			#      one thing not worth exposing even to your own tailnet
 		note "portainer at https://127.0.0.1:9443, this PC only"
-		action "Open https://127.0.0.1:9443 and set the Portainer admin password.
-
-It stops itself if no password is set within a few minutes, and then the
-container needs restarting: sudo docker restart portainer"
+		todo "Run:  stack up portainer
+Then open https://127.0.0.1:9443 and set the admin password.
+It stops itself if no password is set within a few minutes."
 	fi
 fi
 

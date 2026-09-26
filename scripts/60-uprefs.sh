@@ -134,12 +134,10 @@ try_aur() {
 	local pkg
 
 	for pkg in "$@"; do
-		if yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
-			--answeredit=None --removemake "$pkg" >&3 2>&1; then
-			pass "$label   via $pkg"
+		if try "$label via $pkg" yay -S --needed --noconfirm --answerdiff=None \
+			--answerclean=None --answeredit=None --removemake "$pkg"; then
 			return 0
 		fi
-		printf '  ..     %s not available, trying the next name\n' "$pkg"
 	done
 
 	flag "$label could not be installed under any known name"

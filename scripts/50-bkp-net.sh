@@ -205,13 +205,11 @@ else
 		#      output goes to the log here, so any yay question would sit waiting
 		#      where nobody can see it, the answer flags remove the questions
 	for pkg in limine-snapper-sync limine-snapper-sync-git; do
-		if yay -S --needed --noconfirm --answerdiff=None --answerclean=None \
-			--answeredit=None --removemake "$pkg" >&3 2>&1; then
+		if try "build $pkg" yay -S --needed --noconfirm --answerdiff=None \
+			--answerclean=None --answeredit=None --removemake "$pkg"; then
 			SNAPBOOT=yes
-			note "installed $pkg"
 			break
 		fi
-		printf '  ..     %s did not build, trying the next name\n' "$pkg"
 	done
 
 	[[ "$SNAPBOOT" == yes ]] \

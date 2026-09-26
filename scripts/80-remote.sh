@@ -239,6 +239,7 @@ printf '  Sunshine installed. It does not start with the PC.\n\n'
 printf '  Start it before you stream, stop it after:\n\n'
 printf '    remote on\n'
 printf '    remote off\n\n'
-printf '  First time only, with it on, finish setup here:\n\n'
-printf '    https://localhost:47990\n\n'
-printf '  Set a username and password, then pair the laptop in Moonlight.\n\n'
+
+todo "Run:  remote on
+Then open https://localhost:47990 and set a username and password.
+Then pair the laptop in Moonlight."
