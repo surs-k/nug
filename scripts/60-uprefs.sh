@@ -247,6 +247,8 @@ sed -i '/^-- rebuild binds start$/,/^-- rebuild binds end$/d' "$LUA"
 ## Write
 
 	# Ai - lua, because that is the file Hyprland reads on this machine
+	#      the Mullvad app is started here too, Hyprland never read the
+	#      autostart folder 30-security puts it in, so the tray icon was missing
 
 cat >> "$LUA" << 'LUAEOF'
 -- rebuild binds start
@@ -272,6 +274,10 @@ hl.unbind("SUPER + E")
 hl.bind("SUPER + F", hl.dsp.exec_cmd("dolphin"), { description = "[Rebuild] dolphin" })
 
 hl.bind("SUPER + L", hl.dsp.exec_cmd("librewolf"), { description = "[Rebuild] librewolf" })
+
+-- the Mullvad app, for its tray icon, started only if it is not running
+-- this file is read again on every reload, the check stops a second window
+hl.exec_cmd("pgrep -f mullvad-gui > /dev/null || mullvad-vpn")
 
 hl.window_rule({
 	name = "rebuild-mullvad-nomax",
