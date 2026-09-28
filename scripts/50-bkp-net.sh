@@ -105,6 +105,12 @@ if ! ip link show tailscale0 &> /dev/null; then
 	note "SSH is closed to the network until Tailscale is on"
 fi
 
+	# Ai - the old host keys, so the laptop still recognises this PC
+if stashed ssh; then
+	$SUDO cp -a "$STASH/ssh/." /etc/ssh/
+	note "SSH host keys put back from the stash"
+fi
+
 run "generate host keys" $SUDO ssh-keygen -A
 run "test sshd config"   $SUDO sshd -t
 run "enable sshd"        $SUDO systemctl enable --now sshd.service
@@ -316,7 +322,29 @@ fi
 mountpoint -q /mnt/data-root || $SUDO mount /mnt/data-root
 
 
+## Drive
+
+	# Ai - the internal backup drive, unlocked by a key file on the system
+	#      disk, which the reinstall wiped, so the stash puts it back
+	#      nofail on both lines, a missing drive never stops the PC booting
+if stashed backup/backup.key && ! $SUDO test -f /etc/cryptsetup-keys.d/backup.key; then
+	$SUDO install -D -m 600 "$STASH/backup/backup.key" /etc/cryptsetup-keys.d/backup.key
+	grep -q '^backup ' /etc/crypttab 2>/dev/null || $SUDO cat "$STASH/backup/crypttab" | $SUDO tee -a /etc/crypttab > /dev/null
+	grep -q ' /mnt/backup ' /etc/fstab || $SUDO cat "$STASH/backup/fstab" | $SUDO tee -a /etc/fstab > /dev/null
+	$SUDO mkdir -p /mnt/backup
+	run "reload systemd" $SUDO systemctl daemon-reload
+	soft "unlock backup drive" $SUDO systemctl start systemd-cryptsetup@backup.service
+	soft "mount backup drive"  $SUDO mount /mnt/backup
+fi
+
+
 ## Config
+
+	# Ai - the stashed config already has the backup target in it
+if stashed btrbk.conf && ! grep -q 'rebuild managed' /etc/btrbk/btrbk.conf 2>/dev/null; then
+	$SUDO install -m 644 "$STASH/btrbk.conf" /etc/btrbk/btrbk.conf
+	note "btrbk config put back from the stash"
+fi
 
 if [[ -f /etc/btrbk/btrbk.conf ]] && grep -q 'rebuild managed' /etc/btrbk/btrbk.conf; then
 	note "btrbk.conf already managed"
@@ -344,14 +372,18 @@ snapshot_dir               .btrbk
 volume /mnt/data-root
   subvolume @home
   subvolume @ai
-
-	# Ai - uncomment after mounting a second disk at /mnt/backup
-	#volume /mnt/data-root
-	#  subvolume @home
-	#    target /mnt/backup/home
-	#  subvolume @ai
-	#    target /mnt/backup/ai
+  subvolume @docker
+  subvolume @vms
+  subvolume @games/modding
 EOF
+
+		# Ai - backups go to the second drive only when one is mounted
+	if findmnt -n /mnt/backup > /dev/null; then
+		$SUDO sed -i 's|^volume /mnt/data-root$|volume /mnt/data-root\n  target /mnt/backup|' /etc/btrbk/btrbk.conf
+		note "daily backups go to /mnt/backup"
+	else
+		note "no backup drive at /mnt/backup, snapshots stay on the data disk only"
+	fi
 fi
 
 $SUDO mkdir -p /mnt/data-root/.btrbk

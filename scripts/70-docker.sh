@@ -363,6 +363,17 @@ $SUDO chown -R "$USERNAME:$USERNAME" /srv/rebuild
 
 ln -sfn "$STACKS_DIR" "$HOME/firelink/stacks"
 
+	# Ai - the old service passwords, the databases kept on @docker only open
+	#      with them, a stack only makes new ones when it has none
+if stashed stacks; then
+	for f in $($SUDO ls "$STASH/stacks"); do
+		name="${f%.env}"
+		[[ -d "$STACKS_DIR/$name" && ! -f "$STACKS_DIR/$name/.env" ]] || continue
+		$SUDO install -o "$USERNAME" -g "$USERNAME" -m 600 "$STASH/stacks/$f" "$STACKS_DIR/$name/.env"
+		note "$name secrets put back from the stash"
+	done
+fi
+
 	# Ai - nothing starts itself at boot any more, every compose file says
 	#      restart: "no", so a service runs only while you want it to
 	#      this is the command that starts and stops them by name

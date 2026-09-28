@@ -26,6 +26,14 @@ section "Mullvad"
 
 pac mullvad-vpn
 
+	# Ai - the stashed login and device go back before the daemon starts, so
+	#      it is already logged in and no new device slot is used
+if stashed mullvad && ! $SUDO test -f /etc/mullvad-vpn/device.json; then
+	$SUDO systemctl stop mullvad-daemon 2>/dev/null || true
+	$SUDO cp -a "$STASH/mullvad/." /etc/mullvad-vpn/
+	note "Mullvad login and settings put back from the stash"
+fi
+
 run "enable daemon" $SUDO systemctl enable --now mullvad-daemon
 
 wait_for 60 $SUDO mullvad status

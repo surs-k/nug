@@ -128,6 +128,24 @@ printf '\n  HyDE installer starts now. This takes a while.\n\n'
 ( cd "$HOME/HyDE/Scripts" && ./install.sh -n )
 
 
+## Kept
+
+	# Ai - HyDE's installer may overwrite your Hyprland config on a kept home
+	#      the stashed copy is compared, and every file it changed goes back
+if stashed hypr; then
+	CHANGED="$($SUDO diff -rq "$STASH/hypr" "$HOME/.config/hypr" 2>/dev/null | grep -v "^Only in $HOME" || true)"
+	if [[ -n "$CHANGED" ]]; then
+		$SUDO cp -a "$STASH/hypr/." "$HOME/.config/hypr/"
+		$SUDO chown -R "$USERNAME:$USERNAME" "$HOME/.config/hypr"
+		COUNT="$(printf '%s\n' "$CHANGED" | wc -l)"
+		aside "HyDE changed $COUNT of your Hyprland files, your versions were put back"
+		printf '%s\n' "$CHANGED" >&3
+	else
+		note "HyDE left your Hyprland config alone"
+	fi
+fi
+
+
 
 #    Repos
 

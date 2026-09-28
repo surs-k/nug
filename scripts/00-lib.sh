@@ -760,6 +760,13 @@ stage_done()    { touch "$MARKERS/${1:-$STAGE}"; }
 
 stage_is_done() { [[ -f "$MARKERS/${1:-$STAGE}" ]]; }
 
+	# Ai - what rebuild stash saved from the old system disk, kept in your
+	#      home on the data disk, root only, a stage puts its part back when
+	#      it finds it here
+STASH="$HOME/.rebuild/stash"
+
+stashed() { $SUDO test -e "$STASH/$1"; }
+
 require_stage() {
 	[[ -f "$MARKERS/$1" ]] || { printf 'Run %s first\n' "$1" >&2; exit 1; }
 }

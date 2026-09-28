@@ -25,6 +25,7 @@ while [[ $# -gt 0 ]]; do
 		--retry) MODE=retry; shift ;;
 		--all)   MODE=all;   shift ;;
 		--list)  MODE=list;  shift ;;
+		stash)   exec bash "$SCRIPTS/stash.sh" ;;
 		-h|--help)
 			cat << 'HELPEOF'
 
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
   rebuild --retry            re-run every stage that reported a problem
   rebuild --all              start over from the beginning
   rebuild --list             show what is done and what is not
+  rebuild stash              save the system disk's settings before a reinstall
 
   Stages are safe to run again. Package installs skip what is already
   there, and every section checks before it acts, so a rerun costs
@@ -418,7 +420,9 @@ mullvad_logged_in() {
 	! contains "$(capture $SUDO mullvad account get)" "Not logged in"
 }
 
-if stage_is_done 20-desktop && ! stage_is_done 30-security && ! mullvad_logged_in; then
+	# Ai - a stash carries the login over, so there is nothing to ask
+if stage_is_done 20-desktop && ! stage_is_done 30-security && ! mullvad_logged_in \
+	&& ! stashed mullvad/device.json; then
 	action "Mullvad needs your account number. It is kept in memory only."
 	MULLVAD_ACCT="$(secret 'Mullvad account number')"
 	act_close
@@ -548,6 +552,17 @@ RETRY="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | 
 
 if [[ -n "${RETRY//[[:space:]]/}" ]]; then
 	printf '  To have another go at just those:  rebuild --retry\n\n' >&2
+fi
+
+	# Ai - packages from the old install that are not here, the ones you
+	#      added by hand, as a list you can pick from
+if stashed packages.txt; then
+	MISSING="$(comm -23 <($SUDO sort "$STASH/packages.txt") <(pacman -Qqe | sort) | tr '\n' ' ')"
+	if [[ -n "${MISSING// /}" ]]; then
+		todo "Packages from your last install that are not here now:
+$MISSING
+Install the ones you still want:  yay -S name"
+	fi
 fi
 
 	# Ai - the very last thing, after the problems, so it is what you see

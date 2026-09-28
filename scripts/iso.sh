@@ -83,9 +83,27 @@ export USERNAME
 	#      six passwords first and then starting the script over
 	#      anything but YES asks for the disks again
 
+	# Ai - keep leaves the data disk as it is, your home, services, VMs and
+	#      games carry over, and only the system disk is rebuilt
+	#      rebuild stash, run on the old install, saved what lives on the
+	#      system disk into your home, and the stages put it back
+act_next big
+act_line "Keep the data disk from your last install?"
+act_line "Yes keeps your files and settings. No erases both disks."
+act_line ""
+if yesno "Keep the data disk" n; then
+	KEEP_DATA=yes
+else
+	KEEP_DATA=no
+fi
+
 while true; do
 	act_next big
-	act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
+	if [[ "$KEEP_DATA" == yes ]]; then
+		act_line "Pick the two disks. ONLY THE SYSTEM DISK IS ERASED."
+	else
+		act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
+	fi
 	act_line ""
 	lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS | act_feed
 	act_line ""
@@ -99,14 +117,25 @@ while true; do
 		continue
 	fi
 
+		# Ai - a kept disk has to already be one of ours, or it is the wrong disk
+	if [[ "$KEEP_DATA" == yes ]] && ! cryptsetup isLuks "$(partname "$DATA_DISK" 1)" 2>/dev/null; then
+		act_line ""
+		act_line "$DATA_DISK has no encrypted data partition, it is not your old data disk."
+		continue
+	fi
+
 	act_next
-	act_line "Check this, then type YES to erase both disks."
+	act_line "Check this, then type YES."
 	act_line ""
 	act_line "system disk  $SYSTEM_DISK  $(lsblk -dno SIZE "$SYSTEM_DISK")  WILL BE WIPED"
-	act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  WILL BE WIPED"
+	if [[ "$KEEP_DATA" == yes ]]; then
+		act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  kept as it is"
+	else
+		act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  WILL BE WIPED"
+	fi
 	act_line ""
 
-	confirmed "Type YES to erase them, anything else to pick again" && break
+	confirmed "Type YES to go ahead, anything else to pick again" && break
 
 	act_line ""
 	act_line "Nothing erased."
@@ -119,9 +148,16 @@ require_disk "$DATA_DISK"
 ## Passwords
 
 act_next big
-act_text "Set three passwords, each typed twice.
+if [[ "$KEEP_DATA" == yes ]]; then
+	act_text "Set three passwords, each typed twice.
+
+The disk passphrase must be the one your data disk already has.
+The new system disk gets the same one."
+else
+	act_text "Set three passwords, each typed twice.
 
 The disk passphrase unlocks both disks. You set it once."
+fi
 act_line ""
 
 LUKS_PASS="$(secret_twice 'Disk passphrase, both disks')"
@@ -155,8 +191,10 @@ run "root partition"    sgdisk -n2:0:0   -t2:8300 -c2:"cryptsystem" "$SYSTEM_DIS
 
 ## Data
 
-run "wipe data disk"    sgdisk --zap-all "$DATA_DISK"
-run "data partition"    sgdisk -n1:0:0   -t1:8300 -c1:"cryptdata"   "$DATA_DISK"
+if [[ "$KEEP_DATA" == no ]]; then
+	run "wipe data disk"    sgdisk --zap-all "$DATA_DISK"
+	run "data partition"    sgdisk -n1:0:0   -t1:8300 -c1:"cryptdata"   "$DATA_DISK"
+fi
 
 run "reread tables"     partprobe "$SYSTEM_DISK" "$DATA_DISK"
 
@@ -242,7 +280,14 @@ encrypt_disk() {
 
 encrypt_disk "$SYS_ROOT"  cryptsystem
 
-encrypt_disk "$DATA_PART" cryptdata
+if [[ "$KEEP_DATA" == yes ]]; then
+		# Ai - a wrong passphrase stops here, before anything is written
+	keyguard
+	run "open kept data disk" cryptsetup open --batch-mode --key-file "$KEYTMP" "$DATA_PART" cryptdata \
+		|| { WHY="the passphrase does not open the data disk, it has to be the old one"; exit 1; }
+else
+	encrypt_disk "$DATA_PART" cryptdata
+fi
 
 
 
@@ -256,7 +301,7 @@ section "Filesystems"
 
 run "format esp"         mkfs.fat -F32 "$SYS_ESP"
 run "format system"      mkfs.btrfs -f -L system /dev/mapper/cryptsystem
-run "format data"        mkfs.btrfs -f -L data   /dev/mapper/cryptdata
+[[ "$KEEP_DATA" == no ]] && run "format data" mkfs.btrfs -f -L data /dev/mapper/cryptdata
 
 
 ## System subvols
@@ -271,12 +316,19 @@ run "unmount system top" umount /mnt
 
 ## Data subvols
 
+	# Ai - on a kept disk the subvolumes are already there, only a missing one
+	#      is made, so nothing that exists is touched
+	#      modding is its own subvolume inside @games, so btrbk backs up the
+	#      mods while the games themselves are left to Steam
 run "mount data top"     mount /dev/mapper/cryptdata /mnt
-run "create @home"       btrfs subvolume create /mnt/@home
-run "create @games"      btrfs subvolume create /mnt/@games
-run "create @vms"        btrfs subvolume create /mnt/@vms
-run "create @docker"     btrfs subvolume create /mnt/@docker
-run "create @ai"         btrfs subvolume create /mnt/@ai
+for sv in @home @games @vms @docker @ai; do
+	if [[ -d "/mnt/$sv" ]]; then
+		note "$sv kept"
+	else
+		run "create $sv" btrfs subvolume create "/mnt/$sv"
+	fi
+done
+[[ -d /mnt/@games/modding ]] || run "create modding" btrfs subvolume create /mnt/@games/modding
 run "unmount data top"   umount /mnt
 
 
@@ -504,6 +556,23 @@ keyguard
 run "add data disk key" cryptsetup luksAddKey --key-file "$KEYTMP" \
 	"$DATA_PART" /mnt/etc/cryptsetup-keys.d/data.key
 
+	# Ai - a kept disk still holds the key file of the install being replaced,
+	#      which no longer exists anywhere, and every reinstall would add one
+	#      more, so only the passphrase slot and the new key file are kept
+if [[ "$KEEP_DATA" == yes ]]; then
+	PASS_SLOT="$(cryptsetup open --test-passphrase -v --key-file "$KEYTMP" "$DATA_PART" 2>&1 | sed -n 's/^Key slot \([0-9]*\) unlocked.*/\1/p')"
+	NEW_SLOT="$(cryptsetup open --test-passphrase -v --key-file /mnt/etc/cryptsetup-keys.d/data.key "$DATA_PART" 2>&1 | sed -n 's/^Key slot \([0-9]*\) unlocked.*/\1/p')"
+
+	if [[ -n "$PASS_SLOT" && -n "$NEW_SLOT" ]]; then
+		for slot in $(cryptsetup luksDump "$DATA_PART" | sed -n 's/^  \([0-9]*\): luks2$/\1/p'); do
+			[[ "$slot" == "$PASS_SLOT" || "$slot" == "$NEW_SLOT" ]] && continue
+			soft "remove old key slot $slot" cryptsetup luksKillSlot --batch-mode --key-file "$KEYTMP" "$DATA_PART" "$slot"
+		done
+	else
+		flag "could not tell the key slots apart, old data disk keys were left in place"
+	fi
+fi
+
 
 ## Setup
 
@@ -619,6 +688,9 @@ section "Handover"
 	# Ai - the whole repo travels with the install so the next stages are local
 install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/rebuild"
 
+	# Ai - a kept home has the old copy, replaced whole so no stale file stays
+[[ "$KEEP_DATA" == yes ]] && rm -rf "/mnt/home/$USERNAME/rebuild" && install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/rebuild"
+
 cp -r "$REPO/." "/mnt/home/$USERNAME/rebuild/"
 
 chown -R 1000:1000 "/mnt/home/$USERNAME/rebuild"
@@ -636,7 +708,20 @@ fi
 
 ## Config
 
-install -o 1000 -g 1000 -m 600 "$CONFIG" "/mnt/home/$USERNAME/.install-config"
+	# Ai - a kept home already holds every answer from last time, so only the
+	#      two asked here are written into it, and the progress markers are
+	#      cleared, or every stage would say it was already done
+KEPT_CFG="/mnt/home/$USERNAME/.install-config"
+
+if [[ "$KEEP_DATA" == yes && -f "$KEPT_CFG" ]]; then
+	sed -i '/^HOSTNAME=/d; /^USERNAME=/d' "$KEPT_CFG"
+	printf 'HOSTNAME=%q\nUSERNAME=%q\n' "$HOSTNAME" "$USERNAME" >> "$KEPT_CFG"
+	chown 1000:1000 "$KEPT_CFG"
+	rm -rf "/mnt/home/$USERNAME/.install-state"
+	note "kept your answers, cleared the progress markers"
+else
+	install -o 1000 -g 1000 -m 600 "$CONFIG" "$KEPT_CFG"
+fi
 
 
 ## Logs

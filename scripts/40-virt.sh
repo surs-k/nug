@@ -146,6 +146,22 @@ fi
 run "autostart default" $SUDO virsh net-autostart default
 
 
+## Kept
+
+	# Ai - VMs from the last install, their disks are already on @vms
+if stashed libvirt; then
+	DEFINED="$(capture $SUDO virsh list --all --name)"
+	for x in $($SUDO ls "$STASH/libvirt"); do
+		vm="${x%.xml}"
+		if contains "$DEFINED" "$vm"; then
+			note "VM $vm already defined"
+		else
+			soft "define VM $vm" $SUDO virsh define "$STASH/libvirt/$x"
+		fi
+	done
+fi
+
+
 ## Firewall
 
 if ip link show virbr0 &> /dev/null; then
