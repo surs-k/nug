@@ -151,14 +151,15 @@ run "autostart default" $SUDO virsh net-autostart default
 	# Ai - VMs from the last install, their disks are already on @vms
 if stashed libvirt; then
 	DEFINED="$(capture $SUDO virsh list --all --name)"
-	for x in $($SUDO ls "$STASH/libvirt"); do
+		# Ai - names can hold spaces, so this reads them a line at a time
+	while IFS= read -r x; do
 		vm="${x%.xml}"
 		if contains "$DEFINED" "$vm"; then
 			note "VM $vm already defined"
 		else
 			soft "define VM $vm" $SUDO virsh define "$STASH/libvirt/$x"
 		fi
-	done
+	done < <($SUDO ls "$STASH/libvirt")
 fi
 
 

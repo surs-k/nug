@@ -329,7 +329,19 @@ mountpoint -q /mnt/data-root || $SUDO mount /mnt/data-root
 	#      nofail on both lines, a missing drive never stops the PC booting
 if stashed backup/backup.key && ! $SUDO test -f /etc/cryptsetup-keys.d/backup.key; then
 	$SUDO install -D -m 600 "$STASH/backup/backup.key" /etc/cryptsetup-keys.d/backup.key
-	grep -q '^backup ' /etc/crypttab 2>/dev/null || $SUDO cat "$STASH/backup/crypttab" | $SUDO tee -a /etc/crypttab > /dev/null
+		# Ai - the stashed crypttab line first, and if it is empty the drive is
+		#      found by asking each LUKS partition whether the key opens it
+	if ! grep -q '^backup ' /etc/crypttab 2>/dev/null; then
+		$SUDO cat "$STASH/backup/crypttab" | $SUDO tee -a /etc/crypttab > /dev/null
+	fi
+	if ! grep -q '^backup ' /etc/crypttab; then
+		for dev in $($SUDO blkid -t TYPE=crypto_LUKS -o device); do
+			$SUDO cryptsetup open --test-passphrase --key-file /etc/cryptsetup-keys.d/backup.key "$dev" 2>/dev/null || continue
+			printf 'backup UUID=%s /etc/cryptsetup-keys.d/backup.key luks,nofail\n' \
+				"$($SUDO blkid -s UUID -o value "$dev")" | $SUDO tee -a /etc/crypttab > /dev/null
+			break
+		done
+	fi
 	grep -q ' /mnt/backup ' /etc/fstab || $SUDO cat "$STASH/backup/fstab" | $SUDO tee -a /etc/fstab > /dev/null
 	$SUDO mkdir -p /mnt/backup
 	run "reload systemd" $SUDO systemctl daemon-reload
