@@ -193,8 +193,9 @@ soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Ve
 	# Ai - krita for drawing, and the comfyui plugin has a home to be added to
 soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
 
-	# Ai - flatseal edits what each flatpak is allowed to touch
-soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
+	# Ai - flatseal edits what each flatpak is allowed to touch, the repo
+	#      package is the one the last install had
+pac flatseal
 
 
 #    Bluetooth
