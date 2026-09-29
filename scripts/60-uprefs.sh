@@ -54,7 +54,7 @@ section "Packages"
 	#      the laptop and connects to Sunshine on this PC, it was left here when
 	#      v6.0 moved it from the AUR to the official repo, which is why it
 	#      installed even with Sunshine turned off
-pac signal-desktop dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
+pac signal-desktop obsidian dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
 
 
 ## Keyring

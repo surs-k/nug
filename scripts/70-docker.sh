@@ -599,10 +599,8 @@ if contains "$WANT" "invidious"; then
 	check "invidious running"  container_up invidious
 fi
 
-	# Ai - a warning only, portainer stops itself when nobody sets a password
-if contains "$WANT" "portainer"; then
-	warn  "portainer running"  container_up portainer
-fi
+	# Ai - portainer is not checked, it starts off and stops itself until you
+	#      set a password, the todo above already tells you what to do
 
 if contains "$WANT" "jellyfin"; then
 	check "jellyfin running"   container_up jellyfin

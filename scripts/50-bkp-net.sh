@@ -333,7 +333,11 @@ if stashed backup/backup.key && ! $SUDO test -f /etc/cryptsetup-keys.d/backup.ke
 	grep -q ' /mnt/backup ' /etc/fstab || $SUDO cat "$STASH/backup/fstab" | $SUDO tee -a /etc/fstab > /dev/null
 	$SUDO mkdir -p /mnt/backup
 	run "reload systemd" $SUDO systemctl daemon-reload
-	soft "unlock backup drive" $SUDO systemctl start systemd-cryptsetup@backup.service
+		# Ai - the reload can unlock it by itself, so only a drive still locked
+		#      after the first try is reported
+	$SUDO systemctl start systemd-cryptsetup@backup.service &> /dev/null || true
+	$SUDO test -e /dev/mapper/backup \
+		|| soft "unlock backup drive" $SUDO systemctl start systemd-cryptsetup@backup.service
 	soft "mount backup drive"  $SUDO mount /mnt/backup
 fi
 
