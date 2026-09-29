@@ -116,7 +116,12 @@ soft "1password"      yay -S --needed --noconfirm 1password
 	#      the torproject.org copy is always current, and it is refreshed every
 	#      run, keys.openpgp.org returned an old one
 
-soft "fetch mullvad browser key" gpg --auto-locate-keys --locate-external-keys torbrowser@torproject.org
+MB_KEY=EF6E286DDA85EA2A4BA7DE684E2C6E8793298290
+
+try "mullvad browser key from torproject.org" \
+	gpg --auto-key-locate nodefault,wkd --locate-keys torbrowser@torproject.org \
+	|| soft "mullvad browser key from a keyserver" \
+		gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys "$MB_KEY"
 
 soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
 soft "vscodium"       yay -S --needed --noconfirm vscodium-bin
