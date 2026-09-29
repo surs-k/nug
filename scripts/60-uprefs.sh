@@ -111,18 +111,12 @@ fi
 ## Builds
 
 soft "1password"      yay -S --needed --noconfirm 1password
-	# Ai - the browser is signed by the Tor Browser developers key
-	#      yay asks the keyservers for it and they returned nothing, which
-	#      stopped the build, so it is fetched by fingerprint first
-MB_KEY=EF6E286DDA85EA2A4BA7DE684E2C6E8793298290
+	# Ai - the browser is signed by the Tor Browser developers key, and they
+	#      rotate its signing subkey, so an old copy fails with unknown key
+	#      the torproject.org copy is always current, and it is refreshed every
+	#      run, keys.openpgp.org returned an old one
 
-if gpg --list-keys "$MB_KEY" &> /dev/null; then
-	note "mullvad browser key already imported"
-else
-	run "fetch mullvad browser key" curl -fsSL -o /tmp/mullvad-browser.asc \
-		"https://keys.openpgp.org/vks/v1/by-fingerprint/$MB_KEY"
-	soft "import mullvad browser key" gpg --import /tmp/mullvad-browser.asc
-fi
+soft "fetch mullvad browser key" gpg --auto-locate-keys --locate-external-keys torbrowser@torproject.org
 
 soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
 soft "vscodium"       yay -S --needed --noconfirm vscodium-bin
@@ -193,9 +187,8 @@ soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Ve
 	# Ai - krita for drawing, and the comfyui plugin has a home to be added to
 soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
 
-	# Ai - flatseal edits what each flatpak is allowed to touch, the repo
-	#      package is the one the last install had
-pac flatseal
+	# Ai - flatseal edits what each flatpak is allowed to touch
+soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
 
 
 #    Bluetooth
