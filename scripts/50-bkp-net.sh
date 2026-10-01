@@ -351,6 +351,11 @@ if stashed backup/backup.key && ! $SUDO test -f /etc/cryptsetup-keys.d/backup.ke
 	$SUDO test -e /dev/mapper/backup \
 		|| soft "unlock backup drive" $SUDO systemctl start systemd-cryptsetup@backup.service
 	soft "mount backup drive"  $SUDO mount /mnt/backup
+
+		# Ai - with nothing mounted, btrbk would copy 250 GB onto the system
+		#      disk, an immutable folder refuses that, and the drive mounts
+		#      over it as normal
+	mountpoint -q /mnt/backup || $SUDO chattr +i /mnt/backup
 fi
 
 
