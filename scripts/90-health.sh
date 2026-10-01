@@ -282,8 +282,8 @@ fi
 
 {
 	printf 'Rebuild health  %s\n\n' "$(date '+%Y-%m-%d %H:%M')"
-	for o in "${OK[@]}";     do printf '  ok      %s\n' "$o"; done
-	for i in "${IDLE[@]}";   do printf '  off     %s\n' "$i"; done
+	for o in "${OK[@]}";     do printf '  %sok%s      %s\n' "$C_OK" "$C_OFF" "$o"; done
+	for i in "${IDLE[@]}";   do printf '  %soff%s     %s\n' "$C_FAIL" "$C_OFF" "$i"; done
 	for n in "${NOTES[@]}";  do printf '  note    %s\n' "$n"; done
 	for b in "${BROKEN[@]}"; do printf '  BROKEN  %s\n' "$b"; done
 } > "$REPORT"

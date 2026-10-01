@@ -561,7 +561,20 @@ if stashed packages.txt; then
 	if [[ -n "${MISSING// /}" ]]; then
 		todo "Packages from your last install that are not here now:
 $MISSING
-Install the ones you still want:  yay -S name"
+Install the ones you still want:  sudo pacman -S name
+(yay -S name only for the ones that are not in the repos)"
+	fi
+fi
+
+	# Ai - the stash has done its job once a run ends with nothing to retry
+	#      it holds passwords and keys, so it does not stay around
+	#      with a problem left it stays, a retry may still need it
+if stashed . ; then
+	if [[ -z "${RETRY//[[:space:]]/}" ]]; then
+		$SUDO rm -rf "$STASH"
+		note "stash used and removed, rebuild stash makes a new one"
+	else
+		note "stash kept for the retry, it is removed on the next clean run"
 	fi
 fi
 
