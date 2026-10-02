@@ -188,14 +188,45 @@ elif has "$WANT_ST" "searxng" || has "$WANT_ST" "all"; then
 fi
 
 
-	# Ai - backups actually ran
+	# Ai - backups actually arrived on the backup drive
+	#      the btrbk log is touched even by a run that failed, so with a backup
+	#      drive set up the newest copy on it is read instead, its name has the
+	#      date, and a drive that is not mounted is a problem on its own
 
-if [[ -f /var/log/btrbk.log ]]; then
+if grep -q ' /mnt/backup ' /etc/fstab 2>/dev/null; then
+	if ! mountpoint -q /mnt/backup; then
+		fail "Backups" "the backup drive is not mounted, nothing is being copied"
+	else
+		NEWEST="$(ls -1d /mnt/backup/@home.* 2>/dev/null | sort | tail -n 1 || true)"
+		if [[ -z "$NEWEST" ]]; then
+			fail "Backups" "nothing on the backup drive yet, try: sudo btrbk run"
+		else
+			STAMP="${NEWEST##*@home.}"
+			WHEN="$(date -d "${STAMP:0:4}-${STAMP:4:2}-${STAMP:6:2} ${STAMP:9:2}:${STAMP:11:2}" +%s 2>/dev/null || echo 0)"
+			AGE=$(( ( $(date +%s) - WHEN ) / 86400 ))
+			if (( WHEN == 0 )); then fail "Backups" "could not read the date of $NEWEST"
+			elif (( AGE <= 2 )); then pass "Backups"
+			else fail "Backups" "newest copy on the backup drive is $AGE days old"; fi
+		fi
+	fi
+elif [[ -f /var/log/btrbk.log ]]; then
 	AGE=$(( ( $(date +%s) - $(stat -c %Y /var/log/btrbk.log) ) / 86400 ))
 	if (( AGE <= 2 )); then pass "Backups"
 	else fail "Backups" "btrbk has not run in $AGE days"; fi
 else
 	fail "Backups" "btrbk has never run"
+fi
+
+
+	# Ai - the monthly copy to the external drive is done by hand, so its
+	#      date is a file the last step of that guide touches
+	#      a note after 4 weeks, a problem after 5, a popup is the last warning
+
+if [[ -f "$HOME/.rebuild/external-done" ]]; then
+	EXT_AGE=$(( ( $(date +%s) - $(stat -c %Y "$HOME/.rebuild/external-done") ) / 86400 ))
+	if (( EXT_AGE > 35 )); then fail "External backup" "last monthly copy was $EXT_AGE days ago"
+	elif (( EXT_AGE > 28 )); then aside "External backup" "monthly copy due, last one $EXT_AGE days ago"
+	else pass "External backup"; fi
 fi
 
 
