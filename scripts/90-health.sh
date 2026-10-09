@@ -55,6 +55,11 @@ fail() { BROKEN+=("$1: $2"); }
 	# Ai - worth knowing, nothing to fix here, never a popup
 aside() { NOTES+=("$1: $2"); }
 
+	# Ai - defined before asroot, which calls has when a command fails
+capture() { "$@" 2>&1 || true; }
+
+has() { [[ "$1" == *"$2"* ]]; }
+
 	# Ai - a check that needs root asks through the sudo rules 90-health writes
 	#      when a rule is missing, sudo says a password is required, and that
 	#      is reported once, instead of as two unrelated sounding problems
@@ -82,10 +87,6 @@ RUNNING=""
 asroot docker ps --format '{{.Names}}' && RUNNING="$ROOT_OUT"
 
 is_up() { [[ $'\n'"$RUNNING"$'\n' == *$'\n'"$1"$'\n'* ]]; }
-
-capture() { "$@" 2>&1 || true; }
-
-has() { [[ "$1" == *"$2"* ]]; }
 
 	# Ai - the answers from the install, read, never sourced
 answer() { sed -n "s/^$1=//p" "$HOME/.install-config" 2>/dev/null | tail -n 1; }
@@ -313,14 +314,21 @@ fi
 
 {
 	printf 'Rebuild health  %s\n\n' "$(date '+%Y-%m-%d %H:%M')"
-	for o in "${OK[@]}";     do printf '  %sok%s      %s\n' "$C_OK" "$C_OFF" "$o"; done
-	for i in "${IDLE[@]}";   do printf '  %soff%s     %s\n' "$C_FAIL" "$C_OFF" "$i"; done
+	for o in "${OK[@]}";     do printf '  ok      %s\n' "$o"; done
+	for i in "${IDLE[@]}";   do printf '  off     %s\n' "$i"; done
 	for n in "${NOTES[@]}";  do printf '  note    %s\n' "$n"; done
 	for b in "${BROKEN[@]}"; do printf '  BROKEN  %s\n' "$b"; done
 } > "$REPORT"
 
+	# Ai - the file stays plain text, the colour is added only on the way to a
+	#      terminal, this script is its own process and has no colour variables
 if (( QUIET == 0 )); then
-	cat "$REPORT"
+	if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+		sed -e $'s/^  ok      /  \033[32mok\033[0m      /' \
+			-e $'s/^  off     /  \033[31moff\033[0m     /' "$REPORT"
+	else
+		cat "$REPORT"
+	fi
 fi
 
 
