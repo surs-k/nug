@@ -194,32 +194,44 @@ run "reload systemd" $SUDO systemctl daemon-reload
 
 
 
-#    Unlock
+#    Power
 
 
-section "Unlock"
+section "Power"
 
-	# Ai - enrolment already happened during the install, where the passphrase
-	#      was in hand, so this only reports the outcome and never prompts
+	# Ai - the system disk is a USB SSD, and a USB disk that has to wake up
+	#      from sleep can drop off the bus, which leaves the root filesystem
+	#      unreachable and then read only, so this machine never sleeps
+	#      the lid and the sleep keys lock the screen or do nothing instead,
+	#      and the sleep targets are masked so nothing else can start one
 
-SB="$(capture bootctl status)"
+pac upower
 
-if contains "$SB" "Secure Boot: enabled"; then
-	note "Secure Boot is on, PCR 7 is meaningful"
-else
-	note "Secure Boot is off, TPM unlock is convenience only"
-fi
+$SUDO mkdir -p /etc/systemd/logind.conf.d
 
-ENROLLED="$(capture $SUDO cryptsetup luksDump /dev/disk/by-partlabel/cryptsystem)"
+$SUDO tee /etc/systemd/logind.conf.d/20-rebuild-laptop.conf > /dev/null << 'EOF'
+[Login]
+HandleLidSwitch=lock
+HandleLidSwitchExternalPower=lock
+HandleLidSwitchDocked=lock
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+EOF
 
-if contains "$ENROLLED" "systemd-tpm2"; then
-	note "TPM unlock is active, no boot passphrase needed"
-elif [[ ! -e /dev/tpmrm0 ]]; then
-	flag "no TPM device on this machine, the passphrase is required at boot"
-else
-	flag "TPM is not enrolled, the passphrase is required at boot"
-	flag "to enrol it later: sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/cryptsystem"
-fi
+run "mask sleep" $SUDO systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+
+	# Ai - a flat battery would cut the power in the middle of a write
+	#      UPower powers the laptop off cleanly at 5 percent instead, its
+	#      default is to hybrid sleep, which is masked above
+	#      the three levels have to stay in this order or UPower ignores them
+$SUDO sed -i \
+	-e 's/^PercentageLow=.*/PercentageLow=15/' \
+	-e 's/^PercentageCritical=.*/PercentageCritical=8/' \
+	-e 's/^PercentageAction=.*/PercentageAction=5/' \
+	-e 's/^CriticalPowerAction=.*/CriticalPowerAction=PowerOff/' \
+	/etc/UPower/UPower.conf
+
+run "enable upower" $SUDO systemctl enable upower.service
 
 
 
@@ -275,33 +287,6 @@ fi
 
 
 
-#    Yay
-
-
-section "Yay"
-
-if command -v yay > /dev/null; then
-	note "yay already installed"
-else
-	pac git base-devel
-
-	rm -rf /tmp/yay-bin
-
-	run "clone yay-bin" git clone --depth 1 https://aur.archlinux.org/yay-bin.git /tmp/yay-bin
-
-		# Ai - makepkg only builds here, it never calls sudo itself
-		#      its own sudo call asked for the password again mid stage, so the
-		#      install goes through the sudo this stage already unlocked
-		#      package work is visible anyway, so the build stays in the foreground
-	printf '\n  building yay-bin, this takes a minute\n\n'
-
-	( cd /tmp/yay-bin && makepkg --noconfirm )
-
-	run "install yay-bin" bash -c "$SUDO pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.zst"
-fi
-
-
-
 #    Verify
 
 
@@ -317,11 +302,12 @@ check "cmdline names /@" grep -q 'rootflags=subvol=/@' /etc/kernel/cmdline
 check "fstab / by name"  fstab_root_named /etc/fstab
 check "deploy hook"      test -f /etc/pacman.d/hooks/99-limine-deploy.hook
 check "menu tool"        test -x /usr/local/bin/limine-header-fix
-check "yay present"      command -v yay
+check "lid locks"        grep -q "^HandleLidSwitch=lock" /etc/systemd/logind.conf.d/20-rebuild-laptop.conf
+check "sleep masked"     sh -c 'systemctl is-enabled suspend.target 2>&1 | grep -q masked'
+check "power off at 5"   grep -q "^CriticalPowerAction=PowerOff" /etc/UPower/UPower.conf
 check "update helper"    test -x /usr/local/bin/rebuild-update
 check "rebuild command"  test -x /usr/local/bin/rebuild
 
-warn  "tpm2 enrolled"    sh -c 'sudo cryptsetup luksDump /dev/disk/by-partlabel/cryptsystem > /tmp/_lk; grep -q systemd-tpm2 /tmp/_lk'
 
 verify_done
 

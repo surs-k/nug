@@ -16,86 +16,44 @@ require_stage 10-base
 
 
 
-#    Firelink
-
-
-section "Firelink"
-
-	# Ai - one folder of shortcuts to everything that lives off the root disk
-
-mkdir -p "$HOME/firelink"
-
-ln -sfn /var/lib/libvirt/images "$HOME/firelink/vms"
-ln -sfn /var/lib/docker         "$HOME/firelink/docker"
-ln -sfn /home/ai                "$HOME/firelink/ai"
-ln -sfn /games                  "$HOME/firelink/games"
-
-for d in /games /home/ai; do
-	[[ -d "$d" ]] && $SUDO chown "$USERNAME:$USERNAME" "$d"
-done
-
-
-
 #    Graphics
 
 
 section "Graphics"
 
-	# Ai - lspci lives in pciutils, which was not installed until 60-uprefs
-	#      so this ran with no lspci at all, matched nothing, and quietly chose
-	#      mesa on a machine with an NVIDIA card in it
-pac pciutils
+	# Ai - the laptop only has to show a stream, so this is the open stack and
+	#      nothing else, no proprietary driver, no CUDA
+	#      a display controller is PCI class 03, and 0x8086 is Intel, 0x1002 AMD,
+	#      0x10de NVIDIA, read from sysfs so it needs no package to ask
+VENDORS=""
 
-	# Ai - sysfs is the fallback, 0x10de is NVIDIA's PCI vendor id
-	#      it needs no packages and cannot go missing
-VENDORS="$(capture cat /sys/bus/pci/devices/*/vendor)"
+for d in /sys/bus/pci/devices/*; do
+	[[ "$(cat "$d/class" 2>/dev/null || true)" == 0x03* ]] || continue
+	VENDORS+=" $(cat "$d/vendor" 2>/dev/null || true)"
+done
 
-	# Ai - capture then match
-	#      lspci | grep -q can take SIGPIPE and return 141, and under pipefail
-	#      that reads as failure, so the branch gets skipped exactly when it
-	#      should have run
-PCI="$(capture lspci)"
+pac mesa
 
-if contains "$PCI" "NVIDIA" || contains "$PCI" "nVidia" || contains "$VENDORS" "0x10de"; then
-
-	note "NVIDIA detected"
-
-	pac nvidia-open-dkms nvidia-utils linux-headers
-
-	$SUDO sed -i 's/^MODULES=.*/MODULES=(i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' \
-		/etc/mkinitcpio.conf
-
-		# Ai - wayland compositors need this, and so does sunshine later
-	if ! grep -q 'nvidia_drm.modeset=1' /etc/kernel/cmdline 2>/dev/null; then
-		$SUDO sed -i 's/$/ nvidia_drm.modeset=1/' /etc/kernel/cmdline
-		note "added nvidia_drm.modeset=1 to the kernel cmdline"
-	fi
-
-	run "rebuild initramfs" $SUDO mkinitcpio -P
-
-		# Ai - save_cfg only writes the file, the Verify block below reads the
-		#      variable, so on a first run it never saw yes and skipped the checks
-	HAS_NVIDIA=yes
-	save_cfg HAS_NVIDIA yes
-
-else
-		# Ai - mesa is the open driver stack for Intel and AMD
-		#      seeing this on a machine with an NVIDIA card means detection
-		#      failed, not that the card is unsupported
-	note "no NVIDIA card found, using mesa"
-	note "if this machine has an NVIDIA card, stop and say so"
-	pac mesa vulkan-icd-loader
-	HAS_NVIDIA=no
-	save_cfg HAS_NVIDIA no
+	# Ai - the video decoder is what makes a stream smooth on a laptop, without
+	#      it Moonlight decodes on the CPU and the fan never stops
+if contains "$VENDORS" "0x8086"; then
+	note "Intel graphics, video decoding on the GPU"
+	pac intel-media-driver
 fi
 
+if contains "$VENDORS" "0x1002"; then
+	note "AMD graphics"
+		# Ai - the decoder moved into mesa itself in newer releases, so this
+		#      package may not exist any more, and that is fine
+	if pacman -Si libva-mesa-driver &> /dev/null; then
+		pac libva-mesa-driver
+	fi
+fi
 
-## Menu
-
-	# Ai - the cmdline only reaches the boot menu when the menu is rewritten
-	#      before v7.0 that waited for 50-bkp-net, so the reboot right after
-	#      this stage started the NVIDIA driver without modeset
-run "update boot menu" $SUDO /usr/local/bin/limine-header-fix
+if contains "$VENDORS" "0x10de"; then
+	note "NVIDIA graphics found, the open driver is used"
+	note "the display runs on the Intel or AMD chip, which is plenty for a stream"
+fi
 
 
 
@@ -105,107 +63,84 @@ run "update boot menu" $SUDO /usr/local/bin/limine-header-fix
 section "Desktop"
 
 
-## Deps
+## Packages
 
-	# Ai - both of these were found missing mid install before, so they go first
-pac luarocks gobject-introspection archlinux-keyring
+	# Ai - a compositor, a terminal, a launcher, a lock screen and sound
+	#      nothing else, no bar, no notifications, no file manager
+pac hyprland kitty fuzzel hyprlock hypridle brightnessctl ttf-dejavu
+
+	# Ai - pipewire-jack is listed so the jack provider is already chosen, ffmpeg
+	#      depends on one and pacman would otherwise stop to ask which
+pac pipewire pipewire-pulse pipewire-jack wireplumber
+
+	# Ai - they start at login from now on, a stream with no sound is a bug
+soft "sound at login" systemctl --user enable pipewire.socket pipewire-pulse.socket wireplumber.service
 
 
-## Clone
+## Config
 
-if [[ -d "$HOME/HyDE" ]]; then
-	note "HyDE already cloned"
+	# Ai - the package's own example config is the base, so what Hyprland reads
+	#      is always valid for the version installed, and only a small block of
+	#      this machine's choices is added at the end
+	#      the example is a .lua or a .conf depending on the version, and the
+	#      block is written in whichever one it is
+	#      Hyprland takes hyprland.lua over hyprland.conf when both exist, so a
+	#      second file is never made beside the first
+HYPR="$HOME/.config/hypr"
+
+mkdir -p "$HYPR"
+
+CONF=""
+KIND=none
+
+if [[ -f "$HYPR/hyprland.lua" ]]; then
+	CONF="$HYPR/hyprland.lua"
+	KIND=lua
+elif [[ -f "$HYPR/hyprland.conf" ]]; then
+	CONF="$HYPR/hyprland.conf"
+	KIND=conf
 else
-	run "clone HyDE" git clone --depth 1 https://github.com/HyDE-Project/HyDE "$HOME/HyDE"
+	for f in /usr/share/hypr/hyprland.lua /usr/share/hypr/hyprland.conf; do
+		if [[ -f "$f" ]]; then
+			CONF="$HYPR/$(basename "$f")"
+			KIND="${f##*.}"
+			cp "$f" "$CONF"
+			note "base config copied from $f"
+			break
+		fi
+	done
 fi
 
-
-## Install
-
-	# Ai - this one stays loud, it is long and silence looks like a hang
-printf '\n  HyDE installer starts now. This takes a while.\n\n'
-
-( cd "$HOME/HyDE/Scripts" && ./install.sh -n )
-
-
-## Kept
-
-	# Ai - HyDE's installer may overwrite your Hyprland config on a kept home
-	#      the stashed copy is compared, and every file it changed goes back
-if stashed hypr; then
-	CHANGED="$($SUDO diff -rq "$STASH/hypr" "$HOME/.config/hypr" 2>/dev/null | grep -v "^Only in $HOME" || true)"
-	if [[ -n "$CHANGED" ]]; then
-		$SUDO cp -a "$STASH/hypr/." "$HOME/.config/hypr/"
-		$SUDO chown -R "$USERNAME:$USERNAME" "$HOME/.config/hypr"
-		COUNT="$(printf '%s\n' "$CHANGED" | wc -l)"
-		aside "HyDE changed $COUNT of your Hyprland files, your versions were put back"
-		printf '%s\n' "$CHANGED" >&3
-	else
-		note "HyDE left your Hyprland config alone"
-	fi
+if [[ "$KIND" == none ]]; then
+	flag "the package ships no example config, so no keys or layout were added"
+	flag "Hyprland writes its own on first start, the layout still comes from the profile below"
 fi
 
+[[ -z "$CONF" ]] || [[ -f "$CONF.bak-rebuild" ]] || cp "$CONF" "$CONF.bak-rebuild"
 
 
-#    Repos
+## Block
 
-
-section "Repos"
-
-if [[ "${WANT_CHAOTIC_REMOVE:-no}" == yes ]] && grep -q '\[chaotic-aur\]' /etc/pacman.conf; then
-	$SUDO sed -i '/\[chaotic-aur\]/,+1d' /etc/pacman.conf
-	soft "remove chaotic keyring" $SUDO pacman -Rns --noconfirm chaotic-keyring chaotic-mirrorlist
-	run  "resync repos" $SUDO pacman -Syu --noconfirm
-else
-	note "leaving chaotic-aur alone"
+	# Ai - one block between two marker lines, replaced whole on every run, so
+	#      a rerun never writes it twice
+	#      terminal on SUPER + Return, launcher on SUPER + R, lock on SUPER + L,
+	#      and SUPER + P opens your PC's screen
+	#      SUPER + R and SUPER + P are taken in the example, so they are freed
+	#      first
+	#      hypridle is started here, with a check, because this file is read
+	#      again on every reload and a second copy would fight the first
+	# Ai - a file that does not end in a newline would have its last line joined
+	#      to the first line of the block
+if [[ -n "$CONF" && -n "$(tail -c 1 "$CONF")" ]]; then
+	printf '\n' >> "$CONF"
 fi
 
+if [[ "$KIND" == lua ]]; then
 
+	sed -i '/^-- rebuild laptop start$/,/^-- rebuild laptop end$/d' "$CONF"
 
-#    Keyboard
-
-
-section "Keyboard"
-
-	# Ai - hyprland.lua is what Hyprland actually reads on this machine
-	#      it writes that file itself at first launch and then ignores
-	#      hyprland.conf entirely, which is why every .conf edit did nothing
-	#      the layout goes in the lua, and nothing here touches .conf again
-
-LUA="$HOME/.config/hypr/hyprland.lua"
-
-mkdir -p "$(dirname "$LUA")"
-
-
-## Restore
-
-	# Ai - an earlier version renamed this file aside, put it back as the base
-if [[ ! -f "$LUA" && -f "$LUA.disabled" ]]; then
-	mv "$LUA.disabled" "$LUA"
-	note "restored hyprland.lua, an earlier version had moved it aside"
-fi
-
-touch "$LUA"
-
-
-## Console
-
-printf 'KEYMAP=%s\n' "$KEYMAP" | $SUDO tee /etc/vconsole.conf > /dev/null
-
-soft "apply console keymap" $SUDO loadkeys "$KEYMAP"
-
-soft "set x11 keymap" $SUDO localectl --no-convert set-x11-keymap us pc105 "$KEYMAP"
-
-	# Ai - the passphrase prompt at boot comes from the initramfs
-run "rebuild initramfs" $SUDO mkinitcpio -P
-
-
-## Desktop
-
-sed -i '/^-- rebuild keyboard start$/,/^-- rebuild keyboard end$/d' "$LUA"
-
-cat >> "$LUA" << LUAEOF
--- rebuild keyboard start
+	cat >> "$CONF" << LUAEOF
+-- rebuild laptop start
 
 hl.config({
   input = {
@@ -214,69 +149,156 @@ hl.config({
   }
 })
 
--- rebuild keyboard end
+hl.unbind("SUPER + R")
+hl.unbind("SUPER + P")
+
+hl.bind("SUPER + Return", hl.dsp.exec_cmd("kitty"), { description = "[Laptop] terminal" })
+hl.bind("SUPER + R", hl.dsp.exec_cmd("fuzzel"), { description = "[Laptop] launcher" })
+hl.bind("SUPER + L", hl.dsp.exec_cmd("hyprlock"), { description = "[Laptop] lock" })
+hl.bind("SUPER + P", hl.dsp.exec_cmd("kitty -e pc view"), { description = "[Laptop] your PC screen" })
+
+hl.exec_cmd("pgrep -x hypridle > /dev/null || hypridle")
+
+-- rebuild laptop end
 LUAEOF
 
-note "colemak written to hyprland.lua"
+	note "laptop block written to hyprland.lua"
 
+elif [[ "$KIND" == conf ]]; then
 
-## Command
+	sed -i '/^# rebuild laptop start$/,/^# rebuild laptop end$/d' "$CONF"
 
-	# Ai - one short word to put the layout back
-	#      when this breaks you cannot type, and every fix so far has been a
-	#      paragraph of qwerty guesswork
-$SUDO tee /usr/local/bin/kbfix > /dev/null << KBEOF
-#!/usr/bin/env bash
-set -euo pipefail
+	cat >> "$CONF" << CONFEOF
+# rebuild laptop start
 
-LUA="\$HOME/.config/hypr/hyprland.lua"
+input {
+    kb_layout = us
+    kb_variant = $KEYMAP
+}
 
-mkdir -p "\$(dirname "\$LUA")"
-touch "\$LUA"
+unbind = SUPER, R
+unbind = SUPER, P
 
-sed -i '/^-- rebuild keyboard start\$/,/^-- rebuild keyboard end\$/d' "\$LUA"
+bind = SUPER, Return, exec, kitty
+bind = SUPER, R, exec, fuzzel
+bind = SUPER, L, exec, hyprlock
+bind = SUPER, P, exec, kitty -e pc view
 
-cat >> "\$LUA" << 'INNER'
--- rebuild keyboard start
+exec-once = hypridle
 
-hl.config({
-  input = {
-    kb_layout = "us",
-    kb_variant = "$KEYMAP"
-  }
-})
+# rebuild laptop end
+CONFEOF
 
--- rebuild keyboard end
-INNER
-
-hyprctl reload 2>/dev/null || true
-
-printf 'keyboard set to $KEYMAP\n'
-printf 'if it did not take, log out and back in\n'
-KBEOF
-
-$SUDO chmod 755 /usr/local/bin/kbfix
-
-note "if the layout ever breaks again, type: kbfix"
-
-
-## Greeter
-
-$SUDO mkdir -p /etc/sddm.conf.d/hypr
-
-if [[ -f /etc/sddm.conf.d/hypr/sddm-hyprland.conf ]]; then
-	grep -q kb_variant /etc/sddm.conf.d/hypr/sddm-hyprland.conf \
-		|| $SUDO sed -i "/kb_layout/a\\    kb_variant = $KEYMAP" \
-			/etc/sddm.conf.d/hypr/sddm-hyprland.conf
-	note "login screen set to $KEYMAP"
+	note "laptop block written to hyprland.conf"
 fi
 
 
-## Live
+## Lock
 
-if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-	soft "reload hyprland" hyprctl reload
+	# Ai - written only when missing, so any change you make later stays
+	#      five minutes idle locks, a minute after that the screen goes dark
+	#      the lid does the same through logind, which tells hypridle to lock
+	#      there is no sleep step, the SSD must never sleep, see 10-base
+if [[ -f "$HYPR/hypridle.conf" ]]; then
+	note "hypridle config already there, left as it is"
+else
+	cat > "$HYPR/hypridle.conf" << 'EOF'
+general {
+    lock_cmd = pidof hyprlock || hyprlock
+    before_sleep_cmd = loginctl lock-session
+    after_sleep_cmd = hyprctl dispatch dpms on
+}
+
+listener {
+    timeout = 300
+    on-timeout = loginctl lock-session
+}
+
+listener {
+    timeout = 360
+    on-timeout = hyprctl dispatch dpms off
+    on-resume = hyprctl dispatch dpms on
+}
+EOF
+	note "hypridle config written"
 fi
+
+if [[ -f "$HYPR/hyprlock.conf" ]]; then
+	note "hyprlock config already there, left as it is"
+else
+	cat > "$HYPR/hyprlock.conf" << 'EOF'
+general {
+    hide_cursor = true
+    grace = 0
+}
+
+background {
+    monitor =
+    color = rgba(0, 0, 0, 1.0)
+}
+
+input-field {
+    monitor =
+    size = 300, 50
+    outline_thickness = 2
+    dots_size = 0.25
+    fade_on_empty = true
+    hide_input = false
+    position = 0, 0
+    halign = center
+    valign = center
+}
+EOF
+	note "hyprlock config written"
+fi
+
+
+
+#    Login
+
+
+section "Login"
+
+	# Ai - the disk passphrase is already typed at every boot, so a second
+	#      password to reach the desktop only slows a cold start, the lock
+	#      screen is what guards a machine that is already on
+	#      agetty logs the user in on the first console, and that login starts
+	#      Hyprland
+	#      ~/.no-desktop stops it, for the day the desktop will not start and
+	#      the login loops, the second console (Ctrl+Alt+F2) is always plain
+$SUDO mkdir -p /etc/systemd/system/getty@tty1.service.d
+
+$SUDO tee /etc/systemd/system/getty@tty1.service.d/autologin.conf > /dev/null << EOF
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/agetty --autologin $USERNAME --noclear %I \$TERM
+EOF
+
+run "reload systemd" $SUDO systemctl daemon-reload
+
+
+## Profile
+
+	# Ai - the layout is also given as environment, Hyprland falls back to it
+	#      for anything its config leaves empty, so the keys are right even if
+	#      the block above could not be written
+PROFILE="$HOME/.bash_profile"
+
+touch "$PROFILE"
+
+sed -i '/^# rebuild desktop start$/,/^# rebuild desktop end$/d' "$PROFILE"
+
+cat >> "$PROFILE" << EOF
+# rebuild desktop start
+export XKB_DEFAULT_LAYOUT=us
+export XKB_DEFAULT_VARIANT=$KEYMAP
+if [[ -z "\${WAYLAND_DISPLAY:-}" && "\${XDG_VTNR:-0}" == 1 && ! -e "\$HOME/.no-desktop" ]]; then
+	exec Hyprland
+fi
+# rebuild desktop end
+EOF
+
+note "Hyprland starts at login on the first console"
 
 
 
@@ -285,29 +307,27 @@ fi
 
 section "Verify"
 
-check "hyde config dir"   test -d "$HOME/.config/hypr"
-check "hyprland present"  command -v Hyprland
-check "firelink"          test -d "$HOME/firelink"
-check "console keymap"    grep -q "$KEYMAP" /etc/vconsole.conf
-check "lua keymap"        grep -q 'kb_variant' "$HOME/.config/hypr/hyprland.lua"
-check "kbfix command"     test -x /usr/local/bin/kbfix
+check "hyprland"          command -v Hyprland
+check "kitty"             command -v kitty
+check "fuzzel"            command -v fuzzel
+check "hyprlock"          command -v hyprlock
+check "hypridle"          command -v hypridle
+check "brightnessctl"     command -v brightnessctl
+check "idle config"       test -f "$HYPR/hypridle.conf"
+check "lock config"       test -f "$HYPR/hyprlock.conf"
+check "autologin"         test -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
+check "desktop at login"  grep -q 'rebuild desktop start' "$PROFILE"
+check "layout in profile" grep -q "XKB_DEFAULT_VARIANT=$KEYMAP" "$PROFILE"
 
-	# Ai - the file being right proves nothing, this asks hyprland itself
-if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-	warn "layout live" sh -c "hyprctl getoption input:kb_variant | grep -q $KEYMAP"
+if [[ "$KIND" != none ]]; then
+	check "layout in config" grep -q "$KEYMAP" "$CONF"
 fi
 
-if [[ "${HAS_NVIDIA:-no}" == yes ]]; then
-	check "nvidia driver"  pacman -Qq nvidia-open-dkms
-	check "modeset in cmdline" grep -q 'nvidia_drm.modeset=1' /etc/kernel/cmdline
-	check "modeset in menu"    grep -q 'nvidia_drm.modeset=1' /boot/limine.conf
+	# Ai - only asked of a Hyprland that knows the flag, a version without it
+	#      would start the compositor instead of reading the file
+if [[ "$KIND" != none ]] && Hyprland --help 2>&1 | grep -q -- '--verify-config'; then
+	warn "config accepted" Hyprland --verify-config -c "$CONF"
 fi
-
-	# Ai - this stage ends in the one reboot of the run, so the menu is proven
-	#      right before it rather than after
-check "menu starts alone" $SUDO /usr/local/bin/limine-header-fix --check
-
-warn  "sddm enabled"      systemctl is-enabled sddm
 
 verify_done
 
@@ -320,4 +340,10 @@ stage_done
 
 section "End"
 
-printf '  Desktop installed.\n\n'
+printf '  Desktop installed. It starts by itself at the next boot.\n\n'
+printf '    SUPER + Return   terminal\n'
+printf '    SUPER + R        launcher\n'
+printf '    SUPER + L        lock\n'
+printf '    SUPER + P        your PC screen\n\n'
+printf '  If the screen stays black: Ctrl+Alt+F2, log in, then\n\n'
+printf '    touch ~/.no-desktop\n\n'

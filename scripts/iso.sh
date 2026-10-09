@@ -38,7 +38,7 @@ fi
 
 mountpoint -q /mnt && umount -R /mnt
 
-for m in cryptsystem cryptdata; do
+for m in cryptsystem; do
 	if [[ -e "/dev/mapper/$m" ]]; then
 		cryptsetup close "$m" 2>/dev/null || true
 		note "closed a leftover $m from an earlier attempt"
@@ -55,6 +55,47 @@ timedatectl set-ntp true
 
 
 ## Network
+
+	# Ai - a laptop usually has Wi-Fi only, and the installer does not join it
+	#      by itself, so when there is no way out yet it is asked for here
+	#      iwctl asks for the passphrase itself, so it never appears in a command
+	#      line, and an empty name skips this and goes on to the retry below
+
+wifi_device() {
+	local d
+	for d in /sys/class/net/*/wireless; do
+		[[ -d "$d" ]] && { basename "$(dirname "$d")"; return 0; }
+	done
+	return 1
+}
+
+join_wifi() {
+	local dev ssid
+
+	dev="$(wifi_device)" || return 0
+
+	act_next
+	act_line "No network yet. Join your Wi-Fi."
+	act_line ""
+
+	iwctl station "$dev" scan > /dev/null 2>&1 || true
+	sleep 3
+	iwctl station "$dev" get-networks 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | act_feed || true
+	act_line ""
+
+	while true; do
+		ssid="$(ask 'Wi-Fi name, empty to skip')"
+		[[ -n "$ssid" ]] || return 0
+		iwctl station "$dev" connect "$ssid" && break
+		act_line "Did not connect, try again."
+	done
+
+	sleep 3
+}
+
+if ! online &> /dev/null; then
+	join_wifi
+fi
 
 retry online
 
@@ -74,65 +115,45 @@ fi
 export USERNAME
 
 
-## Disks
+## Disk
 
-	# Ai - the listing goes inside the block, so the thing you need and the
-	#      thing you need it for are not separated by a border
+	# Ai - one disk, the external SSD, and everything on it is erased
+	#      the installer USB is found and never accepted, erasing it would erase
+	#      the thing this install is running from
 	#      the wipe is confirmed right here, while the choice is still on screen
-	#      it used to come after the passwords, so a wrong disk meant typing
-	#      six passwords first and then starting the script over
-	#      anything but YES asks for the disks again
+	#      anything but YES asks for the disk again
 
-	# Ai - keep leaves the data disk as it is, your home, services, VMs and
-	#      games carry over, and only the system disk is rebuilt
-	#      rebuild stash, run on the old install, saved what lives on the
-	#      system disk into your home, and the stages put it back
-act_next big
-act_line "Keep the data disk from your last install?"
-act_line "Yes keeps your files and settings. No erases both disks."
-act_line ""
-if yesno "Keep the data disk" n; then
-	KEEP_DATA=yes
-else
-	KEEP_DATA=no
+LIVE_SRC="$(findmnt -no SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
+LIVE_DISK=""
+
+if [[ -n "$LIVE_SRC" ]]; then
+	LIVE_PARENT="$(lsblk -no PKNAME "$LIVE_SRC" 2>/dev/null | head -n 1 || true)"
+	LIVE_DISK="/dev/${LIVE_PARENT:-${LIVE_SRC#/dev/}}"
 fi
 
 while true; do
 	act_next big
-	if [[ "$KEEP_DATA" == yes ]]; then
-		act_line "Pick the two disks. ONLY THE SYSTEM DISK IS ERASED."
-	else
-		act_line "Pick the two disks. BOTH ARE COMPLETELY ERASED."
-	fi
+	act_line "Pick the SSD. IT IS COMPLETELY ERASED."
 	act_line ""
-	lsblk -o NAME,SIZE,MODEL,TYPE,MOUNTPOINTS | act_feed
+	lsblk -o NAME,SIZE,MODEL,TRAN,TYPE,MOUNTPOINTS | act_feed
 	act_line ""
-
-	SYSTEM_DISK="$(pick_disk 'System disk: ')"
-	DATA_DISK="$(pick_disk 'Data disk: ')"
-
-	if [[ "$SYSTEM_DISK" == "$DATA_DISK" ]]; then
+	if [[ -n "$LIVE_DISK" ]]; then
+		act_line "The installer USB is $LIVE_DISK, it cannot be picked."
 		act_line ""
-		act_line "That is the same disk twice, pick two different ones."
-		continue
 	fi
 
-		# Ai - a kept disk has to already be one of ours, or it is the wrong disk
-	if [[ "$KEEP_DATA" == yes ]] && ! cryptsetup isLuks "$(partname "$DATA_DISK" 1)" 2>/dev/null; then
+	SYSTEM_DISK="$(pick_disk 'SSD: ')"
+
+	if [[ -n "$LIVE_DISK" && "$SYSTEM_DISK" == "$LIVE_DISK" ]]; then
 		act_line ""
-		act_line "$DATA_DISK has no encrypted data partition, it is not your old data disk."
+		act_line "That is the installer USB, pick the SSD."
 		continue
 	fi
 
 	act_next
 	act_line "Check this, then type YES."
 	act_line ""
-	act_line "system disk  $SYSTEM_DISK  $(lsblk -dno SIZE "$SYSTEM_DISK")  WILL BE WIPED"
-	if [[ "$KEEP_DATA" == yes ]]; then
-		act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  kept as it is"
-	else
-		act_line "data disk    $DATA_DISK  $(lsblk -dno SIZE "$DATA_DISK")  WILL BE WIPED"
-	fi
+	act_line "SSD  $SYSTEM_DISK  $(lsblk -dno SIZE "$SYSTEM_DISK")  $(lsblk -dno MODEL "$SYSTEM_DISK")  WILL BE WIPED"
 	act_line ""
 
 	confirmed "Type YES to go ahead, anything else to pick again" && break
@@ -142,25 +163,17 @@ while true; do
 done
 
 require_disk "$SYSTEM_DISK"
-require_disk "$DATA_DISK"
 
 
 ## Passwords
 
 act_next big
-if [[ "$KEEP_DATA" == yes ]]; then
-	act_text "Set three passwords, each typed twice.
+act_text "Set three passwords, each typed twice.
 
-The disk passphrase must be the one your data disk already has.
-The new system disk gets the same one."
-else
-	act_text "Set three passwords, each typed twice.
-
-The disk passphrase unlocks both disks. You set it once."
-fi
+The disk passphrase is asked at every boot, pick one you can type quickly."
 act_line ""
 
-LUKS_PASS="$(secret_twice 'Disk passphrase, both disks')"
+LUKS_PASS="$(secret_twice 'Disk passphrase')"
 
 act_next
 
@@ -182,34 +195,30 @@ note "Hands off from here."
 section "Partitions"
 
 
-## System
+## Disk
 
-run "wipe system disk"  sgdisk --zap-all "$SYSTEM_DISK"
-run "efi partition"     sgdisk -n1:0:+4G -t1:EF00 -c1:"EFI"         "$SYSTEM_DISK"
+	# Ai - 1 GiB is the boot partition, the kernel and its initramfs and
+	#      nothing else, there are no snapshot boot entries on this machine
+
+run "wipe the SSD"      sgdisk --zap-all "$SYSTEM_DISK"
+run "efi partition"     sgdisk -n1:0:+1G -t1:EF00 -c1:"EFI"         "$SYSTEM_DISK"
 run "root partition"    sgdisk -n2:0:0   -t2:8300 -c2:"cryptsystem" "$SYSTEM_DISK"
 
-
-## Data
-
-if [[ "$KEEP_DATA" == no ]]; then
-	run "wipe data disk"    sgdisk --zap-all "$DATA_DISK"
-	run "data partition"    sgdisk -n1:0:0   -t1:8300 -c1:"cryptdata"   "$DATA_DISK"
-fi
-
-run "reread tables"     partprobe "$SYSTEM_DISK" "$DATA_DISK"
+run "reread table"      partprobe "$SYSTEM_DISK"
 
 
 ## Names
 
 SYS_ESP="$(partname "$SYSTEM_DISK" 1)"
 SYS_ROOT="$(partname "$SYSTEM_DISK" 2)"
-DATA_PART="$(partname "$DATA_DISK" 1)"
 
 udevadm settle
 
 wait_for 10 test -b "$SYS_ESP"
 wait_for 10 test -b "$SYS_ROOT"
-wait_for 10 test -b "$DATA_PART"
+
+	# Ai - an old install on the SSD leaves signatures inside the new partitions
+run "clear old signatures" wipefs --all "$SYS_ESP" "$SYS_ROOT"
 
 
 
@@ -218,8 +227,8 @@ wait_for 10 test -b "$DATA_PART"
 
 section "Encrypt"
 
-	# Ai - one passphrase unlocks both disks
-	#      it goes to a file on /run, which is a tmpfs and never touches a disk
+	# Ai - the passphrase goes to a file on /run, which is a tmpfs and never
+	#      touches a disk
 	#      not on stdin, because a backgrounded job cannot reliably inherit a pipe
 	#      not as an argument, because arguments are visible in the process table
 
@@ -236,10 +245,7 @@ KEYSUM="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
 	#      left to benchmark, luksFormat sizes the cost against whatever RAM is
 	#      free at that instant, and every later unlock has to allocate that same
 	#      amount again
-	#      the second disk is formatted after the first one is already open, so it
-	#      can be handed a cost the machine can no longer satisfy, and a keyslot
-	#      that cannot be derived reads as a wrong passphrase
-	#      256 MiB is strong for a disk passphrase and fits any machine you will
+	#      256 MiB is strong for a disk passphrase and fits any laptop you will
 	#      run this on, including a small test VM
 
 LUKSFMT=(
@@ -262,7 +268,7 @@ keyguard() {
 }
 
 
-## Disks
+## Disk
 
 encrypt_disk() {
 	local part=$1 name=$2
@@ -280,15 +286,6 @@ encrypt_disk() {
 
 encrypt_disk "$SYS_ROOT"  cryptsystem
 
-if [[ "$KEEP_DATA" == yes ]]; then
-		# Ai - a wrong passphrase stops here, before anything is written
-	keyguard
-	run "open kept data disk" cryptsetup open --batch-mode --key-file "$KEYTMP" "$DATA_PART" cryptdata \
-		|| { WHY="the passphrase does not open the data disk, it has to be the old one"; exit 1; }
-else
-	encrypt_disk "$DATA_PART" cryptdata
-fi
-
 
 
 #    Filesystems
@@ -301,35 +298,19 @@ section "Filesystems"
 
 run "format esp"         mkfs.fat -F32 "$SYS_ESP"
 run "format system"      mkfs.btrfs -f -L system /dev/mapper/cryptsystem
-[[ "$KEEP_DATA" == no ]] && run "format data" mkfs.btrfs -f -L data /dev/mapper/cryptdata
 
 
-## System subvols
+## Subvols
 
 	# Ai - @snapshots is a sibling of @, never nested inside it
 	#      nested snapshots are destroyed by their own rollback
+	#      @home is its own subvolume, so rolling the system back never touches
+	#      your files
 run "mount system top"   mount /dev/mapper/cryptsystem /mnt
 run "create @"           btrfs subvolume create /mnt/@
 run "create @snapshots"  btrfs subvolume create /mnt/@snapshots
+run "create @home"       btrfs subvolume create /mnt/@home
 run "unmount system top" umount /mnt
-
-
-## Data subvols
-
-	# Ai - on a kept disk the subvolumes are already there, only a missing one
-	#      is made, so nothing that exists is touched
-	#      modding is its own subvolume inside @games, so btrbk backs up the
-	#      mods while the games themselves are left to Steam
-run "mount data top"     mount /dev/mapper/cryptdata /mnt
-for sv in @home @games @vms @docker @ai; do
-	if [[ -d "/mnt/$sv" ]]; then
-		note "$sv kept"
-	else
-		run "create $sv" btrfs subvolume create "/mnt/$sv"
-	fi
-done
-[[ -d /mnt/@games/modding ]] || run "create modding" btrfs subvolume create /mnt/@games/modding
-run "unmount data top"   umount /mnt
 
 
 ## Mount
@@ -342,24 +323,7 @@ mount --mkdir -o "$OPTS,subvol=@snapshots" /dev/mapper/cryptsystem /mnt/.snapsho
 
 mount --mkdir "$SYS_ESP" /mnt/boot
 
-mount --mkdir -o "$OPTS,subvol=@home"  /dev/mapper/cryptdata /mnt/home
-mount --mkdir -o "$OPTS,subvol=@games" /dev/mapper/cryptdata /mnt/games
-
-	# Ai - vm images get no copy on write and no compression
-mkdir -p /mnt/var/lib/libvirt/images
-mount -o noatime,subvol=@vms /dev/mapper/cryptdata /mnt/var/lib/libvirt/images
-chattr +C /mnt/var/lib/libvirt/images
-
-mkdir -p /mnt/var/lib/docker
-mount -o "$OPTS,subvol=@docker" /dev/mapper/cryptdata /mnt/var/lib/docker
-
-mkdir -p /mnt/home/ai
-mount -o "$OPTS,subvol=@ai" /dev/mapper/cryptdata /mnt/home/ai
-
-	# Ai - the whole data disk gets an fstab entry in 50-bkp-net so btrbk can
-	#      snapshot @home, it is deliberately not mounted here because genfstab
-	#      would record it without nofail and a missing data disk would then
-	#      stop the machine booting at all
+mount --mkdir -o "$OPTS,subvol=@home" /dev/mapper/cryptsystem /mnt/home
 
 findmnt -R /mnt >&3
 
@@ -390,6 +354,23 @@ sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
 run "refresh package db"  pacman -Sy --noconfirm
 
 soft "update keyring"     pacman -S --noconfirm --needed archlinux-keyring
+
+
+## Microcode
+
+	# Ai - the CPU decides which package, an Intel one is no use on an AMD chip
+UCODE=""
+
+case "$(sed -n 's/^vendor_id[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | head -n 1)" in
+	GenuineIntel) UCODE=intel-ucode ;;
+	AuthenticAMD) UCODE=amd-ucode ;;
+esac
+
+if [[ -n "$UCODE" ]]; then
+	note "microcode: $UCODE"
+else
+	note "unknown CPU vendor, no microcode package"
+fi
 
 
 ## Base
@@ -424,15 +405,15 @@ pacstrap_retry() {
 	done
 }
 
-pacstrap_retry base linux linux-firmware intel-ucode
+pacstrap_retry base linux linux-firmware ${UCODE:+"$UCODE"}
 
-pacstrap_retry btrfs-progs cryptsetup networkmanager sudo base-devel git
+pacstrap_retry btrfs-progs cryptsetup networkmanager wpa_supplicant wireless-regdb sudo git
 
-pacstrap_retry zram-generator snapper snap-pac tpm2-tools
+pacstrap_retry zram-generator snapper snap-pac
 
 pacstrap_retry limine efibootmgr dosfstools mtools
 
-pacstrap_retry nano vim bash-completion openssh gobject-introspection reflector
+pacstrap_retry nano bash-completion openssh reflector
 
 
 ## Fstab
@@ -486,9 +467,16 @@ EOF
 
 ## Hooks
 
+	# Ai - no autodetect, so the initramfs carries every storage and USB driver
+	#      autodetect keeps only what the machine it was built on uses, and an
+	#      SSD that is moved to another port or another laptop then fails to boot
+	#      no kms either, the passphrase prompt is text and needs no graphics
+	#      one image is enough, with no autodetect it is already the generic one
 arch-chroot /mnt sed -i \
-	's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)/' \
+	's/^HOOKS=.*/HOOKS=(base systemd microcode modconf keyboard sd-vconsole block sd-encrypt filesystems fsck)/' \
 	/etc/mkinitcpio.conf
+
+arch-chroot /mnt sed -i "s/^PRESETS=.*/PRESETS=('default')/" /etc/mkinitcpio.d/linux.preset
 
 run "build initramfs" arch-chroot /mnt mkinitcpio -P
 
@@ -539,49 +527,14 @@ run "check sudo rules" arch-chroot /mnt visudo -c -f /etc/sudoers.d/10-wheel
 section "Bootloader"
 
 
-## Keyfile
-
-	# Ai - the data disk gets a second key, a random file on the encrypted
-	#      system disk, so it unlocks at boot without a second passphrase
-	#      added from the ISO rather than inside the chroot, so it uses the
-	#      same cryptsetup and the same key file that formatted the disk
-install -d -m 700 /mnt/etc/cryptsetup-keys.d
-
-dd if=/dev/urandom of=/mnt/etc/cryptsetup-keys.d/data.key bs=1024 count=4 status=none
-
-chmod 600 /mnt/etc/cryptsetup-keys.d/data.key
-
-keyguard
-
-run "add data disk key" cryptsetup luksAddKey --key-file "$KEYTMP" \
-	"$DATA_PART" /mnt/etc/cryptsetup-keys.d/data.key
-
-	# Ai - a kept disk still holds the key file of the install being replaced,
-	#      which no longer exists anywhere, and every reinstall would add one
-	#      more, so only the passphrase slot and the new key file are kept
-if [[ "$KEEP_DATA" == yes ]]; then
-	PASS_SLOT="$(cryptsetup open --test-passphrase -v --key-file "$KEYTMP" "$DATA_PART" 2>&1 | sed -n 's/^Key slot \([0-9]*\) unlocked.*/\1/p')"
-	NEW_SLOT="$(cryptsetup open --test-passphrase -v --key-file /mnt/etc/cryptsetup-keys.d/data.key "$DATA_PART" 2>&1 | sed -n 's/^Key slot \([0-9]*\) unlocked.*/\1/p')"
-
-	if [[ -n "$PASS_SLOT" && -n "$NEW_SLOT" ]]; then
-		for slot in $(cryptsetup luksDump "$DATA_PART" | sed -n 's/^  \([0-9]*\): luks2$/\1/p'); do
-			[[ "$slot" == "$PASS_SLOT" || "$slot" == "$NEW_SLOT" ]] && continue
-			soft "remove old key slot $slot" cryptsetup luksKillSlot --batch-mode --key-file "$KEYTMP" "$DATA_PART" "$slot"
-		done
-	else
-		flag "could not tell the key slots apart, old data disk keys were left in place"
-	fi
-fi
-
-
 ## Setup
 
+	# Ai - no TPM on this machine, the SSD can move between laptops and a key
+	#      sealed to one TPM only opens it in that one, the passphrase is the key
+	#      efibootmgr is allowed to fail, some laptops refuse a boot entry for a
+	#      USB disk, and the fallback path below boots without one
 cat > /mnt/root/_setup.sh << CHROOTEOF
 set -euo pipefail
-
-DATA_UUID=\$(blkid -s UUID -o value $DATA_PART)
-
-printf 'cryptdata UUID=%s /etc/cryptsetup-keys.d/data.key luks\n' "\$DATA_UUID" >> /etc/crypttab
 
 
 	# Ai - limine ships no deploy hook of its own, both copies are ours to keep current
@@ -614,33 +567,19 @@ rm -f /boot/EFI/limine/limine.conf /boot/EFI/BOOT/limine.conf
 
 efibootmgr --create --disk $SYSTEM_DISK --part 1 \\
 	--label "Arch Linux Limine Boot Loader" \\
-	--loader '\\EFI\\limine\\limine_x64.efi' --unicode
+	--loader '\\EFI\\limine\\limine_x64.efi' --unicode \\
+	|| echo "no boot entry made, the fallback path still boots"
 
 LUKS_UUID=\$(blkid -s UUID -o value $SYS_ROOT)
 
 systemd-machine-id-setup
-
-
-	# Ai - the TPM is enrolled here, not later
-	#      this is the only point in the whole run where the passphrase is
-	#      already in hand, so nothing has to stop and ask for it
-	#      a mismatch later just falls back to the passphrase prompt, which is a
-	#      safe failure rather than a lockout, and the passphrase slot always stays
-if [[ -e /dev/tpmrm0 ]]; then
-	systemd-cryptenroll --unlock-key-file=/run/rebuild.key \\
-		--tpm2-device=auto --tpm2-pcrs=7 $SYS_ROOT \\
-		&& echo "TPM enrolled" \\
-		|| echo "TPM enrolment failed, the passphrase still works"
-else
-	echo "no TPM device, skipping"
-fi
 
 	# Ai - /@ with the slash, the snapshot tool only recognises that spelling
 	#      subvol=@ and subvol=/@ mount the same thing
 printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=/@ rw\n' \\
 	"\$LUKS_UUID" > /etc/kernel/cmdline
 
-	# Ai - the boot menu is not written here any more
+	# Ai - the boot menu is not written here
 	#      the Menu block below writes it with the same tool 10-base installs
 CHROOTEOF
 
@@ -688,9 +627,6 @@ section "Handover"
 	# Ai - the whole repo travels with the install so the next stages are local
 install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/rebuild"
 
-	# Ai - a kept home has the old copy, replaced whole so no stale file stays
-[[ "$KEEP_DATA" == yes ]] && rm -rf "/mnt/home/$USERNAME/rebuild" && install -d -o 1000 -g 1000 "/mnt/home/$USERNAME/rebuild"
-
 cp -r "$REPO/." "/mnt/home/$USERNAME/rebuild/"
 
 chown -R 1000:1000 "/mnt/home/$USERNAME/rebuild"
@@ -708,20 +644,96 @@ fi
 
 ## Config
 
-	# Ai - a kept home already holds every answer from last time, so only the
-	#      two asked here are written into it, and the progress markers are
-	#      cleared, or every stage would say it was already done
-KEPT_CFG="/mnt/home/$USERNAME/.install-config"
+install -o 1000 -g 1000 -m 600 "$CONFIG" "/mnt/home/$USERNAME/.install-config"
 
-if [[ "$KEEP_DATA" == yes && -f "$KEPT_CFG" ]]; then
-	sed -i '/^HOSTNAME=/d; /^USERNAME=/d' "$KEPT_CFG"
-	printf 'HOSTNAME=%q\nUSERNAME=%q\n' "$HOSTNAME" "$USERNAME" >> "$KEPT_CFG"
-	chown 1000:1000 "$KEPT_CFG"
-	rm -rf "/mnt/home/$USERNAME/.install-state"
-	note "kept your answers, cleared the progress markers"
-else
-	install -o 1000 -g 1000 -m 600 "$CONFIG" "$KEPT_CFG"
-fi
+
+## Wifi
+
+	# Ai - the installer's Wi-Fi is iwd and the installed system uses
+	#      NetworkManager, so each saved network is written out again in
+	#      NetworkManager's format, otherwise the first boot is offline and the
+	#      next step has nothing to download with
+	#      iwd names a file after the network, and a name with anything but
+	#      letters, digits, space, dash or underscore is = then hex
+	#      a network that cannot be carried is skipped, nmtui joins it later
+
+IWD_DIR="${IWD_DIR:-/var/lib/iwd}"
+NM_OUT="${NM_OUT:-/mnt/etc/NetworkManager/system-connections}"
+
+iwd_name() {
+	local raw=$1 hex out="" i
+
+	if [[ "$raw" == =* ]]; then
+		hex="${raw#=}"
+		for (( i = 0; i < ${#hex}; i += 2 )); do
+			out+="$(printf "\\x${hex:i:2}")"
+		done
+		printf '%s' "$out"
+	else
+		printf '%s' "$raw"
+	fi
+}
+
+carry_wifi() {
+	local f base ssid psk file count=0
+
+	[[ -d "$IWD_DIR" ]] || return 0
+
+	install -d -m 700 "$NM_OUT"
+
+	for f in "$IWD_DIR"/*.psk "$IWD_DIR"/*.open; do
+		[[ -f "$f" ]] || continue
+
+		base="$(basename "$f")"
+		base="${base%.*}"
+		ssid="$(iwd_name "$base")"
+
+		[[ -n "$ssid" ]] || continue
+
+		psk=""
+
+		if [[ "$f" == *.psk ]]; then
+			psk="$(sed -n 's/^Passphrase=//p' "$f" | head -n 1)"
+			[[ -n "$psk" ]] || psk="$(sed -n 's/^PreSharedKey=//p' "$f" | head -n 1)"
+			[[ -n "$psk" ]] || continue
+		fi
+
+		file="$NM_OUT/$(printf '%s' "$ssid" | tr -c 'A-Za-z0-9._-' '_').nmconnection"
+
+		{
+			printf '[connection]\n'
+			printf 'id=%s\n' "$ssid"
+			printf 'uuid=%s\n' "$(cat /proc/sys/kernel/random/uuid)"
+			printf 'type=wifi\n'
+			printf 'autoconnect=true\n\n'
+			printf '[wifi]\n'
+			printf 'mode=infrastructure\n'
+			printf 'ssid=%s\n\n' "$ssid"
+			if [[ -n "$psk" ]]; then
+				printf '[wifi-security]\n'
+				printf 'key-mgmt=wpa-psk\n'
+				printf 'psk=%s\n\n' "$psk"
+			fi
+			printf '[ipv4]\n'
+			printf 'method=auto\n\n'
+			printf '[ipv6]\n'
+			printf 'addr-gen-mode=default\n'
+			printf 'method=auto\n'
+		} > "$file"
+
+		chmod 600 "$file"
+
+		count=$(( count + 1 ))
+	done
+
+	if (( count > 0 )); then
+		note "Wi-Fi carried over: $count saved network(s)"
+	else
+		info "no saved Wi-Fi to carry over, join it with nmtui on the first boot"
+	fi
+}
+
+carry_wifi
 
 
 ## Logs
@@ -739,23 +751,29 @@ section "Verify"
 
 check "esp mounted"      mountpoint -q /mnt/boot
 check "root mounted"     mountpoint -q /mnt
+check "home mounted"     mountpoint -q /mnt/home
 check "snapshots sib"    sh -c 'findmnt -no SOURCE /mnt/.snapshots | grep -q "@snapshots"'
 check "menu starts alone" bash "$SCRIPTS/limine-header-fix.sh" --root /mnt --check
 check "menu tool copied"  test -x /mnt/usr/local/bin/limine-header-fix
 check "menu settings"     test -f /mnt/etc/rebuild-boot.conf
 check "kernel present"   test -f /mnt/boot/vmlinuz-linux
 check "initramfs present" test -f /mnt/boot/initramfs-linux.img
-check "microcode present" test -f /mnt/boot/intel-ucode.img
+check "no autodetect"    sh -c '! grep -q "^HOOKS=.*autodetect" /mnt/etc/mkinitcpio.conf'
+if [[ -n "$UCODE" ]]; then
+	check "microcode present" test -f "/mnt/boot/$UCODE.img"
+fi
 check "cmdline has luks"  grep -q 'rd.luks.name=' /mnt/boot/limine.conf
 check "cmdline names /@"  grep -q 'rootflags=subvol=/@' /mnt/etc/kernel/cmdline
 check "fstab / by name"   fstab_root_named /mnt/etc/fstab
-check "efi entry made"    sh -c 'efibootmgr | grep -q Limine'
 check "no efi conf"      sh -c '! test -f /mnt/boot/EFI/limine/limine.conf'
 check "deploy hook"      test -f /mnt/etc/pacman.d/hooks/99-limine-deploy.hook
 check "efi binary"       test -f /mnt/boot/EFI/limine/limine_x64.efi
 check "fallback binary"  test -f /mnt/boot/EFI/BOOT/BOOTX64.EFI
-check "crypttab"         grep -q cryptdata /mnt/etc/crypttab
 check "repo copied"      test -f "/mnt/home/$USERNAME/rebuild/scripts/run.sh"
+
+	# Ai - only a note, some laptops refuse a boot entry for a USB disk and the
+	#      fallback binary above is what boots them
+warn  "efi entry made"    sh -c 'efibootmgr | grep -q Limine'
 
 verify_done
 
@@ -773,7 +791,8 @@ umount -R /mnt
 lsblk
 
 printf '\n'
-printf '  Remove the USB and reboot.\n'
+printf '  Remove the installer USB, leave the SSD in, and reboot.\n'
+printf '  Secure Boot has to be off, Limine is not signed.\n'
 printf '\n'
 printf '  Then log in and run:\n'
 printf '\n'

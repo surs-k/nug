@@ -10,24 +10,13 @@ source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
 section "Check"
 
-	# Ai - tailscale is the most fragile piece in the whole pipeline
-	#      it has to leave outside the Mullvad tunnel, which means a cgroup
-	#      exclusion, a daemon restart and a browser login all lining up, and
-	#      when any of that misses you lose DNS and it looks like the internet died
-	#      so it is its own stage, off unless you ask for it, and nothing else
-	#      depends on it
-	#      the PC is fully usable without it, you only need it for the laptop
+	# Ai - this is the way to your PC, without it the laptop is a laptop
+	#      it needs a login on another device, so it is its own stage, and a
+	#      failure here never stops the stages that do not need the tailnet
 
 sudo_keepalive
 
 require_stage 30-security
-
-if [[ "${WANT_TAILSCALE:-no}" != yes ]]; then
-	note "tailnet remote access is off"
-	note "turn it on later with:  rebuild --only 35-tailnet"
-	stage_done
-	exit 0
-fi
 
 resolves_now() { getent ahostsv4 archlinux.org &> /dev/null; }
 
@@ -47,39 +36,7 @@ section "Tailnet"
 
 ## Install
 
-pac tailscale inotify-tools
-
-
-## Exclude
-
-	# Ai - tailscale traffic has to leave outside the mullvad tunnel or the
-	#      kill switch drops it, mullvad-exclude puts the daemon in a cgroup
-	#      that is marked to bypass the tunnel
-
-TS_UNIT=/usr/lib/systemd/system/tailscaled.service
-TS_DROP=/etc/systemd/system/tailscaled.service.d/mullvad-exclude.conf
-
-if command -v mullvad-exclude > /dev/null; then
-
-	TS_EXEC="$(sed -n 's/^ExecStart=//p' "$TS_UNIT" | sed -n 1p)"
-	[[ -n "$TS_EXEC" ]] || { printf 'No ExecStart in %s\n' "$TS_UNIT" >&2; exit 1; }
-
-	$SUDO mkdir -p "$(dirname "$TS_DROP")"
-
-	$SUDO tee "$TS_DROP" > /dev/null << EOF
-[Unit]
-After=mullvad-daemon.service
-Wants=mullvad-daemon.service
-
-[Service]
-ExecStart=
-ExecStart=$(command -v mullvad-exclude) ${TS_EXEC}
-EOF
-
-	run "reload systemd" $SUDO systemctl daemon-reload
-else
-	flag "mullvad-exclude absent, tailscaled will run inside the tunnel"
-fi
+pac tailscale
 
 
 ## Daemon
@@ -95,24 +52,28 @@ wait_for 30 test -S /run/tailscale/tailscaled.sock
 tailnet_up() {
 	local s
 	s="$(capture tailscale status)"
-	! contains "$s" "Logged out" && ! contains "$s" "Tailscale is stopped"
+	! contains "$s" "Logged out" && ! contains "$s" "Tailscale is stopped" \
+		&& [[ -n "${s//[[:space:]]/}" ]]
 }
 
-	# Ai - accept-dns stays off, magicdns fights systemd-resolved and mullvad
+	# Ai - accept-dns stays off, tailscale then never touches this laptop's DNS
+	#      the PC is found by name through tailscale itself, see the pc command
 if tailnet_up; then
 	note "already logged in"
 	soft "keep dns local" $SUDO tailscale set --accept-dns=false
 
 else
-		# Ai - tailscale up blocks silently while it reaches the control server,
-		#      and if it cannot get there you stare at a cursor until it times
-		#      out with nothing on screen to explain why
+		# Ai - tailscale up blocks silently while it reaches the control server
 		#      this runs it in the background, watches for the link, and shows
-		#      the link the moment it exists plus a count while it waits
+		#      the link and a QR code the moment they exist, plus a count while
+		#      it waits
+		#      the laptop has no browser, so the approval is done from a phone
+		#      by scanning the code, or by typing the link in anywhere
+		#      the QR code is block characters, the console font has them
 
 	TS_OUT="$(mktemp)"
 
-	$SUDO tailscale up --accept-dns=false --timeout=300s > "$TS_OUT" 2>&1 &
+	$SUDO tailscale up --qr --accept-dns=false --timeout=300s > "$TS_OUT" 2>&1 &
 	TS_PID=$!
 
 	TS_URL=""
@@ -124,12 +85,15 @@ else
 			TS_URL="$(grep -m1 -o 'https://login\.tailscale\.com[^[:space:]]*' "$TS_OUT" 2>/dev/null || true)"
 
 			if [[ -n "$TS_URL" ]]; then
+				sleep 1
 				printf '\r                                                  \r'
-				action "Open this link and approve this machine:
+				action "Scan the code with your phone, or open the link anywhere,
+and approve this laptop:
 
   $TS_URL
 
 Nothing else runs until you do."
+				cat "$TS_OUT" > /dev/tty
 			fi
 		fi
 
@@ -153,8 +117,6 @@ Nothing else runs until you do."
 	if (( TS_RC != 0 )); then
 		if [[ -z "$TS_URL" ]]; then
 			flag "Tailscale never reached its control server, so no link was printed"
-			flag "the exclusion that lets it out past Mullvad is the thing to check"
-			flag "test it with: mullvad-exclude curl -I https://login.tailscale.com"
 		else
 			flag "the link was not approved in time, run rebuild again to get a new one"
 		fi
@@ -162,16 +124,9 @@ Nothing else runs until you do."
 fi
 
 
-#    Firewall
-
-
-section "Firewall"
-
-if ip link show tailscale0 &> /dev/null; then
-	soft "allow ssh on tailnet" $SUDO ufw allow in on tailscale0 to any port 22 proto tcp
-else
-	flag "tailscale0 absent, ssh rule not added"
-fi
+	# Ai - so tailscale status and tailscale ip work without sudo, the pc
+	#      command asks them every time it runs
+soft "tailscale without sudo" $SUDO tailscale set --operator="$USERNAME"
 
 
 
@@ -182,9 +137,6 @@ section "Verify"
 
 check "tailscaled active"  systemctl is-active --quiet tailscaled
 check "tailnet up"         tailnet_up
-
-warn  "tailscale excluded" sh -c 'systemctl show tailscaled -p ExecStart > /tmp/_ts; grep -q mullvad-exclude /tmp/_ts'
-warn  "dns still working"  resolves_now
 
 verify_done
 
@@ -197,9 +149,4 @@ stage_done
 
 section "End"
 
-	# Ai - this stage runs last, so the services were set up before a tailnet
-	#      address existed and are still bound to this PC only
-printf '  Tailnet up. SSH is reachable over it now.\n\n'
-printf '  To open your services to the tailnet as well, run both:\n\n'
-printf '    rebuild --only 70-docker\n'
-printf '    rebuild --only 80-remote\n\n'
+printf '  Tailnet up. Your PC shows in:  tailscale status\n\n'
