@@ -12,8 +12,8 @@ source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
 ## Mode
 
-####### how this run is scoped
-####### plain rebuild resumes, the flags are for after you fix something
+	# Ai - how this run is scoped
+	#      plain rebuild resumes, the flags are for after you fix something
 
 MODE=resume
 TARGET=""
@@ -25,6 +25,9 @@ while [[ $# -gt 0 ]]; do
 		--retry) MODE=retry; shift ;;
 		--all)   MODE=all;   shift ;;
 		--list)  MODE=list;  shift ;;
+		stash)   exec bash "$SCRIPTS/stash.sh" ;;
+		installs) shift; exec bash "$SCRIPTS/installs.sh" "$@" ;;
+		install)  shift; exec bash "$SCRIPTS/installs.sh" install "$@" ;;
 		-h|--help)
 			cat << 'HELPEOF'
 
@@ -34,6 +37,10 @@ while [[ $# -gt 0 ]]; do
   rebuild --retry            re-run every stage that reported a problem
   rebuild --all              start over from the beginning
   rebuild --list             show what is done and what is not
+  rebuild stash              save the system disk's settings before a reinstall
+  rebuild installs           every install, on or off, and whether it is here
+  rebuild installs off NAME  skip an install, no question is ever asked
+  rebuild install NAME       turn one on and install it now
 
   Stages are safe to run again. Package installs skip what is already
   there, and every section checks before it acts, so a rerun costs
@@ -51,7 +58,7 @@ done
 
 ## Stages
 
-####### run in this order, the marker name always equals the file name
+	# Ai - run in this order, the marker name always equals the file name
 STAGES=(
 	10-base
 	20-desktop
@@ -68,7 +75,7 @@ STAGES=(
 
 ## About
 
-####### one line each, printed under the stage name in the big banner
+	# Ai - one line each, printed under the stage name in the big banner
 declare -A ABOUT=(
 	[10-base]="locale, boot menu, swap, AUR helper"
 	[20-desktop]="graphics driver and HyDE"
@@ -78,14 +85,14 @@ declare -A ABOUT=(
 	[60-uprefs]="apps, keybinds, monitors"
 	[70-docker]="Docker, Ollama, self hosted services"
 	[80-remote]="Sunshine, so the laptop can drive this PC"
-	[90-health]="health report, alerts, lockdown mode"
+	[90-health]="health report and alerts"
 	[35-tailnet]="Tailscale remote access, off unless chosen"
 )
 
 
 ## Listing
 
-####### an early exit, so asking what is done does not print banners at you
+	# Ai - an early exit, so asking what is done does not print banners at you
 if [[ "$MODE" == list ]]; then
 	printf '\n'
 	for st in "${STAGES[@]}"; do
@@ -105,10 +112,10 @@ section "Order"
 
 ## Depends
 
-####### what each stage actually needs, rather than just the one before it
-####### the old chain was a straight line, so a failed 40-virt blocked your
-####### apps and your self hosting for no real reason
-####### 60-uprefs only needs a desktop, it has nothing to do with VMs
+	# Ai - what each stage actually needs, rather than just the one before it
+	#      the old chain was a straight line, so a failed 40-virt blocked your
+	#      apps and your self hosting for no real reason
+	#      60-uprefs only needs a desktop, it has nothing to do with VMs
 declare -A DEPENDS=(
 	[10-base]=""
 	[20-desktop]="10-base"
@@ -125,10 +132,10 @@ declare -A DEPENDS=(
 
 ## Reboots
 
-####### only one reboot in the whole run
-####### 40-virt used to force a second one purely for libvirt and kvm group
-####### membership, but groups are only needed when you actually use
-####### virt-manager, not by any later stage, so it applies at next login
+	# Ai - only one reboot in the whole run
+	#      40-virt used to force a second one purely for libvirt and kvm group
+	#      membership, but groups are only needed when you actually use
+	#      virt-manager, not by any later stage, so it applies at next login
 declare -A REBOOT=(
 	[20-desktop]="the desktop and the graphics driver only load after a restart"
 )
@@ -140,8 +147,8 @@ declare -A REBOOT=(
 
 section "Scope"
 
-####### markers are what make a stage get skipped, so changing scope means
-####### clearing the ones in range, which is the rm -f you were typing by hand
+	# Ai - markers are what make a stage get skipped, so changing scope means
+	#      clearing the ones in range, which is the rm -f you were typing by hand
 
 clear_marker() { rm -f "$MARKERS/$1"; }
 
@@ -177,7 +184,7 @@ case "$MODE" in
 		note "running only $TARGET" ;;
 
 	retry)
-		####### notes are not problems, so they never make a stage run again
+			# Ai - notes are not problems, so they never make a stage run again
 		BAD="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | sort -u || true)"
 		if [[ -z "${BAD//[[:space:]]/}" ]]; then
 			printf '\n  Nothing reported a problem. Nothing to retry.\n\n'
@@ -200,14 +207,16 @@ section "Answers"
 
 ## Fresh
 
-####### only this run's problems, the rest move to the history file
+	# Ai - only this run's problems, the rest move to the history file
 roll_failures
+
+roll_todos
 
 
 ## Network
 
-####### three stages failing one after another because the network is down
-####### is a bad way to find out the network is down
+	# Ai - three stages failing one after another because the network is down
+	#      is a bad way to find out the network is down
 
 if ! routed; then
 	printf '\n  %sNo route out. Nothing here can download anything.%s\n\n' "$C_FAIL" "$C_OFF" >&2
@@ -225,8 +234,8 @@ if ! resolves; then
 	exit 1
 fi
 
-####### every question for every remaining stage is asked here, once
-####### after this block the run is hands off until a reboot or the end
+	# Ai - nothing is asked about installs, they are chosen in rebuild installs
+	#      after this block the run is hands off until a reboot or the end
 
 
 ## Sudo
@@ -236,187 +245,34 @@ action "Type your password. It unlocks sudo for the whole run."
 sudo_keepalive
 
 
-## Ask
+## Installs
 
-STACK_ALL="searxng,portainer,invidious,comfyui,jellyfin"
+	# Ai - seed writes a line for any install that has none, and brief prints
+	#      what will be skipped, so a skip is seen before it happens
+bash "$SCRIPTS/installs.sh" seed
+source "$CONFIG"
+bash "$SCRIPTS/installs.sh" brief
+printf '\n'
 
-####### everything this prints goes to the terminal, not to stdout, because
-####### the caller captures stdout to get the answer back
-pick_stacks() {
-	local reply t bad out parts
 
-	while true; do
-		act_line "Available services. All of them run on this PC only,"
-		act_line "reachable from this machine and nowhere else."
-		act_line ""
-		act_line "  searxng     private search engine, replaces Google"
-		act_line "  portainer   web dashboard for managing Docker"
-		act_line "  invidious   private YouTube backend, feeds FreeTube"
-		act_line "  comfyui     AI image generation, uses your GPU"
-		act_line "  jellyfin    your own library of shows and films"
-		act_line ""
-		act_line "  all         every one of them"
-		act_line "  none        skip self hosting"
-		act_line ""
+## Mullvad
 
-		reply="$(ask 'Which ones, comma separated' 'searxng,portainer,invidious')"
-		reply="${reply// /}"
-
-		case "$reply" in
-			all|ALL)   printf '%s' "$STACK_ALL"; return 0 ;;
-			none|NONE) printf 'none';            return 0 ;;
-		esac
-
-		bad=0
-		out=""
-		IFS=',' read -ra parts <<< "$reply"
-
-		for t in "${parts[@]}"; do
-			case "$t" in
-				searxng|portainer|invidious|comfyui|jellyfin)
-					out="${out:+$out,}$t" ;;
-				"") ;;
-				*)
-					act_line "Not a service: $t"
-					bad=1 ;;
-			esac
-		done
-
-		if (( bad == 0 )) && [[ -n "$out" ]]; then
-			printf '%s' "$out"
-			return 0
-		fi
-
-		act_line "Try again."
-		act_line ""
-	done
+	# Ai - asked at the start of the run after the desktop reboot, with the
+	#      sudo password, so 30-security never stops the run to ask
+	#      held in memory only and handed to 30-security, never written anywhere
+	#      not asked before the reboot, the reboot would wipe it from memory
+mullvad_logged_in() {
+	command -v mullvad > /dev/null || return 1
+	! contains "$(capture $SUDO mullvad account get)" "Not logged in"
 }
 
-
-####### each answer is checked on its own rather than behind one flag
-####### a single ANSWERED gate meant any question added later was skipped
-####### forever on a machine that had already answered the earlier ones
-need() { [[ -z "${!1:-}" ]]; }
-
-####### every question starts with an arrow line gap, and the one after the
-####### long service list gets the bigger gap
-NEXT_GAP=small
-
-gap() {
-	act_next "$NEXT_GAP"
-	NEXT_GAP=small
-}
-
-if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
-	|| need WANT_TAILSCALE || need WANT_OLLAMA \
-	|| need WANT_SUNSHINE || need WANT_LIBREWOLF || need WANT_LOCKDOWN; then
-
-	action "Answer a few questions. Press enter to take each default.
-
-Nothing installs until you are through them."
-
-
-	## Chaotic
-
-	if need WANT_CHAOTIC_REMOVE; then
-		gap
-		if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
-			save_cfg WANT_CHAOTIC_REMOVE yes
-		else
-			save_cfg WANT_CHAOTIC_REMOVE no
-		fi
-	fi
-
-
-	## Hosting
-
-	if need WANT_DOCKER; then
-		gap
-		if yesno "Set up Docker and self hosted services" y; then
-			save_cfg WANT_DOCKER yes
-			act_next
-			STACKS="$(pick_stacks)"
-			save_cfg WANT_STACKS "$STACKS"
-			act_line "Chosen: $STACKS"
-			NEXT_GAP=big
-		else
-			save_cfg WANT_DOCKER no
-			save_cfg WANT_STACKS none
-		fi
-	fi
-
-
-	## Tailnet
-
-	####### the reasons Tailscale is off by default live in the README
-	if need WANT_TAILSCALE; then
-		gap
-		if yesno "Set up Tailscale remote access now" n; then
-			save_cfg WANT_TAILSCALE yes
-		else
-			save_cfg WANT_TAILSCALE no
-		fi
-	fi
-
-
-	## Ollama
-
-	if need WANT_OLLAMA; then
-		gap
-		if yesno "Install Ollama for local AI models" y; then
-			save_cfg WANT_OLLAMA yes
-		else
-			save_cfg WANT_OLLAMA no
-		fi
-	fi
-
-
-	## Sunshine
-
-	if need WANT_SUNSHINE; then
-		gap
-		if yesno "Set up Sunshine so the laptop can drive this PC" y; then
-			save_cfg WANT_SUNSHINE yes
-		else
-			save_cfg WANT_SUNSHINE no
-		fi
-	fi
-
-
-	## Librewolf
-
-	if need WANT_LIBREWOLF; then
-		gap
-		if yesno "Install LibreWolf as a second browser for local services" y; then
-			save_cfg WANT_LIBREWOLF yes
-		else
-			save_cfg WANT_LIBREWOLF no
-		fi
-	fi
-
-
-	## Lockdown
-
-	####### asked here now, it used to be asked by 90-health near the very
-	####### end, which stopped an unattended run with the summary unprinted
-	if need WANT_LOCKDOWN; then
-		gap
-		act_line "Lockdown mode blocks all traffic whenever the VPN is down."
-		if yesno "Turn on lockdown mode at the end of the run" y; then
-			save_cfg WANT_LOCKDOWN yes
-		else
-			save_cfg WANT_LOCKDOWN no
-		fi
-	fi
-
-
+	# Ai - a stash carries the login over, so there is nothing to ask
+if stage_is_done 20-desktop && ! stage_is_done 30-security && ! mullvad_logged_in \
+	&& ! stashed mullvad/device.json; then
+	action "Mullvad needs your account number. It is kept in memory only."
+	MULLVAD_ACCT="$(secret 'Mullvad account number')"
 	act_close
-	note "Saved. Only questions without an answer are asked."
-	note "Edit $CONFIG to change any answer."
-	printf '\n'
-
-else
-	note "Every question already has an answer in $CONFIG"
+	export MULLVAD_ACCT
 fi
 
 
@@ -431,7 +287,11 @@ DID=0
 
 BROKEN=""
 
-####### position in the run order, for the banner
+	# Ai - tells a stage it runs under run.sh, which prints the todo list
+	#      itself at the end instead of the stage printing it
+export REBUILD_RUN=1
+
+	# Ai - position in the run order, for the banner
 stage_number() {
 	local i
 	for i in "${!STAGES[@]}"; do
@@ -440,8 +300,8 @@ stage_number() {
 	printf '?'
 }
 
-####### a stage is blocked when anything it depends on failed, directly or
-####### further back up the chain
+	# Ai - a stage is blocked when anything it depends on failed, directly or
+	#      further back up the chain
 blocked_by() {
 	local stage=$1 dep
 	for dep in ${DEPENDS[$stage]:-}; do
@@ -476,13 +336,14 @@ for s in "${STAGES[@]}"; do
 		continue
 	fi
 
-	####### the big banner, so each stage start can be found while scrolling
+		# Ai - the big banner, so each stage start can be found while scrolling
 	stage_banner "$s" "${ABOUT[$s]:-}" "stage $(stage_number "$s") of ${#STAGES[@]}   $(date +%H:%M)"
 
 	if bash "$SH"; then
 		DID=$(( DID + 1 ))
+		[[ "$s" == 30-security ]] && unset MULLVAD_ACCT
 	else
-		####### carry on with anything that does not depend on this
+			# Ai - carry on with anything that does not depend on this
 		BROKEN="$BROKEN $s"
 
 		printf '\n'
@@ -494,6 +355,7 @@ for s in "${STAGES[@]}"; do
 	fi
 
 	if [[ -n "${REBOOT[$s]:-}" ]]; then
+		show_todos
 		action "Reboot now.
 
 Why   ${REBOOT[$s]}
@@ -529,7 +391,7 @@ else
 	printf '  Reboot once more to land on a settled system.\n\n'
 fi
 
-####### the last thing on screen is what still needs attention
+	# Ai - the last thing on screen is what still needs attention
 show_failures all
 
 RETRY="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
@@ -537,3 +399,30 @@ RETRY="$(grep -v '^aside' "$FAILLOG" 2>/dev/null | cut -f2 | awk '{print $1}' | 
 if [[ -n "${RETRY//[[:space:]]/}" ]]; then
 	printf '  To have another go at just those:  rebuild --retry\n\n' >&2
 fi
+
+	# Ai - packages from the old install that are not here, the ones you
+	#      added by hand, as a list you can pick from
+if stashed packages.txt; then
+	MISSING="$(comm -23 <($SUDO sort "$STASH/packages.txt") <(pacman -Qqe | sort) | tr '\n' ' ')"
+	if [[ -n "${MISSING// /}" ]]; then
+		todo "Packages from your last install that are not here now:
+$MISSING
+Install the ones you still want:  sudo pacman -S name
+(yay -S name only for the ones that are not in the repos)"
+	fi
+fi
+
+	# Ai - the stash has done its job once a run ends with nothing to retry
+	#      it holds passwords and keys, so it does not stay around
+	#      with a problem left it stays, a retry may still need it
+if stashed . ; then
+	if [[ -z "${RETRY//[[:space:]]/}" ]]; then
+		$SUDO rm -rf "$STASH"
+		note "stash used and removed, rebuild stash makes a new one"
+	else
+		note "stash kept for the retry, it is removed on the next clean run"
+	fi
+fi
+
+	# Ai - the very last thing, after the problems, so it is what you see
+show_todos
