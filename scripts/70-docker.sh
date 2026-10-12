@@ -15,7 +15,7 @@ sudo_keepalive
 require_stage 30-security
 
 if [[ "${WANT_DOCKER:-yes}" != yes ]]; then
-	note "self hosting turned off in $CONFIG"
+	note "docker skipped, rebuild install docker"
 	stage_done
 	exit 0
 fi

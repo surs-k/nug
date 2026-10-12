@@ -15,7 +15,7 @@ sudo_keepalive
 require_stage 30-security
 
 if [[ "${WANT_SUNSHINE:-yes}" != yes ]]; then
-	note "remote access turned off in $CONFIG"
+	note "sunshine skipped, rebuild install sunshine"
 	stage_done
 	exit 0
 fi

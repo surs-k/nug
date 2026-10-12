@@ -14,6 +14,13 @@ sudo_keepalive
 
 require_stage 30-security
 
+	# Ai - a skipped install ends the stage here, rebuild install virt runs it again
+if ! want virt; then
+	note "virtual machines skipped, rebuild install virt"
+	stage_done
+	exit 0
+fi
+
 CPU="$(capture cat /proc/cpuinfo)"
 
 if ! contains "$CPU" "vmx" && ! contains "$CPU" "svm"; then

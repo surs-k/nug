@@ -26,6 +26,8 @@ while [[ $# -gt 0 ]]; do
 		--all)   MODE=all;   shift ;;
 		--list)  MODE=list;  shift ;;
 		stash)   exec bash "$SCRIPTS/stash.sh" ;;
+		installs) shift; exec bash "$SCRIPTS/installs.sh" "$@" ;;
+		install)  shift; exec bash "$SCRIPTS/installs.sh" install "$@" ;;
 		-h|--help)
 			cat << 'HELPEOF'
 
@@ -36,6 +38,9 @@ while [[ $# -gt 0 ]]; do
   rebuild --all              start over from the beginning
   rebuild --list             show what is done and what is not
   rebuild stash              save the system disk's settings before a reinstall
+  rebuild installs           every install, on or off, and whether it is here
+  rebuild installs off NAME  skip an install, no question is ever asked
+  rebuild install NAME       turn one on and install it now
 
   Stages are safe to run again. Package installs skip what is already
   there, and every section checks before it acts, so a rerun costs
@@ -229,7 +234,7 @@ if ! resolves; then
 	exit 1
 fi
 
-	# Ai - every question for every remaining stage is asked here, once
+	# Ai - nothing is asked about installs, they are chosen in rebuild installs
 	#      after this block the run is hands off until a reboot or the end
 
 
@@ -240,173 +245,14 @@ action "Type your password. It unlocks sudo for the whole run."
 sudo_keepalive
 
 
-## Ask
+## Installs
 
-STACK_ALL="searxng,portainer,invidious,comfyui,jellyfin"
-
-	# Ai - everything this prints goes to the terminal, not to stdout, because
-	#      the caller captures stdout to get the answer back
-pick_stacks() {
-	local reply t bad out parts
-
-	while true; do
-		act_line "Available services. All of them run on this PC only,"
-		act_line "reachable from this machine and nowhere else."
-		act_line ""
-		act_line "  searxng     private search engine, replaces Google"
-		act_line "  portainer   web dashboard for managing Docker"
-		act_line "  invidious   private YouTube backend, feeds FreeTube"
-		act_line "  comfyui     AI image generation, uses your GPU"
-		act_line "  jellyfin    your own library of shows and films"
-		act_line ""
-		act_line "  all         every one of them"
-		act_line "  none        skip self hosting"
-		act_line ""
-
-		reply="$(ask 'Which ones, comma separated' 'searxng,portainer,invidious')"
-		reply="${reply// /}"
-
-		case "$reply" in
-			all|ALL)   printf '%s' "$STACK_ALL"; return 0 ;;
-			none|NONE) printf 'none';            return 0 ;;
-		esac
-
-		bad=0
-		out=""
-		IFS=',' read -ra parts <<< "$reply"
-
-		for t in "${parts[@]}"; do
-			case "$t" in
-				searxng|portainer|invidious|comfyui|jellyfin)
-					out="${out:+$out,}$t" ;;
-				"") ;;
-				*)
-					act_line "Not a service: $t"
-					bad=1 ;;
-			esac
-		done
-
-		if (( bad == 0 )) && [[ -n "$out" ]]; then
-			printf '%s' "$out"
-			return 0
-		fi
-
-		act_line "Try again."
-		act_line ""
-	done
-}
-
-
-	# Ai - each answer is checked on its own rather than behind one flag
-	#      a single ANSWERED gate meant any question added later was skipped
-	#      forever on a machine that had already answered the earlier ones
-need() { [[ -z "${!1:-}" ]]; }
-
-	# Ai - every question starts with an arrow line gap, and the one after the
-	#      long service list gets the bigger gap
-NEXT_GAP=small
-
-gap() {
-	act_next "$NEXT_GAP"
-	NEXT_GAP=small
-}
-
-if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
-	|| need WANT_TAILSCALE || need WANT_OLLAMA \
-	|| need WANT_SUNSHINE || need WANT_LIBREWOLF; then
-
-	action "Answer a few questions. Press enter to take each default.
-
-Nothing installs until you are through them."
-
-
-	## Chaotic
-
-	if need WANT_CHAOTIC_REMOVE; then
-		gap
-		if yesno "Remove the chaotic-aur repo after HyDE installs" y; then
-			save_cfg WANT_CHAOTIC_REMOVE yes
-		else
-			save_cfg WANT_CHAOTIC_REMOVE no
-		fi
-	fi
-
-
-	## Hosting
-
-	if need WANT_DOCKER; then
-		gap
-		if yesno "Set up Docker and self hosted services" y; then
-			save_cfg WANT_DOCKER yes
-			act_next
-			STACKS="$(pick_stacks)"
-			save_cfg WANT_STACKS "$STACKS"
-			act_line "Chosen: $STACKS"
-			NEXT_GAP=big
-		else
-			save_cfg WANT_DOCKER no
-			save_cfg WANT_STACKS none
-		fi
-	fi
-
-
-	## Tailnet
-
-		# Ai - the reasons Tailscale is off by default live in the README
-	if need WANT_TAILSCALE; then
-		gap
-		if yesno "Set up Tailscale remote access now" n; then
-			save_cfg WANT_TAILSCALE yes
-		else
-			save_cfg WANT_TAILSCALE no
-		fi
-	fi
-
-
-	## Ollama
-
-	if need WANT_OLLAMA; then
-		gap
-		if yesno "Install Ollama for local AI models" y; then
-			save_cfg WANT_OLLAMA yes
-		else
-			save_cfg WANT_OLLAMA no
-		fi
-	fi
-
-
-	## Sunshine
-
-	if need WANT_SUNSHINE; then
-		gap
-		if yesno "Set up Sunshine so the laptop can drive this PC" y; then
-			save_cfg WANT_SUNSHINE yes
-		else
-			save_cfg WANT_SUNSHINE no
-		fi
-	fi
-
-
-	## Librewolf
-
-	if need WANT_LIBREWOLF; then
-		gap
-		if yesno "Install LibreWolf as a second browser for local services" y; then
-			save_cfg WANT_LIBREWOLF yes
-		else
-			save_cfg WANT_LIBREWOLF no
-		fi
-	fi
-
-
-	act_close
-	note "Saved. Only questions without an answer are asked."
-	note "Edit $CONFIG to change any answer."
-	printf '\n'
-
-else
-	note "Every question already has an answer in $CONFIG"
-fi
+	# Ai - seed writes a line for any install that has none, and brief prints
+	#      what will be skipped, so a skip is seen before it happens
+bash "$SCRIPTS/installs.sh" seed
+source "$CONFIG"
+bash "$SCRIPTS/installs.sh" brief
+printf '\n'
 
 
 ## Mullvad

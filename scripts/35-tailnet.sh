@@ -24,7 +24,7 @@ require_stage 30-security
 
 if [[ "${WANT_TAILSCALE:-no}" != yes ]]; then
 	note "tailnet remote access is off"
-	note "turn it on later with:  rebuild --only 35-tailnet"
+	note "turn it on later with:  rebuild install tailscale"
 	stage_done
 	exit 0
 fi

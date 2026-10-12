@@ -814,6 +814,14 @@ save_cfg() {
 	printf '%s=%q\n' "$k" "$v" >> "$CONFIG"
 }
 
+	# Ai - is an install on, yes unless the config says no
+	#      the name is the one rebuild installs shows, a dash is an underscore
+want() {
+	local v="WANT_${1^^}"
+	v="${v//-/_}"
+	[[ "${!v:-yes}" != no ]]
+}
+
 
 
 #    Text

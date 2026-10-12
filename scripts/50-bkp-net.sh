@@ -410,7 +410,29 @@ fi
 $SUDO mkdir -p /mnt/data-root/.btrbk
 
 
+## Target
+
+	# Ai - the config is only written once, so a PC set up before the backup
+	#      drive was mounted kept a config with no target for good
+	#      btrbk then snapshotted daily and copied nothing, and nothing said so
+	#      this adds the target on any later run once the drive is mounted
+if ! grep -qE '^[[:space:]]*target[[:space:]]+/mnt/backup' /etc/btrbk/btrbk.conf; then
+	if findmnt -n /mnt/backup > /dev/null && grep -q '^volume /mnt/data-root$' /etc/btrbk/btrbk.conf; then
+		$SUDO sed -i 's|^volume /mnt/data-root$|volume /mnt/data-root\n  target /mnt/backup|' /etc/btrbk/btrbk.conf
+		note "btrbk had no backup target, daily backups now go to /mnt/backup"
+	else
+		note "btrbk has no backup target yet, mount the drive and run:  rebuild --only 50-bkp-net"
+	fi
+fi
+
+
 ## Timer
+
+	# Ai - Persistent makes a day missed with the PC off run at the next boot
+	#      without it a PC that is off at the set time skips that day's backup
+$SUDO mkdir -p /etc/systemd/system/btrbk.timer.d
+printf '[Timer]\nPersistent=true\n' | $SUDO tee /etc/systemd/system/btrbk.timer.d/persistent.conf > /dev/null
+run "reload systemd" $SUDO systemctl daemon-reload
 
 run "dry run btrbk" $SUDO btrbk -n run
 

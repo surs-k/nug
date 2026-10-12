@@ -54,7 +54,11 @@ section "Packages"
 	#      the laptop and connects to Sunshine on this PC, it was left here when
 	#      v6.0 moved it from the AUR to the official repo, which is why it
 	#      installed even with Sunshine turned off
-pac signal-desktop obsidian dolphin flatpak curl pciutils xdg-utils xorg-xrandr gamescope
+pac dolphin flatpak curl pciutils xdg-utils xorg-xrandr
+
+	# Ai - each of these is a choice in rebuild installs, a skipped one is not installed
+want signal   && pac signal-desktop
+want obsidian && pac obsidian
 
 
 ## Keyring
@@ -85,7 +89,7 @@ fi
 
 ## Steam
 
-pac steam
+want steam && pac steam gamescope
 
 
 
@@ -110,7 +114,7 @@ fi
 
 ## Builds
 
-soft "1password"      yay -S --needed --noconfirm 1password
+want 1password && soft "1password" yay -S --needed --noconfirm 1password
 	# Ai - the browser is signed by the Tor Browser developers key, and they
 	#      rotate its signing subkey, so an old copy fails with unknown key
 	#      the torproject.org copy is always current, and it is refreshed every
@@ -118,13 +122,16 @@ soft "1password"      yay -S --needed --noconfirm 1password
 
 MB_KEY=EF6E286DDA85EA2A4BA7DE684E2C6E8793298290
 
-try "mullvad browser key from torproject.org" \
-	gpg --auto-key-locate nodefault,wkd --locate-keys torbrowser@torproject.org \
-	|| soft "mullvad browser key from a keyserver" \
-		gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys "$MB_KEY"
+if want mullvad-browser; then
+	try "mullvad browser key from torproject.org" \
+		gpg --auto-key-locate nodefault,wkd --locate-keys torbrowser@torproject.org \
+		|| soft "mullvad browser key from a keyserver" \
+			gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys "$MB_KEY"
 
-soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
-soft "vscodium"       yay -S --needed --noconfirm vscodium-bin
+	soft "mullvad browser" yay -S --needed --noconfirm mullvad-browser-bin
+fi
+
+want codium && soft "vscodium" yay -S --needed --noconfirm vscodium-bin
 
 	# Ai - AUR names move around, so each of these tries its alternates before
 	#      being recorded as a failure
@@ -143,7 +150,7 @@ try_aur() {
 	return 0
 }
 
-if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
+if want librewolf; then
 		# Ai - librewolf is in extra now, the AUR build is the fallback
 	pac librewolf || try_aur "librewolf" librewolf-bin
 fi
@@ -151,7 +158,9 @@ fi
 	# Ai - unofficial repackaging of the official build
 	#      claude-desktop tracks the official Linux build, the others are
 	#      community repackaging
-try_aur "claude desktop" claude-desktop claude-desktop-bin claude-desktop-native
+if want claude; then
+	try_aur "claude desktop" claude-desktop claude-desktop-bin claude-desktop-native
+fi
 
 
 
@@ -186,14 +195,14 @@ section "Flatpak"
 run "add flathub" $SUDO flatpak remote-add --if-not-exists flathub \
 	https://dl.flathub.org/repo/flathub.flatpakrepo
 
-soft "freetube" $SUDO flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube
-soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Vesktop
+want freetube && soft "freetube" $SUDO flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube
+want vesktop  && soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Vesktop
 
 	# Ai - krita for drawing, and the comfyui plugin has a home to be added to
-soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
+want krita    && soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
 
 	# Ai - flatseal edits what each flatpak is allowed to touch
-soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
+want flatseal && soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
 
 
 #    Bluetooth
@@ -253,7 +262,10 @@ cat >> "$LUA" << 'LUAEOF'
 -- rebuild binds start
 
 hl.unbind("SUPER + C")
-hl.bind("SUPER + C", hl.dsp.exec_cmd("codium"), { description = "[Rebuild] codium" })
+hl.bind("SUPER + C", hl.dsp.exec_cmd("claude-desktop"), { description = "[Rebuild] claude desktop" })
+
+hl.unbind("SUPER + R")
+hl.bind("SUPER + R", hl.dsp.exec_cmd("obsidian"), { description = "[Rebuild] obsidian" })
 
 hl.unbind("SUPER + P")
 hl.bind("SUPER + P", hl.dsp.exec_cmd("1password"), { description = "[Rebuild] 1password" })
@@ -432,14 +444,18 @@ section "Brightness"
 	#      wluma reads them, raw reads came back garbled on this PC's NVIDIA card
 	#      the time schedule stands in for a light sensor, which a desktop lacks
 
-pac ddcutil
+if want brightness; then
+	pac ddcutil
 
-try_aur "ddcutil-service" ddcutil-service
-try_aur "wluma" wluma
+	try_aur "ddcutil-service" ddcutil-service
+	try_aur "wluma" wluma
 
-	# Ai - the kernel module DDC/CI goes through, loaded at every boot
-printf 'i2c-dev\n' | $SUDO tee /etc/modules-load.d/i2c-dev.conf > /dev/null
-soft "load i2c-dev" $SUDO modprobe i2c-dev
+		# Ai - the kernel module DDC/CI goes through, loaded at every boot
+	printf 'i2c-dev\n' | $SUDO tee /etc/modules-load.d/i2c-dev.conf > /dev/null
+	soft "load i2c-dev" $SUDO modprobe i2c-dev
+else
+	note "brightness skipped, rebuild install brightness"
+fi
 
 
 ## Config
@@ -449,7 +465,9 @@ soft "load i2c-dev" $SUDO modprobe i2c-dev
 	#      cp ~/.config/wluma/config.toml ~/rebuild/configs/wluma.toml
 WLUMA_CONF="$HOME/.config/wluma/config.toml"
 
-if [[ -f "$WLUMA_CONF" ]]; then
+if ! want brightness; then
+	:
+elif [[ -f "$WLUMA_CONF" ]]; then
 	note "wluma config already there, left exactly as it is"
 else
 	mkdir -p "$(dirname "$WLUMA_CONF")"
@@ -483,7 +501,9 @@ for d in vscodium-wayland.desktop vscodium.desktop codium.desktop; do
 	[[ -f "/usr/share/applications/$d" ]] && { CODE_DESKTOP="$d"; break; }
 done
 
-if [[ -n "$CODE_DESKTOP" ]]; then
+if ! want codium; then
+	note "codium skipped, text files keep their current editor"
+elif [[ -n "$CODE_DESKTOP" ]]; then
 	xdg-mime default "$CODE_DESKTOP" text/plain
 	xdg-mime default "$CODE_DESKTOP" text/x-shellscript
 	xdg-mime default "$CODE_DESKTOP" text/markdown
@@ -501,7 +521,9 @@ for d in mullvad-browser.desktop mullvadbrowser.desktop; do
 	[[ -f "/usr/share/applications/$d" ]] && { BROWSER_DESKTOP="$d"; break; }
 done
 
-if [[ -n "$BROWSER_DESKTOP" ]]; then
+if ! want mullvad-browser; then
+	note "mullvad browser skipped, default browser unchanged"
+elif [[ -n "$BROWSER_DESKTOP" ]]; then
 	soft "set default browser" xdg-settings set default-web-browser "$BROWSER_DESKTOP"
 else
 	flag "no mullvad-browser desktop file found, default browser unchanged"
@@ -546,15 +568,18 @@ fi
 section "Verify"
 
 check "multilib enabled"   grep -q '^\[multilib\]' /etc/pacman.conf
-check "signal-desktop"     command -v signal-desktop
+	# Ai - a skipped install is not a problem, only an install that is on is checked
+want signal && check "signal-desktop" command -v signal-desktop
 check "dolphin"            command -v dolphin
-check "steam"              command -v steam
+want steam  && check "steam"          command -v steam
 check "flatpak"            command -v flatpak
 check "bluetooth off"      sh -c '! systemctl is-enabled --quiet bluetooth.service'
-warn  "ddcutil"            command -v ddcutil
-warn  "wluma"              command -v wluma
-warn  "wluma config"       test -f "$HOME/.config/wluma/config.toml"
-warn  "wluma at login"     systemctl --user is-enabled --quiet wluma.service
+if want brightness; then
+	warn  "ddcutil"          command -v ddcutil
+	warn  "wluma"            command -v wluma
+	warn  "wluma config"     test -f "$HOME/.config/wluma/config.toml"
+	warn  "wluma at login"   systemctl --user is-enabled --quiet wluma.service
+fi
 check "keyring present"    command -v gnome-keyring-daemon
 check "binds block"        grep -q 'rebuild binds start' "$LUA"
 check "block closed"       grep -q 'rebuild binds end' "$LUA"
@@ -564,17 +589,15 @@ check "monitors block"     grep -q 'rebuild monitors start' "$MON"
 check "monitors once"      sh -c "test \"\$(grep -c 'rebuild monitors start' '$MON')\" = 1"
 check "dolphin config"     test -f "$HOME/.config/dolphinrc"
 
-warn  "codium"             command -v codium
-warn  "1password"          command -v 1password
-warn  "mullvad-browser"    command -v mullvad-browser
-	# Ai - only when you asked for it, a skipped install is not a problem
-if [[ "${WANT_LIBREWOLF:-yes}" == yes ]]; then
-	warn  "librewolf"        command -v librewolf
-fi
-warn  "claude desktop"     command -v claude-desktop
-warn  "freetube"           flatpak info io.freetubeapp.FreeTube
-warn  "krita"              flatpak info org.kde.krita
-warn  "flatseal"           flatpak info com.github.tchx84.Flatseal
+want codium          && warn "codium"          command -v codium
+want obsidian        && warn "obsidian"        command -v obsidian
+want 1password       && warn "1password"       command -v 1password
+want mullvad-browser && warn "mullvad-browser" command -v mullvad-browser
+want librewolf       && warn "librewolf"       command -v librewolf
+want claude          && warn "claude desktop"  command -v claude-desktop
+want freetube        && warn "freetube"        flatpak info io.freetubeapp.FreeTube
+want krita           && warn "krita"           flatpak info org.kde.krita
+want flatseal        && warn "flatseal"        flatpak info com.github.tchx84.Flatseal
 warn  "places installed"   test -f "$HOME/.local/share/user-places.xbel"
 warn  "greeter rotate"     test -x /etc/sddm/Xsetup-rebuild
 

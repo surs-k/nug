@@ -46,6 +46,12 @@ OK=()
 REPORT="$HOME/.rebuild/health.txt"
 mkdir -p "$(dirname "$REPORT")"
 
+	# Ai - where the backup pieces live, named once
+FSTAB=/etc/fstab
+BKP=/mnt/backup
+BTRBK_CONF=/etc/btrbk/btrbk.conf
+BTRBK_LOG=/var/log/btrbk.log
+
 
 	# Ai - helpers
 
@@ -193,29 +199,43 @@ fi
 	#      the btrbk log is touched even by a run that failed, so with a backup
 	#      drive set up the newest copy on it is read instead, its name has the
 	#      date, and a drive that is not mounted is a problem on its own
+	#      every message names the cause and the fix, so the popup is enough
 
-if grep -q ' /mnt/backup ' /etc/fstab 2>/dev/null; then
-	if ! mountpoint -q /mnt/backup; then
-		fail "Backups" "the backup drive is not mounted, nothing is being copied"
+	# Ai - why the newest copy is old, said in one short phrase
+backup_cause() {
+	if ! systemctl is-enabled --quiet btrbk.timer 2> /dev/null; then
+		printf 'timer is off, run: sudo systemctl enable --now btrbk.timer'
+	elif systemctl is-failed --quiet btrbk.service 2> /dev/null; then
+		printf 'last run failed, see: journalctl -u btrbk -n 20'
 	else
-		NEWEST="$(ls -1d /mnt/backup/@home.* 2>/dev/null | sort | tail -n 1 || true)"
+		printf 'try: sudo btrbk run'
+	fi
+}
+
+if grep -q " $BKP " "$FSTAB" 2>/dev/null; then
+	if ! mountpoint -q "$BKP"; then
+		fail "Backups" "drive not mounted, nothing is copied, try: sudo mount $BKP"
+	elif ! grep -qE "^[[:space:]]*target[[:space:]]+$BKP" "$BTRBK_CONF" 2>/dev/null; then
+		fail "Backups" "btrbk has no backup target, run: rebuild --only 50-bkp-net"
+	else
+		NEWEST="$(ls -1d "$BKP"/@home.* 2>/dev/null | sort | tail -n 1 || true)"
 		if [[ -z "$NEWEST" ]]; then
-			fail "Backups" "nothing on the backup drive yet, try: sudo btrbk run"
+			fail "Backups" "nothing on the backup drive yet, $(backup_cause)"
 		else
 			STAMP="${NEWEST##*@home.}"
 			WHEN="$(date -d "${STAMP:0:4}-${STAMP:4:2}-${STAMP:6:2} ${STAMP:9:2}:${STAMP:11:2}" +%s 2>/dev/null || echo 0)"
 			AGE=$(( ( $(date +%s) - WHEN ) / 86400 ))
 			if (( WHEN == 0 )); then fail "Backups" "could not read the date of $NEWEST"
 			elif (( AGE <= 2 )); then pass "Backups"
-			else fail "Backups" "newest copy on the backup drive is $AGE days old"; fi
+			else fail "Backups" "newest copy is $AGE days old, $(backup_cause)"; fi
 		fi
 	fi
-elif [[ -f /var/log/btrbk.log ]]; then
-	AGE=$(( ( $(date +%s) - $(stat -c %Y /var/log/btrbk.log) ) / 86400 ))
+elif [[ -f "$BTRBK_LOG" ]]; then
+	AGE=$(( ( $(date +%s) - $(stat -c %Y "$BTRBK_LOG") ) / 86400 ))
 	if (( AGE <= 2 )); then pass "Backups"
-	else fail "Backups" "btrbk has not run in $AGE days"; fi
+	else fail "Backups" "btrbk has not run in $AGE days, $(backup_cause)"; fi
 else
-	fail "Backups" "btrbk has never run"
+	fail "Backups" "btrbk has never run, $(backup_cause)"
 fi
 
 
@@ -295,8 +315,9 @@ fi
 
 S="$(capture systemctl --failed --no-legend --plain)"
 if [[ -n "${S//[[:space:]]/}" ]]; then
-	COUNT="$(printf '%s\n' "$S" | grep -c . )"
-	fail "Services" "$COUNT failed unit(s), run: systemctl --failed"
+		# Ai - the names, so the popup says which one, not only how many
+	NAMES="$(printf '%s\n' "$S" | awk 'NF { print $1 }' | head -n 4 | tr '\n' ' ')"
+	fail "Services" "failed: ${NAMES}see: systemctl --failed"
 else
 	pass "Services"
 fi
