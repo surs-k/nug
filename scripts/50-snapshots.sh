@@ -48,8 +48,8 @@ fi
 if grep -Eq '^[^#]*[[:space:]]/\.snapshots[[:space:]]' /etc/fstab; then
 	note "/.snapshots already in fstab"
 else
-	SYS_UUID="$($SUDO blkid -s UUID -o value /dev/mapper/cryptsystem)"
-	[[ -n "$SYS_UUID" ]] || { printf 'no cryptsystem UUID\n' >&2; exit 1; }
+	SYS_UUID="$(findmnt -no UUID /)"
+	[[ -n "$SYS_UUID" ]] || { printf 'no root UUID\n' >&2; exit 1; }
 
 	$SUDO cp /etc/fstab /etc/fstab.bak-snapshots
 

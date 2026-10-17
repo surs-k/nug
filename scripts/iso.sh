@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 source "$(dirname "$(readlink -f "$0")")/00-lib.sh"
 
-stage_banner "iso" "partitions, encryption, base system, boot menu" "installer   $(date +%H:%M)"
+stage_banner "iso" "partitions, base system, boot menu" "installer   $(date +%H:%M)"
 
 
 #    Answers
@@ -38,6 +38,8 @@ fi
 
 mountpoint -q /mnt && umount -R /mnt
 
+	# Ai - the disk is no longer encrypted, but a mapper left open by an install
+	#      from before that change would still hold the SSD busy
 for m in cryptsystem; do
 	if [[ -e "/dev/mapper/$m" ]]; then
 		cryptsetup close "$m" 2>/dev/null || true
@@ -168,14 +170,8 @@ require_disk "$SYSTEM_DISK"
 ## Passwords
 
 act_next big
-act_text "Set three passwords, each typed twice.
-
-The disk passphrase is asked at every boot, pick one you can type quickly."
+act_text "Set two passwords, each typed twice."
 act_line ""
-
-LUKS_PASS="$(secret_twice 'Disk passphrase')"
-
-act_next
 
 ROOT_PASS="$(secret_twice 'Root password')"
 
@@ -202,7 +198,7 @@ section "Partitions"
 
 run "wipe the SSD"      sgdisk --zap-all "$SYSTEM_DISK"
 run "efi partition"     sgdisk -n1:0:+1G -t1:EF00 -c1:"EFI"         "$SYSTEM_DISK"
-run "root partition"    sgdisk -n2:0:0   -t2:8300 -c2:"cryptsystem" "$SYSTEM_DISK"
+run "root partition"    sgdisk -n2:0:0   -t2:8300 -c2:"system" "$SYSTEM_DISK"
 
 run "reread table"      partprobe "$SYSTEM_DISK"
 
@@ -222,72 +218,6 @@ run "clear old signatures" wipefs --all "$SYS_ESP" "$SYS_ROOT"
 
 
 
-#    Encrypt
-
-
-section "Encrypt"
-
-	# Ai - the passphrase goes to a file on /run, which is a tmpfs and never
-	#      touches a disk
-	#      not on stdin, because a backgrounded job cannot reliably inherit a pipe
-	#      not as an argument, because arguments are visible in the process table
-
-KEYTMP=/run/rebuild.key
-
-( umask 077; printf '%s' "$LUKS_PASS" > "$KEYTMP" )
-
-KEYSUM="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
-
-
-## Cost
-
-	# Ai - the argon2 memory cost is pinned rather than benchmarked
-	#      left to benchmark, luksFormat sizes the cost against whatever RAM is
-	#      free at that instant, and every later unlock has to allocate that same
-	#      amount again
-	#      256 MiB is strong for a disk passphrase and fits any laptop you will
-	#      run this on, including a small test VM
-
-LUKSFMT=(
-	--type luks2
-	--batch-mode
-	--pbkdf argon2id
-	--pbkdf-memory 262144
-	--iter-time 2000
-)
-
-
-## Guard
-
-	# Ai - confirm the key file is byte for byte what we wrote, before each use
-keyguard() {
-	local now
-	now="$(sha256sum "$KEYTMP" | cut -d' ' -f1)"
-	[[ "$now" == "$KEYSUM" ]] \
-		|| { printf 'The key file changed underneath us, stopping\n' >&2; exit 1; }
-}
-
-
-## Disk
-
-encrypt_disk() {
-	local part=$1 name=$2
-
-	keyguard
-
-	run "format $name"  cryptsetup luksFormat "${LUKSFMT[@]}" --key-file "$KEYTMP" "$part"
-
-		# Ai - prove the passphrase actually opens it before going further, so a
-		#      mismatch surfaces at the step that caused it rather than later
-	run "verify $name"  cryptsetup open --test-passphrase --key-file "$KEYTMP" "$part"
-
-	run "open $name"    cryptsetup open --batch-mode --key-file "$KEYTMP" "$part" "$name"
-}
-
-encrypt_disk "$SYS_ROOT"  cryptsystem
-
-
-
 #    Filesystems
 
 
@@ -297,7 +227,7 @@ section "Filesystems"
 ## Format
 
 run "format esp"         mkfs.fat -F32 "$SYS_ESP"
-run "format system"      mkfs.btrfs -f -L system /dev/mapper/cryptsystem
+run "format system"      mkfs.btrfs -f -L system "$SYS_ROOT"
 
 
 ## Subvols
@@ -306,7 +236,7 @@ run "format system"      mkfs.btrfs -f -L system /dev/mapper/cryptsystem
 	#      nested snapshots are destroyed by their own rollback
 	#      @home is its own subvolume, so rolling the system back never touches
 	#      your files
-run "mount system top"   mount /dev/mapper/cryptsystem /mnt
+run "mount system top"   mount "$SYS_ROOT" /mnt
 run "create @"           btrfs subvolume create /mnt/@
 run "create @snapshots"  btrfs subvolume create /mnt/@snapshots
 run "create @home"       btrfs subvolume create /mnt/@home
@@ -317,13 +247,13 @@ run "unmount system top" umount /mnt
 
 OPTS="compress=zstd:1,noatime"
 
-mount -o "$OPTS,subvol=@" /dev/mapper/cryptsystem /mnt
+mount -o "$OPTS,subvol=@" "$SYS_ROOT" /mnt
 
-mount --mkdir -o "$OPTS,subvol=@snapshots" /dev/mapper/cryptsystem /mnt/.snapshots
+mount --mkdir -o "$OPTS,subvol=@snapshots" "$SYS_ROOT" /mnt/.snapshots
 
 mount --mkdir "$SYS_ESP" /mnt/boot
 
-mount --mkdir -o "$OPTS,subvol=@home" /dev/mapper/cryptsystem /mnt/home
+mount --mkdir -o "$OPTS,subvol=@home" "$SYS_ROOT" /mnt/home
 
 findmnt -R /mnt >&3
 
@@ -407,7 +337,7 @@ pacstrap_retry() {
 
 pacstrap_retry base linux linux-firmware ${UCODE:+"$UCODE"}
 
-pacstrap_retry btrfs-progs cryptsetup networkmanager wpa_supplicant wireless-regdb sudo git
+pacstrap_retry btrfs-progs networkmanager wpa_supplicant wireless-regdb sudo git
 
 pacstrap_retry zram-generator snapper snap-pac
 
@@ -470,10 +400,9 @@ EOF
 	# Ai - no autodetect, so the initramfs carries every storage and USB driver
 	#      autodetect keeps only what the machine it was built on uses, and an
 	#      SSD that is moved to another port or another laptop then fails to boot
-	#      no kms either, the passphrase prompt is text and needs no graphics
 	#      one image is enough, with no autodetect it is already the generic one
 arch-chroot /mnt sed -i \
-	's/^HOOKS=.*/HOOKS=(base systemd microcode modconf keyboard sd-vconsole block sd-encrypt filesystems fsck)/' \
+	's/^HOOKS=.*/HOOKS=(base systemd microcode modconf keyboard sd-vconsole block filesystems fsck)/' \
 	/etc/mkinitcpio.conf
 
 arch-chroot /mnt sed -i "s/^PRESETS=.*/PRESETS=('default')/" /etc/mkinitcpio.d/linux.preset
@@ -529,8 +458,8 @@ section "Bootloader"
 
 ## Setup
 
-	# Ai - no TPM on this machine, the SSD can move between laptops and a key
-	#      sealed to one TPM only opens it in that one, the passphrase is the key
+	# Ai - the root filesystem is not encrypted, it is found by its UUID so the SSD
+	#      boots from any port or laptop
 	#      efibootmgr is allowed to fail, some laptops refuse a boot entry for a
 	#      USB disk, and the fallback path below boots without one
 cat > /mnt/root/_setup.sh << CHROOTEOF
@@ -570,14 +499,14 @@ efibootmgr --create --disk $SYSTEM_DISK --part 1 \\
 	--loader '\\EFI\\limine\\limine_x64.efi' --unicode \\
 	|| echo "no boot entry made, the fallback path still boots"
 
-LUKS_UUID=\$(blkid -s UUID -o value $SYS_ROOT)
+ROOT_UUID=\$(blkid -s UUID -o value $SYS_ROOT)
 
 systemd-machine-id-setup
 
 	# Ai - /@ with the slash, the snapshot tool only recognises that spelling
 	#      subvol=@ and subvol=/@ mount the same thing
-printf 'rd.luks.name=%s=cryptsystem root=/dev/mapper/cryptsystem rootflags=subvol=/@ rw\n' \\
-	"\$LUKS_UUID" > /etc/kernel/cmdline
+printf 'root=UUID=%s rootflags=subvol=/@ rw\n' \\
+	"\$ROOT_UUID" > /etc/kernel/cmdline
 
 	# Ai - the boot menu is not written here
 	#      the Menu block below writes it with the same tool 10-base installs
@@ -589,13 +518,6 @@ CHROOTEOF
 arch-chroot /mnt bash /root/_setup.sh
 
 rm -f /mnt/root/_setup.sh
-
-	# Ai - shred overwrites disk blocks, and tmpfs has none
-	#      what actually protects the key is that it only ever lived in RAM
-rm -f "$KEYTMP"
-
-unset LUKS_PASS
-
 
 ## Menu
 
@@ -762,7 +684,7 @@ check "no autodetect"    sh -c '! grep -q "^HOOKS=.*autodetect" /mnt/etc/mkinitc
 if [[ -n "$UCODE" ]]; then
 	check "microcode present" test -f "/mnt/boot/$UCODE.img"
 fi
-check "cmdline has luks"  grep -q 'rd.luks.name=' /mnt/boot/limine.conf
+check "cmdline has root"  grep -q 'root=UUID=' /mnt/boot/limine.conf
 check "cmdline names /@"  grep -q 'rootflags=subvol=/@' /mnt/etc/kernel/cmdline
 check "fstab / by name"   fstab_root_named /mnt/etc/fstab
 check "no efi conf"      sh -c '! test -f /mnt/boot/EFI/limine/limine.conf'
