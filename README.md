@@ -5,7 +5,7 @@ ___
 | File | What |
 | --- | --- |
 | [docs/problems.md](docs/problems.md) | every known problem, including the quiet ones |
-| [CHANGELOG.md](CHANGELOG.md) | what changed, linked to the change |
+| `scripts/changes.sh` | the changelog: run `changes`, click a line, see the exact change |
 | [docs/decisions.md](docs/decisions.md) | why each choice was made |
 | [docs/plan.md](docs/plan.md) | goals and values |
 | `scripts/` | the new install |
