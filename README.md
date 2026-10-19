@@ -4,8 +4,9 @@ ___
 
 | File | What |
 | --- | --- |
-| [docs/problems.toml](docs/problems.toml) | every known problem and how it is checked, shown in the Problems tab |
-| `scripts/changes.py` | the changelog window: plain words per change, exact lines on a click, notes for Claude |
+| [docs/problems.toml](docs/problems.toml) | every known problem with the install and how it is checked |
+| [docs/changes-problems.toml](docs/changes-problems.toml) | the known problems with the Changes app itself |
+| `scripts/changes.py` | Changes, the app for every project: problems, changes and notes, in plain words |
 | [docs/decisions.md](docs/decisions.md) | why each choice was made |
 | [docs/plan.md](docs/plan.md) | goals and values |
 | `scripts/` | the new install |

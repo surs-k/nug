@@ -1,0 +1,44 @@
+# Ai - the known problems with the Changes app itself, shown in its own project
+
+[[problem]]
+id = "changes-old-entries"
+title = "The first changes have only a title"
+area = "Educating"
+quiet = false
+means = "The first three v2 changes were made before plain-words explanations, so they show only their title."
+now = "Press Ask Claude on one to get it explained."
+
+[[problem]]
+id = "changes-wrong-count"
+title = "One change gives a wrong number"
+area = "Educating"
+quiet = false
+means = "The change that added Problems says nine problems are checked live. It was twelve. Commits cannot be edited from Claude's session."
+
+[[problem]]
+id = "changes-one-file"
+title = "The whole app is one long file"
+area = "Management"
+quiet = true
+means = "About 1,750 lines in one file is harder to read and change safely. It is one file so it can update itself with a single copy."
+v2 = "Split it once the app settles, and update the folder instead of one file."
+
+[[problem]]
+id = "changes-needs-rebuild"
+title = "Updates come only from the install repo"
+area = "Management"
+quiet = true
+means = "Changes updates itself from ~/rebuild on the v2 branch. If that folder moves or the branch is renamed, it stops updating, and says nothing."
+check = '''
+[ -d "$HOME/rebuild/.git" ] || { echo "no ~/rebuild repo"; exit 0; }
+git -C "$HOME/rebuild" rev-parse -q --verify origin/v2 > /dev/null || { echo "no origin/v2 branch"; exit 0; }
+exit 1
+'''
+
+[[problem]]
+id = "changes-not-tested-here"
+title = "Never tested on a real desktop"
+area = "Management"
+quiet = false
+means = "Each version was tested off screen in Claude's session. Floating the window, notifications and the clipboard are only proven on your PC."
+now = "If anything looks or acts wrong, add a note on this problem and copy it to Claude."
