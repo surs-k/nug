@@ -6,7 +6,7 @@
 #      means for you, and everything else is folded until you open it
 #      notes are kept per change and copied out for a Claude chat
 #      changes              open the window
-#      changes --install    put Changes in the app launcher
+#      changes --install    put Changes in the app launcher, once
 
 import html
 import json
@@ -523,6 +523,24 @@ def float_window():
         subprocess.run(["hyprctl", "dispatch", "centerwindow"], capture_output=True)
 
 
+# Ai - the command itself is a small launcher that fetches the newest
+#      changes.py every time it starts, so there is never an update to run
+#      offline it opens the copy it fetched last time
+LAUNCHER = """#!/bin/sh
+# changes - opens the newest version from the repo, see scripts/changes.py
+REPO="${REBUILD_REPO:-$HOME/rebuild}"
+CACHE="$HOME/.cache/changes.py"
+mkdir -p "$HOME/.cache"
+git -C "$REPO" fetch -q origin v2 2> /dev/null
+if git -C "$REPO" show origin/v2:scripts/changes.py > "$CACHE.new" 2> /dev/null; then
+	mv "$CACHE.new" "$CACHE"
+else
+	rm -f "$CACHE.new"
+fi
+exec python3 "$CACHE" "$@"
+"""
+
+
 def install():
     apps = Path.home() / ".local/share/applications"
     apps.mkdir(parents=True, exist_ok=True)
@@ -531,7 +549,14 @@ def install():
         "Comment=What changed in the install, in plain words\n"
         "Exec=changes\nIcon=document-open-recent\nTerminal=false\n"
         "StartupWMClass=changes\n")
-    print("Changes is in the app launcher")
+    r = subprocess.run(["sudo", "tee", "/usr/local/bin/changes"], input=LAUNCHER,
+                       text=True, stdout=subprocess.DEVNULL)
+    if r.returncode == 0:
+        subprocess.run(["sudo", "chmod", "755", "/usr/local/bin/changes"])
+        print("Changes is in the app launcher, and updates itself every time it opens")
+    else:
+        print("could not write /usr/local/bin/changes", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
