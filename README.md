@@ -4,7 +4,7 @@ ___
 
 | File | What |
 | --- | --- |
-| [docs/problems.md](docs/problems.md) | every known problem, including the quiet ones |
+| [docs/problems.toml](docs/problems.toml) | every known problem and how it is checked, shown in the Problems tab |
 | `scripts/changes.py` | the changelog window: plain words per change, exact lines on a click, notes for Claude |
 | [docs/decisions.md](docs/decisions.md) | why each choice was made |
 | [docs/plan.md](docs/plan.md) | goals and values |
