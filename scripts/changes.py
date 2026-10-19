@@ -2,9 +2,9 @@
 
 # Ai - changes
 #      every change to the install in one window that stays open
-#      the left is the list, the right says what a change did, why, and what
-#      it means for you, in plain words, the exact lines are one click away
-#      a note can be kept on any change, and copied out for a Claude chat
+#      one thing at a time: the list shows titles, a change shows what it
+#      means for you, and everything else is folded until you open it
+#      notes are kept per change and copied out for a Claude chat
 #      changes              open the window
 #      changes --install    put Changes in the app launcher
 
@@ -17,12 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QGuiApplication
+from PyQt6.QtCore import QSettings, Qt, QTimer
+from PyQt6.QtGui import QFontDatabase, QGuiApplication, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget,
+    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea,
-    QSplitter, QTextEdit, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget,
 )
 
 REPO = Path(os.environ.get("REBUILD_REPO", Path.home() / "rebuild"))
@@ -30,26 +30,31 @@ NOTES = Path.home() / ".local/share/changes/notes.json"
 BRANCHES = ["v2", "v1"]
 COMPARE = "compare"
 
-# Ai - the parts of a commit message this window reads, each starts a line
-#      Claude writes every v2 commit this way, v1 commits only have a title
-FIELDS = {"What": "What it does", "Why": "Why", "For you": "What it means for you",
-          "Values": "Values", "Problems": "Problems"}
+
+#    Tokens
+
+# Ai - every size and colour in one place, the rest comes from your theme
+#      green and red are the only fixed colours, they mean added and removed
+TOKENS = {
+    "added":   "#2e9e5b",
+    "removed": "#d0453b",
+    "gap":     8,
+    "title":   1.5,
+    "small":   0.9,
+}
 
 
 #    Git
 
 def git(*args):
-    r = subprocess.run(["git", "-C", str(REPO), *args],
-                       capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else ""
 
 
 def fetch():
-    # Ai - quietly, an offline PC shows what it fetched last time
-    #      one at a time, a missing branch does not stop the other
+    # Ai - quietly, one branch at a time, an offline PC shows what it had
     for b in BRANCHES:
-        subprocess.run(["git", "-C", str(REPO), "fetch", "-q", "origin", b],
-                       capture_output=True)
+        subprocess.run(["git", "-C", str(REPO), "fetch", "-q", "origin", b], capture_output=True)
 
 
 def entries(branch):
@@ -58,15 +63,15 @@ def entries(branch):
     rows = []
     for rec in out.split("\x1e"):
         rec = rec.strip("\n")
-        if not rec:
-            continue
-        h, date, subject, body = rec.split("\x1f", 3)
-        rows.append({"hash": h, "date": date, "subject": subject, "body": body})
+        if rec:
+            h, date, subject, body = rec.split("\x1f", 3)
+            rows.append({"hash": h, "date": date, "subject": subject, "body": body})
     return rows
 
 
 def parse(body):
-    # Ai - a field runs until the next field or a blank line
+    # Ai - Claude writes What, Why, For you, Values and Problems lines in each
+    #      v2 commit, a field runs until the next field or a blank line
     out, key = {}, None
     for line in body.splitlines():
         m = re.match(r"^(What|Why|For you|Values|Problems):\s*(.*)$", line)
@@ -81,13 +86,11 @@ def parse(body):
 
 
 def files(args):
-    # Ai - one row per file, with how many lines came and went
     rows = []
     for line in git(*args, "--numstat", "-M").splitlines():
         parts = line.split("\t")
         if len(parts) == 3:
-            add, rem, path = parts
-            rows.append((path, add, rem))
+            rows.append((parts[2], parts[0], parts[1]))
     return rows
 
 
@@ -107,118 +110,200 @@ def save_notes(notes):
     tmp.replace(NOTES)
 
 
+#    Parts
+
+def scaled(widget, factor, bold=False):
+    f = widget.font()
+    f.setPointSizeF(f.pointSizeF() * factor)
+    f.setBold(bold)
+    widget.setFont(f)
+    return widget
+
+
+def muted(widget):
+    # Ai - the theme's own quiet colour, so it fits light and dark
+    pal = widget.palette()
+    pal.setColor(QPalette.ColorRole.WindowText, pal.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText))
+    widget.setPalette(pal)
+    return widget
+
+
+def para(text=""):
+    lab = QLabel(text)
+    lab.setWordWrap(True)
+    lab.setTextFormat(Qt.TextFormat.RichText)
+    lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    return lab
+
+
+class Fold(QWidget):
+    # Ai - a heading with an arrow, the arrow says it opens, the body is hidden
+    #      until clicked, and stays the way you left it for the next change
+
+    def __init__(self, name, settings):
+        super().__init__()
+        self.name, self.settings = name, settings
+        self.head = QToolButton()
+        self.head.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.head.setAutoRaise(True)
+        self.head.setCheckable(True)
+        self.head.toggled.connect(self.toggle)
+        self.body = QWidget()
+        self.inner = QVBoxLayout(self.body)
+        self.inner.setContentsMargins(TOKENS["gap"] * 3, 0, 0, 0)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.head, alignment=Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(self.body)
+        self.set_title(name)
+        self.head.setChecked(settings.value(f"open/{name}", False, type=bool))
+        self.toggle(self.head.isChecked())
+
+    def set_title(self, text):
+        self.head.setText(text)
+
+    def toggle(self, on):
+        self.head.setArrowType(Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow)
+        self.body.setVisible(on)
+        self.settings.setValue(f"open/{self.name}", on)
+
+
 #    Window
 
 class Window(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.settings = QSettings("rebuild", "changes")
         self.setWindowTitle("Changes")
-        self.resize(1100, 720)
+        self.resize(self.settings.value("size", None) or self.default_size())
         self.notes = load_notes()
-        self.current = None
         self.rows = {}
+        self.current = None
+        self.diff_args = []
 
         self.save_timer = QTimer(self, singleShot=True, interval=600)
         self.save_timer.timeout.connect(lambda: save_notes(self.notes))
 
-        # Ai - top bar
-        self.branch = QComboBox()
-        self.branch.addItems(BRANCHES)
-        self.branch.currentTextChanged.connect(self.fill)
-        refresh = QPushButton("Refresh")
-        refresh.clicked.connect(self.refresh)
-        copy_all = QPushButton("Copy all notes for Claude")
-        copy_all.clicked.connect(self.copy_all)
-        self.status = QLabel("")
+        # Ai - left, the hub: a search line and the titles
 
-        bar = QHBoxLayout()
-        bar.addWidget(QLabel("Version"))
-        bar.addWidget(self.branch)
-        bar.addWidget(refresh)
-        bar.addStretch()
-        bar.addWidget(self.status)
-        bar.addWidget(copy_all)
-
-        # Ai - the list
+        self.search = QLineEdit(placeholderText="Search changes   Ctrl+F")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.filter)
         self.list = QListWidget()
         self.list.setWordWrap(True)
-        self.list.setSpacing(4)
+        self.list.setSpacing(3)
         self.list.currentItemChanged.connect(self.show_item)
 
-        # Ai - the detail, plain words first, the lines last and hidden
-        self.title = QLabel()
-        self.title.setWordWrap(True)
-        f = self.title.font()
-        f.setPointSizeF(f.pointSizeF() * 1.4)
-        f.setBold(True)
-        self.title.setFont(f)
-        self.meta = QLabel()
-        self.meta.setEnabled(False)
-        self.text = QLabel()
-        self.text.setWordWrap(True)
-        self.text.setTextFormat(Qt.TextFormat.RichText)
-        self.text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.filelist = QLabel()
-        self.filelist.setWordWrap(True)
-        self.filelist.setTextFormat(Qt.TextFormat.RichText)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(self.search)
+        lv.addWidget(self.list)
 
-        self.lines_btn = QPushButton("Show the exact lines")
-        self.lines_btn.setCheckable(True)
-        self.lines_btn.toggled.connect(self.toggle_lines)
-        self.lines = QTextEdit(readOnly=True)
-        self.lines.setFont(QFontDatabase_fixed())
-        self.lines.setMinimumHeight(320)
-        self.lines.hide()
+        # Ai - right, one change
 
-        self.note = QPlainTextEdit()
-        self.note.setPlaceholderText("Your note on this change. Saved as you type.")
-        self.note.setFixedHeight(110)
+        self.title = scaled(para(), TOKENS["title"], bold=True)
+        self.meta = muted(scaled(QLabel(), TOKENS["small"]))
+        self.foryou = para()
+        self.details = Fold("Details", self.settings)
+        self.details_text = para()
+        self.details.inner.addWidget(self.details_text)
+        self.lines = Fold("Files and lines", self.settings)
+        self.filelist = para()
+        self.diff = QTextEdit(readOnly=True)
+        self.diff.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.diff.setMinimumHeight(360)
+        self.lines.inner.addWidget(self.filelist)
+        self.lines.inner.addWidget(self.diff)
+        self.lines.head.toggled.connect(self.load_diff)
+
+        self.note_btn = QPushButton("Add a note")
+        self.note_btn.setToolTip("Ctrl+N")
+        self.note_btn.clicked.connect(self.open_note)
+        self.note = QPlainTextEdit(placeholderText="Your note. Saved as you type, kept on this PC.")
+        self.note.setFixedHeight(self.fontMetrics().height() * 6)
         self.note.textChanged.connect(self.note_changed)
-        copy_one = QPushButton("Copy this note for Claude")
-        copy_one.clicked.connect(self.copy_one)
+        self.note_label = scaled(QLabel("Your note"), 1, bold=True)
 
         detail = QWidget()
         d = QVBoxLayout(detail)
+        d.setSpacing(TOKENS["gap"])
         d.addWidget(self.title)
         d.addWidget(self.meta)
-        d.addWidget(self.text)
-        d.addWidget(heading("Files"))
-        d.addWidget(self.filelist)
-        d.addWidget(self.lines_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-        d.addWidget(self.lines)
-        d.addWidget(heading("Your note"))
+        d.addSpacing(TOKENS["gap"])
+        d.addWidget(self.foryou)
+        d.addSpacing(TOKENS["gap"])
+        d.addWidget(self.note_label)
         d.addWidget(self.note)
-        d.addWidget(copy_one, alignment=Qt.AlignmentFlag.AlignLeft)
+        d.addWidget(self.note_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        d.addSpacing(TOKENS["gap"])
+        d.addWidget(self.details)
+        d.addWidget(self.lines)
         d.addStretch()
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        scroll = QScrollArea(widgetResizable=True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(detail)
 
+        # Ai - shown until a change is picked, so the window never opens blank
+        empty = muted(para("Pick a change on the left."))
+        empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pages = QStackedWidget()
+        self.pages.addWidget(empty)
+        self.pages.addWidget(scroll)
+
         split = QSplitter()
-        split.addWidget(self.list)
-        split.addWidget(scroll)
-        split.setSizes([360, 740])
+        split.addWidget(left)
+        split.addWidget(self.pages)
+        split.setStretchFactor(1, 1)
+        split.setSizes([320, 780])
+
+        # Ai - bottom bar, the version and the one action that leaves the window
+
+        self.branch = QComboBox()
+        self.branch.addItems(BRANCHES)
+        self.branch.setToolTip("Which install's changes to show")
+        self.branch.currentTextChanged.connect(self.fill)
+        self.status = muted(QLabel(""))
+        self.copy = QPushButton()
+        self.copy.setToolTip("Ctrl+Shift+C, paste it into a Claude chat")
+        self.copy.clicked.connect(self.copy_all)
+
+        bar = QHBoxLayout()
+        bar.addWidget(self.branch)
+        bar.addWidget(self.status, 1)
+        bar.addWidget(self.copy)
 
         root = QWidget()
         r = QVBoxLayout(root)
+        r.addWidget(split, 1)
         r.addLayout(bar)
-        r.addWidget(split)
         self.setCentralWidget(root)
 
+        # Ai - shortcuts, each also written on the thing it presses
+        QShortcut(QKeySequence("Ctrl+F"), self, self.search.setFocus)
+        QShortcut(QKeySequence("Ctrl+N"), self, self.open_note)
+        QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.copy_all)
+        QShortcut(QKeySequence("F5"), self, self.refresh)
+        QShortcut(QKeySequence("Escape"), self, self.list.setFocus)
+
         self.fill(self.branch.currentText())
+        self.update_copy()
+
+    def default_size(self):
+        from PyQt6.QtCore import QSize
+        return QSize(1000, 680)
 
     def closeEvent(self, e):
-        # Ai - a note typed just before closing is not lost
         save_notes(self.notes)
+        self.settings.setValue("size", self.size())
         super().closeEvent(e)
 
     # Ai - list
 
     def refresh(self):
-        self.status.setText("Fetching...")
+        self.status.setText("Checking for new changes...")
         QApplication.processEvents()
         fetch()
         self.fill(self.branch.currentText())
@@ -227,31 +312,38 @@ class Window(QMainWindow):
     def fill(self, branch):
         self.list.clear()
         self.rows = {}
-        if branch != "v1":
-            key = f"{COMPARE}:v1..{branch}"
-            self.rows[key] = {"hash": key, "date": "", "subject": "Everything since v1",
-                              "body": "", "compare": branch}
-            self.add_item(key)
         for row in entries(branch):
             self.rows[row["hash"]] = row
             self.add_item(row["hash"])
-        if self.list.count() > 1:
-            self.list.setCurrentRow(1)
-        elif self.list.count():
-            self.list.setCurrentRow(0)
+        if branch != "v1":
+            key = f"{COMPARE}:v1..{branch}"
+            self.rows[key] = {"hash": key, "date": "", "subject": f"All of {branch} compared to v1",
+                              "body": "", "compare": branch}
+            self.add_item(key)
+        self.filter(self.search.text())
+        self.pages.setCurrentIndex(0)
+        self.status.setText(f"{len(self.rows) - (branch != 'v1')} changes")
 
-    def label(self, key, noted):
-        row = self.rows[key]
-        top = row["date"] or "v1 to now"
-        return f"{top}{'   ✎ note' if noted else ''}\n{row['subject']}"
+    def label(self, key):
+        noted = bool(self.notes.get(key, {}).get("text", "").strip())
+        return self.rows[key]["subject"] + ("   ✎" if noted else "")
 
     def add_item(self, key):
-        noted = bool(self.notes.get(key, {}).get("text", "").strip())
-        it = QListWidgetItem(self.label(key, noted))
+        it = QListWidgetItem(self.label(key))
         it.setData(Qt.ItemDataRole.UserRole, key)
+        row = self.rows[key]
+        it.setToolTip(row["date"] or "everything at once")
         self.list.addItem(it)
 
-    # Ai - detail
+    def filter(self, text):
+        t = text.lower().strip()
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            row = self.rows[it.data(Qt.ItemDataRole.UserRole)]
+            hay = (row["subject"] + " " + row["body"]).lower()
+            it.setHidden(bool(t) and t not in hay)
+
+    # Ai - one change
 
     def show_item(self, item, _old=None):
         if item is None:
@@ -259,37 +351,51 @@ class Window(QMainWindow):
         key = item.data(Qt.ItemDataRole.UserRole)
         row = self.rows[key]
         self.current = key
-        self.title.setText(row["subject"])
+        self.pages.setCurrentIndex(1)
+        self.title.setText(html.escape(row["subject"]))
 
         if "compare" in row:
-            self.meta.setText(f"v1 against {row['compare']}, every file that differs")
+            self.meta.setText(f"v1 against {row['compare']}")
+            self.foryou.setText("Every file that differs between the two installs, in one place.")
+            self.details_text.setText("<i>This is the sum of all the changes in the list.</i>")
             self.diff_args = ["diff", "-M", "origin/v1", f"origin/{row['compare']}"]
-            self.text.setText("<p>All of the changes below, added together.</p>")
         else:
-            self.meta.setText(f"{row['date']}   ·   {row['hash'][:7]}")
+            f = parse(row["body"])
+            bits = [row["date"]] + ([f["Values"]] if "Values" in f else [])
+            self.meta.setText("   ·   ".join(bits))
+            self.foryou.setText(html.escape(f.get("For you", ""))
+                                or "<i>No explanation was written for this change.</i>")
+            self.details_text.setText(details_html(f))
             self.diff_args = ["show", "--format=", "-M", row["hash"]]
-            self.text.setText(explain(parse(row["body"])))
 
         rows = files(self.diff_args)
+        self.lines.set_title(f"Files and lines  ({len(rows)})")
         self.filelist.setText(file_html(rows))
+        self.diff.clear()
+        self.load_diff(self.lines.head.isChecked())
 
-        self.lines_btn.setChecked(False)
-        self.lines.hide()
-
+        text = self.notes.get(key, {}).get("text", "")
         self.note.blockSignals(True)
-        self.note.setPlainText(self.notes.get(key, {}).get("text", ""))
+        self.note.setPlainText(text)
         self.note.blockSignals(False)
+        self.show_note(bool(text.strip()))
 
-    def toggle_lines(self, on):
-        if on:
-            self.lines.setHtml(diff_html(git(*self.diff_args, "--patch")))
-            self.lines.show()
-            self.lines_btn.setText("Hide the exact lines")
-        else:
-            self.lines.hide()
-            self.lines_btn.setText("Show the exact lines")
+    def load_diff(self, on):
+        # Ai - read only when opened, a big change costs nothing until then
+        if on and self.diff_args and not self.diff.toPlainText():
+            self.diff.setHtml(diff_html(git(*self.diff_args, "--patch")))
 
     # Ai - notes
+
+    def show_note(self, on):
+        self.note_label.setVisible(on)
+        self.note.setVisible(on)
+        self.note_btn.setVisible(not on)
+
+    def open_note(self):
+        if self.current is not None:
+            self.show_note(True)
+            self.note.setFocus()
 
     def note_changed(self):
         if self.current is None:
@@ -297,67 +403,48 @@ class Window(QMainWindow):
         row = self.rows[self.current]
         text = self.note.toPlainText()
         if text.strip():
-            self.notes[self.current] = {"text": text, "subject": row["subject"],
-                                        "date": row["date"], "branch": self.branch.currentText()}
+            self.notes[self.current] = {"text": text, "subject": row["subject"], "date": row["date"],
+                                        "branch": self.branch.currentText(),
+                                        "what": parse(row["body"]).get("What", "")}
         else:
             self.notes.pop(self.current, None)
         self.save_timer.start()
         item = self.list.currentItem()
         if item is not None:
-            item.setText(self.label(self.current, bool(text.strip())))
+            item.setText(self.label(self.current))
+        self.update_copy()
 
-    def block(self, key):
-        n = self.notes[key]
-        row = self.rows.get(key, {})
-        what = parse(row.get("body", "")).get("What", "")
-        ref = "everything since v1" if key.startswith(COMPARE) else key[:7]
-        out = f"Change {ref} ({n['branch']}, {n['date'] or 'all'}): {n['subject']}\n"
-        if what:
-            out += f"What it does: {what}\n"
-        out += f"My note: {n['text'].strip()}\n"
-        return out
+    def noted(self):
+        return [k for k in self.notes if self.notes[k].get("text", "").strip()]
 
-    def copy_one(self):
-        if self.current in self.notes:
-            copy_text("My note on an install change:\n\n" + self.block(self.current))
-            self.status.setText("Copied, paste it into Claude")
-        else:
-            self.status.setText("No note on this change yet")
+    def update_copy(self):
+        n = len(self.noted())
+        self.copy.setEnabled(n > 0)
+        self.copy.setText(f"Copy {n} note{'s' if n != 1 else ''} for Claude" if n else "No notes yet")
 
     def copy_all(self):
-        keys = [k for k in self.notes if self.notes[k].get("text", "").strip()]
+        keys = sorted(self.noted(), key=lambda k: self.notes[k].get("date") or "", reverse=True)
         if not keys:
-            self.status.setText("No notes yet")
             return
-        keys.sort(key=lambda k: self.notes[k].get("date") or "", reverse=True)
-        copy_text("My notes on install changes:\n\n" + "\n".join(self.block(k) for k in keys))
-        self.status.setText(f"{len(keys)} note(s) copied, paste them into Claude")
+        out = ["My notes on install changes:", ""]
+        for k in keys:
+            n = self.notes[k]
+            ref = "all changes" if k.startswith(COMPARE) else k[:7]
+            out.append(f"Change {ref} ({n['branch']}, {n['date'] or 'all'}): {n['subject']}")
+            if n.get("what"):
+                out.append(f"What it does: {n['what']}")
+            out.append(f"My note: {n['text'].strip()}")
+            out.append("")
+        copy_text("\n".join(out))
+        self.status.setText("Copied. Paste it into a Claude chat.")
 
 
-#    Helpers
+#    Text
 
-def heading(text):
-    lab = QLabel(text)
-    f = lab.font()
-    f.setBold(True)
-    lab.setFont(f)
-    lab.setContentsMargins(0, 12, 0, 0)
-    return lab
-
-
-def QFontDatabase_fixed():
-    from PyQt6.QtGui import QFontDatabase
-    return QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-
-
-def explain(fields):
-    if not fields:
-        return "<p><i>No plain-words explanation for this change, only its title.</i></p>"
-    out = ""
-    for key, label in FIELDS.items():
-        if key in fields:
-            out += f"<p><b>{label}</b><br>{html.escape(fields[key])}</p>"
-    return out
+def details_html(f):
+    labels = {"What": "What it does", "Why": "Why", "Problems": "Problems it fixes"}
+    out = "".join(f"<p><b>{lab}</b><br>{html.escape(f[k])}</p>" for k, lab in labels.items() if k in f)
+    return out or "<i>No details were written for this change.</i>"
 
 
 def file_html(rows):
@@ -375,10 +462,10 @@ def file_html(rows):
                 out.append(f"{html.escape(path)} &nbsp; <i>moved</i>")
                 continue
         if add == "-":
-            n = "binary"
+            n = "<i>binary</i>"
         else:
-            n = (f"<span style='color:#2e9e5b'>+{add}</span> "
-                 f"<span style='color:#d0453b'>−{rem}</span>")
+            n = (f"<span style='color:{TOKENS['added']}'>+{add}</span> "
+                 f"<span style='color:{TOKENS['removed']}'>−{rem}</span>")
         out.append(f"{html.escape(path)} &nbsp; {n}")
     if len(rows) > 60:
         out.append(f"<i>and {len(rows) - 60} more</i>")
@@ -386,25 +473,30 @@ def file_html(rows):
 
 
 def diff_html(text):
-    # Ai - green is added, red is removed, grey says where in the file
-    lines = text.splitlines()
-    cut = len(lines) > 4000
+    # Ai - one bold heading per file, green added, red removed, git's own
+    #      bookkeeping lines are left out
     out = []
+    lines = text.splitlines()
     for line in lines[:4000]:
+        if line.startswith(("index ", "--- ", "+++ ", "similarity ", "new file", "deleted file")):
+            continue
         e = html.escape(line) or "&nbsp;"
-        if line.startswith(("+++", "---", "diff ", "index ", "rename ", "similarity ", "new file", "deleted file")):
-            out.append(f"<b>{e}</b>")
+        if line.startswith("diff --git"):
+            name = line.split(" b/", 1)[-1]
+            out.append(f"\n<b>{html.escape(name)}</b>")
+        elif line.startswith("rename "):
+            out.append(f"<i>{e}</i>")
         elif line.startswith("+"):
-            out.append(f"<span style='color:#2e9e5b'>{e}</span>")
+            out.append(f"<span style='color:{TOKENS['added']}'>{e}</span>")
         elif line.startswith("-"):
-            out.append(f"<span style='color:#d0453b'>{e}</span>")
+            out.append(f"<span style='color:{TOKENS['removed']}'>{e}</span>")
         elif line.startswith("@@"):
-            out.append(f"<span style='color:#888888'>{e}</span>")
+            out.append("<i>…</i>")
         else:
             out.append(e)
-    if cut:
+    if len(lines) > 4000:
         out.append("<i>cut at 4000 lines</i>")
-    return "<pre>" + "\n".join(out) + "</pre>"
+    return "<pre>" + "\n".join(out).lstrip("\n") + "</pre>"
 
 
 def copy_text(text):
@@ -413,6 +505,8 @@ def copy_text(text):
         subprocess.run(["wl-copy"], input=text, text=True)
     QGuiApplication.clipboard().setText(text)
 
+
+#    Start
 
 def float_window():
     # Ai - Hyprland tiles new windows, this one floats so it can be moved
@@ -439,8 +533,6 @@ def install():
         "StartupWMClass=changes\n")
     print("Changes is in the app launcher")
 
-
-#    Main
 
 def main():
     if sys.argv[1:] == ["--install"]:
