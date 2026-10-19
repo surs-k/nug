@@ -1,0 +1,9 @@
+# Decisions
+___
+
+
+One entry per choice. A choice is changed only by a new entry, so the old reasoning stays.
+
+| # | Decision | Values | Why | Source | Change |
+| --- | --- | --- | --- | --- | --- |
+| 1 | v2 built beside v1 in the same repo, v1 tagged | Recovery, Management | old install keeps working, every version can be compared | judgment | [compare](https://github.com/surs-k/nug/compare/v1...v2) |
