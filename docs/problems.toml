@@ -1,17 +1,107 @@
-# Ai - every known problem with the install, the Problems tab in Changes reads this
+# Ai - every known problem with the PC install, shown in Changes, PC install
 #      check is a shell line run as you, never as root, it only reads
 #      exit 0 means the problem is on this PC, 1 means it is not, anything
 #      else means it could not tell, what it prints is shown as what it found
-#      a problem with no check is part of v1's design, and v2 fixes it
+#      a problem with no check is part of the install's design, still to fix
 #      a change fixes a problem by naming its id on its Problems: line
+#      several checks first ask whether this PC still runs v1: v1 has the
+#      limine-header-fix tool, v2 does not
+
+
+# Ai - wrong right now, checked live
+
+[[problem]]
+id = "system-readonly"
+title = "The system disk went read-only"
+area = "Recovery"
+quiet = true
+means = "Nothing can be saved. The disk does this itself when it sees errors or a loose cable."
+now = "Save what you can elsewhere, then restart. If it happens again, ask Claude to read the journal with you."
+check = '''
+o=$(findmnt -no OPTIONS / 2> /dev/null) || exit 2
+case ",$o," in *,ro,*) exit 0 ;; esac
+exit 1
+'''
+
+[[problem]]
+id = "disk-full"
+title = "A disk is almost full"
+area = "Management"
+quiet = true
+means = "Over 90 percent used. Updates, snapshots and saves start failing when it fills."
+now = "Ask Claude what is using the space, with the output of: sudo btrfs filesystem usage /"
+check = '''
+out=$(df --output=pcent,target / /home /boot 2> /dev/null | tail -n +2 | awk '{gsub("%",""); if ($1 > 90) print $2 " " $1 "% full"}')
+[ -n "$out" ] || exit 1
+printf '%s\n' "$out"
+exit 0
+'''
+
+[[problem]]
+id = "failed-services"
+title = "A background service failed"
+area = "Management"
+quiet = true
+means = "Something meant to run by itself stopped with an error, a backup or a timer for example."
+now = "See which: systemctl --failed, then ask Claude about it."
+check = '''
+out=$(systemctl --failed --no-legend --plain 2> /dev/null | awk 'NF {print $1}')
+[ -n "$out" ] || exit 1
+printf 'failed: %s\n' $out
+exit 0
+'''
+
+[[problem]]
+id = "reboot-needed"
+title = "A new kernel is waiting for a restart"
+area = "Management"
+quiet = true
+means = "Docker, VMs and new USB devices can fail until you restart."
+now = "Restart the PC."
+check = '''
+[ -d "/usr/lib/modules/$(uname -r)" ] && exit 1
+echo "running $(uname -r), its modules were replaced by an update"
+exit 0
+'''
+
+[[problem]]
+id = "updates-late"
+title = "No update in two weeks"
+area = "Security"
+quiet = true
+means = "Security fixes arrive in updates. Arch is easiest to keep healthy when updated often."
+now = "sudo pacman -Syu, then restart if the kernel changed."
+check = '''
+last=$(grep -a 'starting full system upgrade' /var/log/pacman.log 2> /dev/null | tail -n 1 | cut -c2-11)
+[ -n "$last" ] || exit 2
+age=$(( ( $(date +%s) - $(date -d "$last" +%s) ) / 86400 ))
+[ "$age" -gt 14 ] || exit 1
+echo "last full update $age days ago"
+exit 0
+'''
+
+[[problem]]
+id = "orphans"
+title = "Packages nothing needs any more"
+area = "Management"
+quiet = true
+means = "Left behind by removed apps. Harmless, but they take space and still get updates."
+now = "Look first: pacman -Qtdq. Remove only if you agree: sudo pacman -Rns $(pacman -Qtdq)"
+check = '''
+command -v pacman > /dev/null || exit 2
+out=$(pacman -Qtdq 2> /dev/null)
+[ -n "$out" ] || exit 1
+printf '%s\n' "$out" | head -n 15
+exit 0
+'''
 
 [[problem]]
 id = "secure-boot"
 title = "Secure Boot is off"
 area = "Security"
 quiet = true
-means = "Someone with your PC in hand can change what starts before your disk password is asked."
-v2 = "Phase 1: Secure Boot on, with your own keys."
+means = "Someone with your PC in hand can change what starts before your disk passphrase is asked."
+now = "rebuild secureboot, it says each step."
 check = '''
 f=$(ls /sys/firmware/efi/efivars/SecureBoot-* 2> /dev/null | head -n 1)
 [ -n "$f" ] || exit 2
@@ -20,34 +110,12 @@ exit 0
 '''
 
 [[problem]]
-id = "tpm-pin"
-title = "The disk unlocks by itself, no PIN"
-area = "Security"
-quiet = true
-means = "A stolen PC starts all the way to the login screen without your disk password."
-v2 = "Phase 1: the TPM asks for a PIN, or the disk password is used alone."
-check = '''
-[ -e /dev/tpmrm0 ] || exit 1
-echo "A TPM is in this PC, and v1 set it to unlock the disk without a PIN."
-exit 0
-'''
-
-[[problem]]
-id = "boot-editor"
-title = "Boot entries can be edited at startup"
-area = "Security"
-quiet = true
-means = "Anyone at the keyboard can change how the system starts, for example to skip the login."
-v2 = "Phase 1: the boot editor is turned off."
-
-[[problem]]
 id = "open-ports"
 title = "Something accepts connections from your network"
 area = "Privacy"
 quiet = true
 means = "A program on this PC can be reached by other devices on your network, not just by you."
 now = "Copy what was found into a Claude chat and ask what it is."
-v2 = "Phase 2: one firewall owner, every service bound to this PC or the tailnet only."
 check = '''
 command -v ss > /dev/null || exit 2
 out=$(ss -Hltun 2> /dev/null | awk '{print $1, $5}' \
@@ -85,13 +153,156 @@ exit 0
 '''
 
 [[problem]]
+id = "backup-unmounted"
+title = "The backup drive is not mounted"
+area = "Recovery"
+quiet = true
+means = "Daily backups are not being made."
+now = "sudo mount /mnt/backup, then: backup"
+check = '''
+grep -q ' /mnt/backup ' /etc/fstab 2> /dev/null || exit 1
+mountpoint -q /mnt/backup && exit 1
+exit 0
+'''
+
+[[problem]]
+id = "no-backup-drive"
+title = "No backup drive is set up"
+area = "Recovery"
+quiet = true
+means = "Your files exist only on the data disk. If it fails, they are gone."
+now = "backup setup"
+check = '''
+[ -x /usr/local/bin/limine-header-fix ] && exit 1
+grep -q ' /mnt/backup ' /etc/fstab 2> /dev/null && exit 1
+exit 0
+'''
+
+[[problem]]
+id = "external-late"
+title = "The monthly external backup is late"
+area = "Recovery"
+quiet = true
+means = "The external drive is the copy a fire, a power surge or ransomware cannot reach while it is unplugged."
+now = "Plug in the external drive, then: backup external"
+check = '''
+f=/persist/state/external-last
+[ -d /persist/state ] || exit 2
+[ -f "$f" ] || { echo "never"; exit 0; }
+age=$(( ( $(date +%s) - $(date -d "$(cat "$f")" +%s) ) / 86400 ))
+[ "$age" -gt 35 ] || exit 1
+echo "last one $age days ago"
+exit 0
+'''
+
+[[problem]]
+id = "restore-test"
+title = "Backups have not been read back lately"
+area = "Recovery"
+quiet = true
+means = "A backup you have never restored from is a hope, not a backup."
+now = "backup test, it changes nothing."
+check = '''
+f=/persist/state/restore-tested
+[ -d /persist/state ] || exit 2
+[ -f "$f" ] || { echo "never"; exit 0; }
+age=$(( ( $(date +%s) - $(date -d "$(cat "$f")" +%s) ) / 86400 ))
+[ "$age" -gt 120 ] || exit 1
+echo "last test $age days ago"
+exit 0
+'''
+
+[[problem]]
+id = "header-backup"
+title = "No fresh copy of the disk encryption headers"
+area = "Recovery"
+quiet = true
+means = "If the start of an encrypted disk is damaged, everything on it is lost, even with your passphrase."
+now = "rebuild recovery saves fresh copies."
+check = '''
+[ -x /usr/local/bin/limine-header-fix ] && exit 0
+[ -f "$HOME/.local/state/nug/headers-saved" ] || exit 0
+exit 1
+'''
+
+[[problem]]
+id = "nofail"
+title = "A missing disk stops startup"
+area = "Recovery"
+quiet = false
+means = "If a data or backup disk is unplugged or fails, the PC stops at an emergency screen."
+check = '''
+[ -r /etc/fstab ] || exit 2
+root=$(awk '$1 !~ /^#/ && $2 == "/" {print $1}' /etc/fstab)
+out=$(awk -v r="$root" '$1 !~ /^#/ && NF >= 4 && $1 != r && $2 != "/boot" && $3 !~ /^(swap|tmpfs|none)$/ && $4 !~ /nofail/ {print $2}' /etc/fstab)
+[ -n "$out" ] || exit 1
+printf 'without nofail: %s\n' $out
+exit 0
+'''
+
+[[problem]]
+id = "boot-entries"
+title = "Duplicate boot entries in the firmware"
+area = "Management"
+quiet = true
+means = "Old entries can start a system that no longer exists."
+now = "Ask Claude to help you clean them with efibootmgr."
+check = '''
+command -v efibootmgr > /dev/null || exit 2
+out=$(efibootmgr 2> /dev/null) || exit 2
+d=$(printf '%s\n' "$out" | sed -n 's/^Boot[0-9A-F]\{4\}\*\{0,1\} //p' | sed 's/\t.*//' | sort | uniq -d)
+[ -n "$d" ] || exit 1
+printf 'more than once: %s\n' "$d"
+exit 0
+'''
+
+
+# Ai - left over from v1, each one is wrong while this PC still runs v1
+
+[[problem]]
+id = "v1-still"
+title = "This PC still runs v1"
+area = "Management"
+quiet = false
+means = "Most problems marked v1 below go away with the v2 install."
+now = "When ready, follow the install steps: prep first, then the USB."
+check = '''
+[ -x /usr/local/bin/limine-header-fix ] && exit 0
+exit 1
+'''
+
+[[problem]]
+id = "tpm-pin"
+title = "v1: the disk unlocks by itself, no PIN"
+area = "Security"
+quiet = true
+means = "A stolen PC starts all the way to the login screen without your disk passphrase."
+v2 = "v2 asks for the passphrase, and offers the TPM with a PIN once Secure Boot is on."
+check = '''
+[ -x /usr/local/bin/limine-header-fix ] && [ -e /dev/tpmrm0 ] && exit 0
+exit 1
+'''
+
+[[problem]]
+id = "boot-editor"
+title = "v1: boot entries can be edited at startup"
+area = "Security"
+quiet = true
+means = "Anyone at the keyboard can change how the system starts."
+v2 = "v2 boots one signed file per kernel, and the menu editor is off."
+check = '''
+[ -x /usr/local/bin/limine-header-fix ] && exit 0
+exit 1
+'''
+
+[[problem]]
 id = "stash"
 title = "Reinstall stash left on disk"
 area = "Privacy"
 quiet = true
-means = "Service passwords, SSH keys and your Mullvad number are still saved from a reinstall."
+means = "Service passwords, SSH keys and your Mullvad number are still saved from a v1 reinstall."
 now = "If you are not in the middle of a reinstall: sudo rm -r ~/.rebuild/stash"
-v2 = "Phase 1: settings that must survive a reinstall live on the data disk, no stash."
+v2 = "v2 keeps what must survive on the data disk's @persist, no stash."
 check = '''
 [ -e "$HOME/.rebuild/stash" ] && exit 0
 exit 1
@@ -103,7 +314,7 @@ title = "A downloaded script rewrites the firewall"
 area = "Security"
 quiet = true
 means = "ufw-docker was fetched as root straight from someone's GitHub, and it edits your firewall rules."
-v2 = "Phase 4: dropped, the services do not need it."
+v2 = "v2 does not use it."
 check = '''
 [ -e /usr/local/bin/ufw-docker ] && exit 0
 exit 1
@@ -114,133 +325,109 @@ id = "input-group"
 title = "Your user can read every keyboard"
 area = "Security"
 quiet = true
-means = "Any program you run can read every key you press, passwords included. Sunshine was given this."
-v2 = "Phase 3: Sunshine set up without it."
+means = "Any program you run can read every key you press, passwords included."
+v2 = "v2 gives Sunshine the laptop's input through uaccess instead, and leaves the group."
 check = '''
 id -nG | tr ' ' '\n' | grep -qx input && exit 0
 exit 1
 '''
 
 [[problem]]
-id = "unpinned"
-title = "Updates are not pinned"
-area = "Security"
-quiet = true
-means = "HyDE, AUR packages and Docker images update to whatever is newest, untested by anyone you trust."
-v2 = "Phase 2: an update policy, tested versions only for the risky ones."
-
-[[problem]]
 id = "dns-owners"
-title = "Four programs manage DNS"
+title = "v1: four programs manage DNS"
 area = "Privacy"
 quiet = true
 means = "It is unclear who sees which sites you look up, and lookups have stalled before."
-v2 = "Phase 2: one owner for DNS."
-
-[[problem]]
-id = "backup-unmounted"
-title = "The backup drive is not mounted"
-area = "Recovery"
-quiet = true
-means = "Daily backups go nowhere, or onto the system disk, which filled up once."
-now = "sudo mount /mnt/backup"
-v2 = "Phase 2: backups refuse to run without their drive."
+v2 = "v2 gives DNS one owner, systemd-resolved."
 check = '''
-grep -q ' /mnt/backup ' /etc/fstab 2> /dev/null || exit 1
-mountpoint -q /mnt/backup && exit 1
-exit 0
-'''
-
-[[problem]]
-id = "header-backup"
-title = "No copy of the disk encryption headers"
-area = "Recovery"
-quiet = true
-means = "If the start of an encrypted disk is damaged, everything on it is lost, even with your password."
-v2 = "Phase 2: header copies kept with the backups."
-
-[[problem]]
-id = "restore-test"
-title = "Backups have never been restored as a test"
-area = "Recovery"
-quiet = true
-means = "Nobody knows yet whether a backup can actually bring your files back."
-v2 = "Phase 2: a restore test, then one every few months."
-
-[[problem]]
-id = "nofail"
-title = "A missing disk stops startup"
-area = "Recovery"
-quiet = false
-means = "If a data or backup disk is unplugged or fails, the PC stops at an emergency screen."
-v2 = "Phase 1: every disk but the system disk is optional at startup."
-check = '''
-[ -r /etc/fstab ] || exit 2
-root=$(awk '$1 !~ /^#/ && $2 == "/" {print $1}' /etc/fstab)
-out=$(awk -v r="$root" '$1 !~ /^#/ && NF >= 4 && $1 != r && $2 != "/boot" && $3 !~ /^(swap|tmpfs)$/ && $4 !~ /nofail/ {print $2}' /etc/fstab)
-[ -n "$out" ] || exit 1
-printf 'without nofail: %s\n' $out
-exit 0
+[ -x /usr/local/bin/limine-header-fix ] && exit 0
+exit 1
 '''
 
 [[problem]]
 id = "keep-default"
-title = "The installer offers to erase the data disk by default"
+title = "v1: the installer offers to erase the data disk by default"
 area = "Recovery"
 quiet = false
-means = "Pressing Enter at the wrong question leads toward wiping your 2TB data disk. A typed YES still guards it."
-v2 = "Phase 1: keeping the data disk is the default."
-
-[[problem]]
-id = "reboot-needed"
-title = "A new kernel is waiting for a reboot"
-area = "Management"
-quiet = true
-means = "Docker, virtual machines and new USB devices can fail until you restart."
-now = "Restart the PC."
+means = "Pressing Enter at the wrong question led toward wiping your data disk."
+v2 = "v2 keeps the data disk by default, and erasing needs the word ERASE."
 check = '''
-[ -d "/usr/lib/modules/$(uname -r)" ] && exit 1
-echo "running $(uname -r), its modules were replaced by an update"
-exit 0
-'''
-
-[[problem]]
-id = "boot-entries"
-title = "Duplicate boot entries in the firmware"
-area = "Management"
-quiet = true
-means = "Each reinstall adds another boot entry, and old ones can start a system that no longer exists."
-v2 = "Phase 1: the installer replaces its entry instead of adding one."
-check = '''
-command -v efibootmgr > /dev/null || exit 2
-out=$(efibootmgr 2> /dev/null) || exit 2
-d=$(printf '%s\n' "$out" | sed -n 's/^Boot[0-9A-F]\{4\}\*\{0,1\} //p' | sed 's/\t.*//' | sort | uniq -d)
-[ -n "$d" ] || exit 1
-printf 'more than once: %s\n' "$d"
-exit 0
+[ -x /usr/local/bin/limine-header-fix ] && exit 0
+exit 1
 '''
 
 [[problem]]
 id = "tailnet-nodes"
-title = "Each reinstall adds a new Tailscale device"
+title = "v1: each reinstall adds a new Tailscale device"
 area = "Management"
 quiet = true
 means = "Old copies of this PC stay in your tailnet, and the laptop can find the wrong one."
 now = "Remove old copies at login.tailscale.com, under Machines."
-v2 = "Phase 3: the device identity survives a reinstall."
+v2 = "v2 keeps the Tailscale identity on the data disk."
+check = '''
+[ -x /usr/local/bin/limine-header-fix ] && exit 0
+exit 1
+'''
 
 [[problem]]
 id = "keys-skipped"
-title = "Some keys open apps that were skipped"
+title = "v1: some keys open apps that were skipped"
 area = "Visuals"
 quiet = false
-means = "SUPER+C and SUPER+R are set even when Claude or Obsidian is not installed, and VSCodium has no key."
-v2 = "Phase 5: a key exists only while its app does."
+means = "Keys were set even for apps that were not installed."
+v2 = "v2 sets a key only while its app is installed."
+check = '''
+grep -qs 'rebuild binds start' "$HOME/.config/hypr/hyprland.lua" && exit 0
+exit 1
+'''
+
+
+# Ai - built into v2, still to do
 
 [[problem]]
-id = "guides-missing"
-title = "The scripts point to guides that do not exist"
-area = "Educating"
+id = "unpinned"
+title = "Updates are not pinned"
+area = "Security"
+quiet = true
+means = "AUR builds and Flathub apps update to whatever is newest, untested by anyone you trust."
+v2 = "Later: an update policy, with tested versions for the risky ones."
+
+[[problem]]
+id = "no-vms"
+title = "Virtual machines are not set up by v2 yet"
+area = "Management"
 quiet = false
-means = "Thirteen comments send you to Guides files that were never written."
-v2 = "Every phase: the explanation lives in Changes instead."
+means = "Your VM disks are safe on the data disk, and prep saves their definitions, but v2 does not install the VM tools."
+v2 = "Next step: a vms module that puts them back."
+
+[[problem]]
+id = "no-mod-manager"
+title = "No mod manager chosen yet"
+area = "Management"
+quiet = false
+means = "Mods have their own backed-up folder, /games/modding, but nothing manages them yet."
+v2 = "Next step: compare mod managers for the games you play, then add one."
+
+[[problem]]
+id = "no-phone-sync"
+title = "Phone sync is not set up"
+area = "Management"
+quiet = false
+means = "Syncthing with Synctrain on the iPhone was planned and is not in v2 yet."
+v2 = "Later: a sync module."
+
+[[problem]]
+id = "no-local-services"
+title = "Local services are not back yet"
+area = "Privacy"
+quiet = false
+means = "SearXNG, Invidious and the rest ran in Docker in v1. v2 has Podman ready, with no services in it yet."
+v2 = "Next step: each service as a small Podman unit, reachable from this PC only."
+
+[[problem]]
+id = "untested-v2"
+title = "v2 has only been tested off screen"
+area = "Management"
+quiet = false
+means = "Claude tested v2 with stand-ins for the real tools. The first real proof is your VM, then your PC."
+now = "Install it in a VM first, docs/install.md has the steps."
