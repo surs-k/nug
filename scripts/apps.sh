@@ -28,6 +28,9 @@ rows() {
 	done
 }
 
+	# Ai - read once, a pipe into grep -q would close early and count as failing
+ROWS="$(rows)"
+
 state_of() { choice "app_$1" "$2"; }
 
 here() {
@@ -53,7 +56,7 @@ list() {
 		if here "$f" "$p"; then mark="${C_GOOD}here${C_0}"; else mark="${C_DIM}  - ${C_0}"; fi
 		if [[ "$s" == on ]]; then s="${C_B}on ${C_0}"; else s="${C_DIM}off${C_0}"; fi
 		printf '    %s  %s  %-16s %s%-3s%s %s%s%s\n' "$s" "$mark" "$n" "$C_DIM" "$k" "$C_0" "$C_DIM" "$w" "$C_0"
-	done < <(rows)
+	done <<< "$ROWS"
 	printf '\n    %srebuild apps on NAME, then  rebuild apps install%s\n\n' "$C_DIM" "$C_0"
 }
 
@@ -65,7 +68,7 @@ switch() {
 	shift
 	(( $# )) || die "name at least one app, see: rebuild apps"
 	for n in "$@"; do
-		rows | grep -q "^$n|" || die "no app called $n, see: rebuild apps"
+		grep -q "^$n|" <<< "$ROWS" || die "no app called $n, see: rebuild apps"
 		set_choice "app_$n" "$to"
 		ok "$n is $to"
 	done
@@ -113,7 +116,7 @@ install_all() {
 	title "Apps" "install what is on, and give each its key"
 
 	step "Install"
-	if rows | grep -q '|flat|'; then
+	if grep -q '|flat|' <<< "$ROWS"; then
 		has flatpak || pac flatpak
 		soft "Flathub" flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 	fi
@@ -132,7 +135,7 @@ install_all() {
 			fi
 		fi
 		if here "$f" "$p"; then after "$n"; fi
-	done < <(rows)
+	done <<< "$ROWS"
 
 	step "Keys"
 	while IFS='|' read -r n d k f p c w; do
@@ -142,7 +145,7 @@ install_all() {
 		lua+="hl.bind(\"SUPER + $k\", hl.dsp.exec_cmd(\"$c\"), { description = \"[nug] $n\" })"$'\n'
 		conf+="unbind = SUPER, $k"$'\n'"bind = SUPER, $k, exec, $c"$'\n'
 		keys+="$(printf 'SUPER + %-14s %s' "$k" "$w")"$'\n'
-	done < <(rows)
+	done <<< "$ROWS"
 	if (( DRY == 0 )); then
 		mkdir -p "$NUG"
 		printf -- '-- Ai - your app keys, from config/apps.list\n%s' "$lua" > "$NUG/apps.lua"

@@ -80,7 +80,9 @@ step "DNS"
 if [[ "$(readlink /etc/resolv.conf)" != *stub-resolv.conf ]]; then
 	quiet $SUDO ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 fi
-if wait_for 45 getent ahostsv4 archlinux.org; then
+if (( DRY == 1 )); then
+	dim "would check that names resolve through the VPN"
+elif wait_for 45 getent ahostsv4 archlinux.org; then
 	ok "names resolve through the VPN"
 else
 	soft "IPv6 off, then reconnect" sh -c 'mullvad tunnel set ipv6 off && mullvad reconnect'

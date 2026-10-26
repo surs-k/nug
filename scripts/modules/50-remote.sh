@@ -35,7 +35,9 @@ else
 fi
 run "reload services" $SUDO systemctl daemon-reload
 run "start Tailscale" $SUDO systemctl enable --now tailscaled
-wait_for 30 test -S /run/tailscale/tailscaled.sock || warn "Tailscale did not start"
+if (( DRY == 0 )); then
+	wait_for 30 test -S /run/tailscale/tailscaled.sock || warn "Tailscale did not start"
+fi
 
 	# Ai - its identity lives on the data disk, so after a reinstall it is the
 	#      same device on your tailnet, with the same name
@@ -97,9 +99,11 @@ any "Sunshine" sunshine sunshine-bin || die "Sunshine did not install"
 
 	# Ai - it grabs the screen through Hyprland, so the extra kernel right some
 	#      builds give it is not needed and is taken away
-SUN="$(readlink -f "$(command -v sunshine)")"
-if getcap "$SUN" 2> /dev/null | grep -q cap_sys_admin; then
-	soft "drop a right it does not need" $SUDO setcap -r "$SUN"
+if has sunshine; then
+	SUN="$(readlink -f "$(command -v sunshine)")"
+	if getcap "$SUN" 2> /dev/null | grep -q cap_sys_admin; then
+		soft "drop a right it does not need" $SUDO setcap -r "$SUN"
+	fi
 fi
 
 if (( DRY == 0 )); then

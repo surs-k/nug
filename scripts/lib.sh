@@ -235,7 +235,7 @@ block() {
 fill() {
 	local src=$1 text name
 	text="$(cat "$src")"
-	for name in $(grep -o '\${[A-Z_][A-Z0-9_]*}' "$src" | sort -u | tr -d '${}'); do
+	for name in $({ grep -o '\${[A-Z_][A-Z0-9_]*}' "$src" || true; } | sort -u | tr -d '${}'); do
 		text="${text//\$\{$name\}/${!name:-}}"
 	done
 	printf '%s\n' "$text"
@@ -382,6 +382,10 @@ any() {
 	for name in "$@"; do
 		installed "$name" && { ok "$label already installed"; return 0; }
 	done
+	if (( DRY == 1 )); then
+		_exec "install $label" pacman -S --needed --noconfirm "$1"
+		return 0
+	fi
 	for name in "$@"; do
 		if pacman -Si "$name" > /dev/null 2>&1; then
 			soft "install $label" $SUDO pacman -S --needed --noconfirm "$name"

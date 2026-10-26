@@ -12,7 +12,7 @@ title "System" "packages, updates, swap and housekeeping"
 step "Packages"
 
 	# Ai - multilib holds the 32-bit parts Steam and Proton need
-if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
+if ! grep -qs '^\[multilib\]' /etc/pacman.conf; then
 	quiet $SUDO sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf
 	ok "32-bit packages on, for Steam"
 fi
@@ -74,5 +74,5 @@ soft "SSD trim weekly" $SUDO systemctl enable fstrim.timer
 step "Check"
 
 if has yay; then ok "AUR builds work"; else warn "yay is missing"; fi
-if grep -q '^\[multilib\]' /etc/pacman.conf; then ok "32-bit packages on"; else warn "multilib is off"; fi
+if grep -qs '^\[multilib\]' /etc/pacman.conf; then ok "32-bit packages on"; else warn "multilib is off"; fi
 if systemctl is-enabled --quiet reflector.timer; then ok "mirrors ranked weekly"; else warn "the mirror timer is off"; fi
