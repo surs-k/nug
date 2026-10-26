@@ -1,0 +1,51 @@
+// Ai - the bar: workspaces left, the time in the middle, status right
+//      the warning sign appears only when Changes finds something wrong
+{
+	"layer": "top",
+	"position": "top",
+	"height": 30,
+	"spacing": 6,
+	"modules-left": ["hyprland/workspaces"],
+	"modules-center": ["clock"],
+	"modules-right": ["custom/problems", "pulseaudio", "network", "tray", "custom/power"],
+
+	"hyprland/workspaces": {
+		"format": "{name}",
+		"on-click": "activate"
+	},
+	"clock": {
+		"format": "{:%a %d %b   %H:%M}",
+		"tooltip-format": "<tt>{calendar}</tt>"
+	},
+	"custom/problems": {
+		"exec": "nug-problems --bar",
+		"return-type": "json",
+		"interval": 60,
+		"on-click": "changes",
+		"format": "{}"
+	},
+	"pulseaudio": {
+		"format": "{icon}  {volume}%",
+		"format-muted": "󰝟  muted",
+		"format-icons": { "default": ["󰕿", "󰖀", "󰕾"] },
+		"scroll-step": 5,
+		"on-click": "pavucontrol",
+		"on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+		"tooltip-format": "Click for sound settings, right-click to mute"
+	},
+	"network": {
+		"format-ethernet": "󰈀  wired",
+		"format-wifi": "󰖩  {essid}",
+		"format-disconnected": "󰖪  offline",
+		"tooltip-format": "{ifname}  {ipaddr}",
+		"on-click": "nm-connection-editor"
+	},
+	"tray": {
+		"spacing": 8
+	},
+	"custom/power": {
+		"format": "⏻",
+		"tooltip-format": "Lock, log out, restart or shut down",
+		"on-click": "nug-power"
+	}
+}

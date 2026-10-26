@@ -1,0 +1,17 @@
+#!/bin/sh
+# Ai - nug-problems, the count of what Changes found wrong right now
+#      --bar prints it for the bar, empty when nothing is wrong
+file="$HOME/.cache/changes/problems.txt"
+count=0
+[ -s "$file" ] && count="$(head -n 1 "$file" | grep -o '[0-9]*' | head -n 1)"
+count="${count:-0}"
+if [ "$1" = --bar ]; then
+	if [ "$count" -gt 0 ]; then
+		tip="$(tail -n +2 "$file" | sed 's/^ *//' | grep . | sed ':a;N;$!ba;s/\n/\\n/g; s/"/\\"/g')"
+		printf '{"text": "⚠ %s", "class": "bad", "tooltip": "%s"}\n' "$count" "$tip"
+	else
+		printf '{"text": "", "class": "none"}\n'
+	fi
+else
+	if [ -s "$file" ]; then cat "$file"; else echo "Nothing is wrong right now."; fi
+fi

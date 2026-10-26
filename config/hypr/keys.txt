@@ -1,0 +1,14 @@
+SUPER + Space          open an app
+SUPER + Return         terminal
+SUPER + E              files
+SUPER + N              Changes, problems and what changed
+SUPER + L              lock
+SUPER + Escape         lock, log out, restart, shut down
+SUPER + SHIFT + S      screenshot of an area, copied
+SUPER + /              this list
+SUPER + C              close the window, Hyprland's own key
+SUPER + V              float the window, Hyprland's own key
+SUPER + 1 to 0         go to workspace
+SUPER + SHIFT + 1 to 0 move the window to workspace
+SUPER + arrows         move focus
+SUPER + drag           move a window, right drag resizes

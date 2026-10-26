@@ -1,0 +1,4 @@
+#!/bin/sh
+# Ai - nug-keys, every key in one list, SUPER + /
+#      only a list, picking a line does nothing
+fuzzel --dmenu --prompt 'keys  ' --lines 18 --width 60 < "$HOME/.config/nug/keys.txt" > /dev/null

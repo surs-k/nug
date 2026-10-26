@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+
+# Ai - backup, one command for every copy of your data
+#      backup             how fresh each copy is
+#      backup now         the daily copy to the backup drive, right now
+#      backup external    the monthly copy to the external drive, plug it in first
+#      backup test        prove a backup can be read back, changes nothing
+#      backup setup       set up a new internal backup drive, first time only
+#
+#      what is copied: home, ai, vms, docker, game mods and the saved settings
+#      the system itself is not, a reinstall rebuilds it from the repo
+
+set -Euo pipefail
+
+STATE=/persist/state
+INTERNAL=/mnt/backup
+EXTERNAL=/mnt/external
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+	BAD=$'\e[31m' WARN=$'\e[33m' GOOD=$'\e[32m' ASK=$'\e[36m' DIM=$'\e[2m' B=$'\e[1m' O=$'\e[0m'
+else
+	BAD="" WARN="" GOOD="" ASK="" DIM="" B="" O=""
+fi
+
+ok()   { printf '  %s✓%s %s\n' "$GOOD" "$O" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$BAD" "$O" "$*"; }
+note() { printf '  %s!%s %s\n' "$WARN" "$O" "$*"; }
+dim()  { printf '  %s%s%s\n' "$DIM" "$*" "$O"; }
+die()  { bad "$*"; exit 1; }
+ask()  { local a; printf '  %s?%s %s ' "$ASK" "$O" "$1" > /dev/tty; IFS= read -r a < /dev/tty; printf '%s' "$a"; }
+
+	# Ai - days since a date in a file, or nothing if there is no file
+age_days() {
+	local f=$1 since
+	[[ -r "$f" ]] || return 1
+	since="$(date -d "$(cat "$f")" +%s 2> /dev/null)" || return 1
+	printf '%s' $(( ( $(date +%s) - since ) / 86400 ))
+}
+
+	# Ai - the newest home copy on a drive, read from its name
+newest_on() {
+	local n
+	n="$(sudo sh -c "ls -1d $1/@home.* 2> /dev/null" | sort | tail -n 1)"
+	[[ -n "$n" ]] || return 1
+	n="${n##*@home.}"
+	printf '%s-%s-%s %s:%s' "${n:0:4}" "${n:4:2}" "${n:6:2}" "${n:9:2}" "${n:11:2}"
+}
+
+record() { printf '%s\n' "$(date '+%F %T')" | sudo tee "$STATE/$1" > /dev/null; }
+
+
+#    Status
+
+status() {
+	local d
+	printf '\n  %sBackups%s\n\n' "$B" "$O"
+	if ! grep -q " $INTERNAL " /etc/fstab; then
+		note "no internal backup drive is set up, run: backup setup"
+	elif ! mountpoint -q "$INTERNAL"; then
+		bad "the internal backup drive is not mounted, nothing is copied: sudo mount $INTERNAL"
+	elif d="$(newest_on "$INTERNAL")"; then
+		ok "internal drive, newest copy $d"
+	else
+		note "internal drive is ready, no copy on it yet: backup now"
+	fi
+	if d="$(age_days "$STATE/external-last")"; then
+		if (( d > 35 )); then
+			note "external drive, last copy $d days ago, it is time: backup external"
+		else
+			ok "external drive, last copy $d days ago"
+		fi
+	else
+		note "no external copy yet: plug the drive in, then backup external"
+	fi
+	if d="$(age_days "$STATE/restore-tested")"; then
+		ok "restore tested $d days ago"
+	else
+		note "a backup has never been read back: backup test"
+	fi
+	printf '\n'
+}
+
+
+#    Now
+
+now() {
+	mountpoint -q "$INTERNAL" || die "the backup drive is not mounted: sudo mount $INTERNAL"
+	dim "Copying what changed since the last backup..."
+	sudo btrbk run || die "the backup did not finish, see: journalctl -u btrbk"
+	ok "backed up, newest copy $(newest_on "$INTERNAL")"
+}
+
+
+#    External
+
+	# Ai - monthly, to a drive that is unplugged the rest of the time, so a
+	#      dead disk, a bad update or malware cannot reach it
+	#      only what changed is sent, from the snapshots the daily backup keeps
+external() {
+	local uuid dev free need
+	sudo mkdir -p "$STATE"
+	uuid="$(cat "$STATE/external.uuid" 2> /dev/null || true)"
+	if [[ -z "$uuid" ]]; then
+		printf '\n  Plugged-in encrypted drives:\n\n'
+		lsblk -pnro NAME,SIZE,TRAN,FSTYPE,MODEL | awk '$4 == "crypto_LUKS"' | sed 's/^/    /'
+		printf '\n'
+		dev="$(ask "Which partition is the external drive, for example /dev/sdc1:")"
+		[[ -b "$dev" ]] || die "not a partition: $dev"
+		uuid="$(sudo blkid -s UUID -o value "$dev")"
+		[[ -n "$uuid" ]] || die "that partition has no encryption on it"
+		printf '%s\n' "$uuid" | sudo tee "$STATE/external.uuid" > /dev/null
+	fi
+	dev="/dev/disk/by-uuid/$uuid"
+	[[ -b "$dev" ]] || die "the external drive is not plugged in"
+
+	dim "Unlocking the external drive, type its passphrase."
+	if [[ ! -e /dev/mapper/external ]]; then sudo cryptsetup open "$dev" external || die "it did not unlock"; fi
+	sudo mkdir -p "$EXTERNAL"
+	if ! mountpoint -q "$EXTERNAL"; then
+		sudo mount -o noatime,compress=zstd:1 /dev/mapper/external "$EXTERNAL" || die "it did not mount"
+	fi
+
+	free="$(df --output=avail -B1G "$EXTERNAL" | tail -n 1 | tr -d ' ')"
+	need="$(sudo btrfs filesystem du -s --raw /mnt/data-root/@home 2> /dev/null | awk 'NR==2 {print int($1/1073741824)}')"
+	dim "${free} GB free on the external drive"
+	if [[ ! -e "$STATE/external-last" ]]; then
+		note "the first copy is a whole one, later ones send only changes"
+		if [[ -n "$need" ]] && (( need > free )); then
+			close_external
+			die "home alone is ${need} GB, the drive has ${free} GB free"
+		fi
+	fi
+
+	dim "Copying, this can take a while..."
+	if sudo btrbk -c /etc/btrbk/external.conf run; then
+		record external-last
+		ok "external copy done"
+	else
+		bad "the external copy did not finish, see the output above"
+	fi
+	close_external
+	ok "the drive is locked again, you can unplug it"
+}
+
+close_external() {
+	sync
+	if mountpoint -q "$EXTERNAL"; then sudo umount "$EXTERNAL"; fi
+	if [[ -e /dev/mapper/external ]]; then sudo cryptsetup close external; fi
+	return 0
+}
+
+
+#    Test
+
+	# Ai - a restore drill that changes nothing: a few files from the newest
+	#      backup are read back and compared with the same snapshot on this PC
+test_restore() {
+	local name snap local_snap n=0 bad_n=0 f rel
+	mountpoint -q "$INTERNAL" || die "the backup drive is not mounted"
+	snap="$(sudo sh -c "ls -1d $INTERNAL/@home.* 2> /dev/null" | sort | tail -n 1)"
+	[[ -n "$snap" ]] || die "there is no backup to test yet: backup now"
+	name="${snap##*/}"
+	local_snap="/mnt/data-root/.btrbk/$name"
+	sudo test -d "$local_snap" || die "the matching snapshot on this PC is gone, run backup now, then test"
+	dim "Reading files back from $name..."
+	while IFS= read -r -d '' f; do
+		rel="${f#"$snap"/}"
+		if sudo cmp -s "$f" "$local_snap/$rel"; then
+			n=$(( n + 1 ))
+		else
+			bad_n=$(( bad_n + 1 ))
+			bad "differs: ~/${rel#*/}"
+		fi
+	done < <(sudo find "$snap" -type f -size +1k -size -50M -print0 2> /dev/null | shuf -z -n 20)
+	(( n > 0 )) || die "no files to compare were found"
+	if (( bad_n == 0 )); then
+		record restore-tested
+		ok "$n files read back from the backup, every one matches"
+	else
+		die "$bad_n of $(( n + bad_n )) files did not match, the backup drive may be failing"
+	fi
+}
+
+
+#    Setup
+
+	# Ai - first time only, for a PC whose backup drive was not set up before
+	#      the drive opens at start with a key kept on both disks, and with
+	#      your passphrase too, so it can be read even if this PC is gone
+setup() {
+	local dev part uuid key=/etc/cryptsetup-keys.d/backup.key
+	if grep -q " $INTERNAL " /etc/fstab; then die "a backup drive is already set up"; fi
+	printf '\n  Disks that are not the system or data disk:\n\n'
+	lsblk -dpnro NAME,SIZE,TRAN,MODEL | while read -r d rest; do
+		lsblk -nro MOUNTPOINTS,PARTLABEL "$d" | grep -qE '^/ |cryptsystem|cryptdata' && continue
+		printf '    %s %s\n' "$d" "$rest"
+	done
+	printf '\n'
+	dev="$(ask "Which disk becomes the backup drive, for example /dev/sda:")"
+	[[ -b "$dev" && "$(lsblk -dno TYPE "$dev")" == disk ]] || die "not a whole disk: $dev"
+	part="$dev$([[ "$dev" =~ [0-9]$ ]] && printf p)1"
+
+	sudo install -d -m 700 /etc/cryptsetup-keys.d
+	sudo sh -c "umask 077; [ -s $key ] || dd if=/dev/urandom of=$key bs=512 count=8 status=none"
+
+	if sudo cryptsetup isLuks "$part" 2> /dev/null; then
+		dim "$part is already encrypted. Type its passphrase to add this PC's key."
+		sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
+	else
+		printf '\n  %sEverything on %s will be erased.%s\n' "$BAD" "$dev" "$O"
+		[[ "$(ask "Type ERASE to go ahead:")" == ERASE ]] || die "nothing was changed"
+		sudo wipefs -af "$dev" > /dev/null
+		sudo sgdisk --zap-all -n1:0:0 -t1:8309 -c1:backup "$dev" > /dev/null
+		sudo partprobe "$dev"
+		sudo udevadm settle
+		dim "Pick a passphrase for the backup drive, your disk passphrase is a good choice."
+		sudo cryptsetup luksFormat --batch-mode --verify-passphrase --type luks2 --pbkdf argon2id \
+			--pbkdf-memory 262144 --label backup "$part" || die "encryption failed"
+		dim "Type the same passphrase once more to add this PC's key."
+		sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
+		sudo cryptsetup open --key-file "$key" "$part" backup
+		sudo mkfs.btrfs -q -f -L backup /dev/mapper/backup
+		sudo cryptsetup close backup
+	fi
+
+	uuid="$(sudo blkid -s UUID -o value "$part")"
+	sudo install -d -m 700 /persist/keys
+	sudo install -m 600 "$key" /persist/keys/backup.key
+	printf '%s\n' "$uuid" | sudo tee /persist/keys/backup.uuid > /dev/null
+
+	printf 'backup UUID=%s %s luks,nofail,x-systemd.device-timeout=10s\n' "$uuid" "$key" | sudo tee -a /etc/crypttab > /dev/null
+	printf '/dev/mapper/backup  %s  btrfs  noatime,compress=zstd:1,nofail,x-systemd.device-timeout=10s  0 0\n' "$INTERNAL" | sudo tee -a /etc/fstab > /dev/null
+	sudo mkdir -p "$INTERNAL"
+	sudo chattr +i "$INTERNAL" 2> /dev/null || true
+	sudo systemctl daemon-reload
+	sudo systemctl start systemd-cryptsetup@backup.service
+	sudo mount "$INTERNAL" || die "it did not mount"
+	ok "backup drive ready, now run: rebuild recovery"
+}
+
+
+case "${1:-status}" in
+	status)   status ;;
+	now)      now ;;
+	external) external ;;
+	test)     test_restore ;;
+	setup)    setup ;;
+	-h|--help|help) sed -n '/^#      backup/s/^#      /  /p' "$0" ;;
+	*) die "unknown: $1, see: backup help" ;;
+esac
