@@ -24,6 +24,8 @@ hypr_file() {
 		printf '%s' "$HYPR/hyprland.lua"
 	elif [[ -f "$HYPR/hyprland.conf" ]]; then
 		printf '%s' "$HYPR/hyprland.conf"
+	elif (( DRY == 1 )); then
+		printf '%s' "$HYPR/hyprland.conf"
 	else
 		mkdir -p "$HYPR"
 		for f in /usr/share/hypr/hyprland.lua /usr/share/hypr/hyprland.conf; do
