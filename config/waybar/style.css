@@ -1,0 +1,59 @@
+/* Ai - the bar's look, every colour and size from config/theme.env */
+
+* {
+	font-family: "${FONT}", "${FONT_UI}", sans-serif;
+	font-size: ${FONT_SIZE}pt;
+	border: none;
+	min-height: 0;
+}
+
+window#waybar {
+	background: ${BG};
+	color: ${TEXT};
+}
+
+tooltip {
+	background: ${SURFACE};
+	border: ${BORDER}px solid ${OVERLAY};
+	border-radius: ${RADIUS}px;
+}
+
+#workspaces button {
+	padding: 0 10px;
+	color: ${MUTED};
+	background: transparent;
+	border-radius: ${RADIUS}px;
+}
+
+#workspaces button.active {
+	color: ${BG};
+	background: ${ACCENT};
+}
+
+#workspaces button:hover {
+	background: ${OVERLAY};
+	color: ${TEXT};
+}
+
+#clock, #pulseaudio, #network, #tray, #custom-power, #custom-problems {
+	padding: 0 10px;
+	margin: 3px 0;
+	border-radius: ${RADIUS}px;
+}
+
+#custom-problems.bad {
+	color: ${BG};
+	background: ${BAD};
+}
+
+#network.disconnected, #pulseaudio.muted {
+	color: ${WARN};
+}
+
+#custom-power {
+	color: ${MUTED};
+}
+
+#custom-power:hover {
+	color: ${BAD};
+}

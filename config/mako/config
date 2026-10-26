@@ -1,0 +1,17 @@
+# Ai - notifications, top right, three at most, critical ones stay until clicked
+font=${FONT_UI} ${FONT_SIZE}
+background-color=${SURFACE}
+text-color=${TEXT}
+border-color=${OVERLAY}
+border-size=${BORDER}
+border-radius=${RADIUS}
+padding=12
+margin=12
+width=360
+default-timeout=6000
+max-visible=3
+icons=1
+
+[urgency=critical]
+border-color=${BAD}
+default-timeout=0

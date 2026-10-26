@@ -1,0 +1,17 @@
+# Ai - your apps, one per line, turned on or off with:  rebuild apps on NAME
+#      name | on by default | key with SUPER | where from | packages | command | what it is
+#      where from: repo is the Arch repos, aur is built with yay, flat is Flathub
+#      the key is only set while the app is installed
+#      keys Hyprland or the desktop already use: C E L M N Q R S V J P
+signal          | on  | D | repo | signal-desktop                      | signal-desktop                                | Signal, private messages
+obsidian        | on  | O | repo | obsidian                            | obsidian                                      | Obsidian, notes
+1password       | on  | K | aur  | 1password                           | 1password                                     | 1Password, passwords and passkeys
+mullvad-browser | on  | B | aur  | mullvad-browser-bin                 | mullvad-browser                               | Mullvad Browser, everyday browsing
+librewolf       | on  | W | repo | librewolf librewolf-bin             | librewolf                                     | LibreWolf, for services on this PC
+codium          | on  | X | aur  | vscodium-bin                        | codium                                        | VSCodium, code editor
+claude          | on  | A | aur  | claude-desktop claude-desktop-bin   | claude-desktop                                | Claude desktop
+freetube        | on  | T | flat | io.freetubeapp.FreeTube             | flatpak run io.freetubeapp.FreeTube           | FreeTube, YouTube without tracking
+vesktop         | on  |   | flat | dev.vencord.Vesktop                 | flatpak run dev.vencord.Vesktop               | Vesktop, Discord
+flatseal        | on  |   | flat | com.github.tchx84.Flatseal          | flatpak run com.github.tchx84.Flatseal        | Flatseal, what each Flathub app may touch
+krita           | off |   | flat | org.kde.krita                       | flatpak run org.kde.krita                     | Krita, drawing
+brightness      | on  |   | aur  | wluma                               | wluma                                         | Screen brightness by time of day
