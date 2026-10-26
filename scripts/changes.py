@@ -2,7 +2,8 @@
 
 # Ai - changes
 #      a calm place to manage, learn and improve your projects, any git repo
-#      every project has three views, one at a time:
+#      one screen at a time: your projects, then one project's three views,
+#      then one item, Back always goes one step up:
 #        Problems   what is wrong right now, quiet ones included
 #        Changes    what changed, in plain words, the code one click away
 #        Notes      your questions, ready to paste into a Claude chat
@@ -23,6 +24,7 @@ import sys
 import tomllib
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, QSettings, QSize, Qt, QThreadPool, QTimer, pyqtSignal
@@ -31,8 +33,8 @@ from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QStackedWidget,
-    QTabBar, QTextEdit, QToolButton, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTextEdit, QToolButton,
+    QVBoxLayout, QWidget,
 )
 
 
@@ -50,20 +52,53 @@ SOCKET = f"changes-{os.getuid()}"
 
 #    Tokens
 
-# Ai - every size and colour in one place, the rest comes from your theme
-#      red, amber and green are the only fixed colours, and each always
-#      means the same thing: wrong now, worth a look, fine
+# Ai - every size, colour and limit in one place, nothing below sets its own
+#      the look follows Manager: one column, rounded cards, quiet text for
+#      the less important line. Red, amber, green and blue each always mean
+#      the same thing: wrong now, worth a look, fine, built in
 TOKENS = {
-    "bad":   "#d0453b",
-    "warn":  "#c8891a",
-    "good":  "#2e9e5b",
-    "gap":   8,
-    "title": 1.5,
-    "small": 0.9,
+    "s1": 4, "s2": 8, "s3": 12, "s4": 16, "s5": 24, "s6": 32,
+    "radius": 12, "card_radius": 16,
+    "fs_xs": 12, "fs_s": 13, "fs_m": 15, "fs_b": 17, "fs_l": 20, "fs_xl": 28,
+    "hit": 44, "row": 56, "column": 680,
+    "large": 1.15,      # Larger text multiplies every size by this
+    "show": 7,          # rows a card shows before Show more
+    "more": 20,         # rows each Show more adds
+    "toast_ms": 2600,
+    "tip_days": 3,      # a tip shows on this many days, then fades away
     "diff_lines": 4000,
     "ask_lines":  300,
     "log_limit":  500,
 }
+
+THEMES = {
+    "Slate": {
+        "bg": "#4b4f55", "surface": "#575b62", "surface2": "#63676f", "raised": "#6b7078",
+        "line": "rgba(255,255,255,28)", "track": "rgba(0,0,0,51)",
+        "text": "#f1f3f4", "text2": "#d3d7db", "text3": "#b8bdc2",
+        "accent": "#c3b5f7", "accent_ink": "#2a2540",
+        "danger": "#ffa8a1", "warn": "#ffd27a", "ok": "#8fd9b6", "info": "#8fc7ff",
+    },
+    "Midnight": {
+        "bg": "#0e1014", "surface": "#1b1e25", "surface2": "#272b34", "raised": "#323743",
+        "line": "rgba(255,255,255,23)", "track": "rgba(255,255,255,18)",
+        "text": "#eef0f3", "text2": "#b7bec8", "text3": "#8f97a3",
+        "accent": "#c3b5f7", "accent_ink": "#2a2540",
+        "danger": "#ffa8a1", "warn": "#ffd27a", "ok": "#8fd9b6", "info": "#8fc7ff",
+    },
+    "Paper": {
+        "bg": "#f6f3ee", "surface": "#ffffff", "surface2": "#ebe6de", "raised": "#ffffff",
+        "line": "rgba(0,0,0,26)", "track": "rgba(0,0,0,14)",
+        "text": "#1d1b19", "text2": "#55504a", "text3": "#857f77",
+        "accent": "#5b46b8", "accent_ink": "#ffffff",
+        "danger": "#b3261e", "warn": "#8a5a00", "ok": "#1e7a4f", "info": "#1d5fa8",
+    },
+}
+
+# Ai - the theme in use, apply_theme fills it
+T = dict(THEMES["Slate"])
+
+TONES = {"bad": "danger", "warn": "warn", "good": "ok", "info": "info", "accent": "accent", "none": "text3"}
 
 
 #    Git
@@ -236,6 +271,7 @@ STATES = {
     "clear":   "Fine",
 }
 ORDER = ["on", "design", "unknown", "clear"]
+STATE_TONE = {"on": "bad", "design": "info", "unknown": "warn", "clear": "good"}
 
 # Ai - the built-in checks, for any project with git_checks on
 GIT_CHECKS = [
@@ -511,94 +547,298 @@ class Job(QRunnable):
         self.signals.done.emit(result)
 
 
+#    Look
+
+def rgba(hexc, a):
+    h = hexc.lstrip("#")
+    return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
+
+
+def stylesheet(t, k):
+    # Ai - the whole look, built from the tokens, so a theme is one dict
+    fs = {n: round(TOKENS[f"fs_{n}"] * k) for n in ("xs", "s", "m", "b", "l", "xl")}
+    r, cr = TOKENS["radius"], TOKENS["card_radius"]
+    soft = rgba(t["accent"], 46)
+    tones = "".join(
+        f'QLabel[role="dot"][tone="{tone}"] {{ background: {t[key]}; }}\n'
+        f'QLabel[role="pill"][tone="{tone}"] {{ color: {t[key]}; background: {rgba(t[key], 40)}; }}\n'
+        for tone, key in TONES.items())
+    rows = 'QFrame[role="row"], QFrame[role="cardh"], QFrame[role="more"], QFrame[role="addrow"]'
+    return f"""
+QWidget {{ color: {t['text']}; font-size: {fs['b']}px; }}
+QMainWindow, QDialog, QMessageBox {{ background: {t['bg']}; }}
+QScrollArea#page, QScrollArea#page > QWidget#qt_scrollarea_viewport, QWidget#canvas {{ background: {t['bg']}; border: 0; }}
+QToolTip {{ background: {t['surface2']}; color: {t['text']}; border: 1px solid {t['line']}; padding: 6px 8px; }}
+
+QLabel[role="title"] {{ font-size: {fs['xl']}px; font-weight: 700; }}
+QLabel[role="sub"] {{ font-size: {fs['m']}px; color: {t['text2']}; }}
+QLabel[role="cardt"] {{ font-weight: 700; }}
+QLabel[role="meta"] {{ font-size: {fs['s']}px; color: {t['text2']}; }}
+QLabel[role="lab"] {{ font-size: {fs['xs']}px; font-weight: 700; color: {t['text2']}; }}
+QLabel[role="count"] {{ font-size: {fs['m']}px; color: {t['text2']}; }}
+QLabel[role="chev"] {{ font-size: {fs['l']}px; color: {t['text3']}; }}
+QLabel[role="emptyh"] {{ font-size: {fs['l']}px; font-weight: 700; }}
+QLabel[role="emptyp"] {{ font-size: {fs['m']}px; color: {t['text2']}; }}
+QLabel[role="dot"] {{ border-radius: 5px; background: {t['text3']}; }}
+QLabel[role="pill"] {{ font-size: {fs['m']}px; font-weight: 700; border-radius: {r}px; padding: 4px 12px; }}
+{tones}
+QFrame[role="card"] {{ background: {t['surface']}; border-radius: {cr}px; }}
+QFrame[role="coach"] {{ background: {soft}; border-radius: {cr}px; }}
+QFrame[role="line"] {{ background: {t['line']}; border: 0; }}
+{rows} {{ background: transparent; border: 2px solid transparent; border-radius: {r}px; }}
+{rows.replace('"]', '"]:hover')} {{ background: {t['track']}; }}
+{rows.replace('"]', '"]:focus')} {{ border-color: {t['accent']}; }}
+QFrame[role="addrow"] {{ border: 1px dashed {t['text3']}; border-radius: {cr}px; }}
+QLabel[role="link"] {{ color: {t['accent']}; font-size: {fs['m']}px; font-weight: 600; }}
+
+QFrame[role="seg"] {{ background: {t['track']}; border-radius: {r}px; }}
+QPushButton[role="segb"] {{ background: transparent; color: {t['text2']}; border: 2px solid transparent; border-radius: 10px;
+    min-height: 36px; padding: 0 12px; font-size: {fs['m']}px; font-weight: 600; }}
+QPushButton[role="segb"]:checked {{ background: {t['raised']}; color: {t['text']}; }}
+QPushButton[role="segb"]:focus {{ border-color: {t['accent']}; }}
+
+QPushButton {{ background: {t['track']}; color: {t['accent']}; border: 2px solid transparent; border-radius: {r}px;
+    min-height: 40px; padding: 0 16px; font-weight: 600; }}
+QPushButton:hover {{ background: {t['surface2']}; }}
+QPushButton:focus {{ border-color: {t['accent']}; }}
+QPushButton:disabled {{ color: {t['text3']}; }}
+QPushButton[role="primary"] {{ background: {t['accent']}; color: {t['accent_ink']}; }}
+QPushButton[role="primary"]:focus {{ border-color: {t['text']}; }}
+QPushButton[role="flat"] {{ background: transparent; }}
+QPushButton[role="flat"]:hover {{ background: {t['track']}; }}
+QToolButton {{ background: transparent; border: 0; padding: 6px; font-weight: 600; }}
+
+QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {{ background: {t['track']}; color: {t['text']}; border: 2px solid transparent;
+    border-radius: {r}px; padding: 6px 10px; selection-background-color: {t['accent']}; selection-color: {t['accent_ink']}; }}
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {{ border-color: {t['accent']}; }}
+QComboBox QAbstractItemView {{ background: {t['surface2']}; border: 0; selection-background-color: {soft}; }}
+QTextEdit#diff {{ font-size: {fs['s']}px; }}
+QListWidget {{ background: {t['surface']}; border: 0; border-radius: {cr}px; padding: 4px; outline: 0; }}
+QListWidget::item {{ padding: 10px 12px; border-radius: 10px; }}
+QListWidget::item:selected {{ background: {soft}; color: {t['text']}; }}
+
+QMenu {{ background: {t['surface2']}; border: 1px solid {t['line']}; padding: 6px; }}
+QMenu::item {{ padding: 8px 28px 8px 16px; border-radius: 8px; }}
+QMenu::item:selected {{ background: {soft}; }}
+QMenu::item:disabled {{ color: {t['text3']}; }}
+QMenu::separator {{ height: 1px; background: {t['line']}; margin: 6px 8px; }}
+
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle {{ background: {t['surface2']}; border-radius: 3px; min-height: 40px; min-width: 40px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+
+QLabel#toast {{ background: {t['surface2']}; color: {t['text']}; border-radius: {cr}px; padding: 10px 18px; font-size: {fs['m']}px; }}
+"""
+
+
+def palette_of(t):
+    # Ai - the same colours for the parts Qt draws itself, file pickers included
+    R, pal = QPalette.ColorRole, QPalette()
+    for role, key in [(R.Window, "bg"), (R.WindowText, "text"), (R.Base, "surface"), (R.AlternateBase, "surface2"),
+                      (R.Text, "text"), (R.Button, "surface"), (R.ButtonText, "text"), (R.Highlight, "accent"),
+                      (R.HighlightedText, "accent_ink"), (R.ToolTipBase, "surface2"), (R.ToolTipText, "text"),
+                      (R.Link, "accent"), (R.PlaceholderText, "text3")]:
+        pal.setColor(role, QColor(t[key]))
+    for role in (R.WindowText, R.Text, R.ButtonText):
+        pal.setColor(QPalette.ColorGroup.Disabled, role, QColor(t["text3"]))
+    return pal
+
+
+def apply_theme(app, name, large):
+    T.clear()
+    T.update(THEMES.get(name, THEMES["Slate"]))
+    app.setStyle("Fusion")
+    app.setPalette(palette_of(T))
+    app.setStyleSheet(stylesheet(T, TOKENS["large"] if large else 1))
+
+
 #    Parts
 
-def scaled(widget, factor, bold=False):
-    f = widget.font()
-    f.setPointSizeF(f.pointSizeF() * factor)
-    f.setBold(bold)
-    widget.setFont(f)
-    return widget
-
-
-def muted(widget):
-    # Ai - the theme's own quiet colour, so it fits light and dark
-    pal = widget.palette()
-    pal.setColor(QPalette.ColorRole.WindowText,
-                 pal.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText))
-    widget.setPalette(pal)
-    return widget
+def label(text="", role="", tone="", rich=False, wrap=True, select=False):
+    lab = QLabel(text)
+    if role:
+        lab.setProperty("role", role)
+    if tone:
+        lab.setProperty("tone", tone)
+    lab.setWordWrap(wrap)
+    lab.setTextFormat(Qt.TextFormat.RichText if rich else Qt.TextFormat.PlainText)
+    if select or rich:
+        lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse
+                                    | Qt.TextInteractionFlag.LinksAccessibleByMouse)
+    return lab
 
 
 def para(text=""):
-    lab = QLabel(text)
-    lab.setWordWrap(True)
-    lab.setTextFormat(Qt.TextFormat.RichText)
-    lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse
-                                | Qt.TextInteractionFlag.LinksAccessibleByMouse)
-    lab.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-    return lab
+    return label(text, rich=True)
 
 
-def bold(text):
-    lab = QLabel(text)
-    f = lab.font()
-    f.setBold(True)
-    lab.setFont(f)
-    return lab
+def dot(tone):
+    d = label(role="dot", tone=tone, wrap=False)
+    d.setFixedSize(10, 10)
+    return d
 
 
-class Fold(QWidget):
-    # Ai - a heading with an arrow, the arrow says it opens, the body is
-    #      hidden until clicked, and stays the way you left it
+def button(text, fn, role="", tip=""):
+    b = QPushButton(text)
+    if role:
+        b.setProperty("role", role)
+    if tip:
+        b.setToolTip(tip)
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.clicked.connect(lambda _c=False: fn())
+    return b
 
-    def __init__(self, name, settings):
+
+def padded(*widgets):
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(TOKENS["s4"], TOKENS["s3"], TOKENS["s4"], TOKENS["s3"])
+    lay.setSpacing(TOKENS["s1"])
+    for w in widgets:
+        lay.addWidget(w)
+    return box
+
+
+def centered(widget):
+    # Ai - one column, never wider than it needs, in the middle of the window
+    widget.setMaximumWidth(TOKENS["column"])
+    box = QWidget()
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.addStretch(1)
+    lay.addWidget(widget, 100)
+    lay.addStretch(1)
+    return box
+
+
+def clear(layout):
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget() is not None:
+            # Ai - hidden at once, so the old screen never shows under the new one
+            item.widget().hide()
+            item.widget().deleteLater()
+        elif item.layout() is not None:
+            clear(item.layout())
+
+
+def when(day):
+    # Ai - a date the way you would say it
+    try:
+        d = date.fromisoformat(day)
+    except ValueError:
+        return day
+    n = (date.today() - d).days
+    if n <= 0:
+        return "Today"
+    if n == 1:
+        return "Yesterday"
+    if n < 7:
+        return f"{n} days ago"
+    return f"{d.day} {d:%b}" + ("" if d.year == date.today().year else f" {d.year}")
+
+
+def age(day):
+    try:
+        n = (date.today() - date.fromisoformat(day)).days
+    except ValueError:
+        return "older"
+    return "week" if n < 7 else "month" if n < 31 else "older"
+
+
+class Row(QFrame):
+    # Ai - one line in a card: a title, one quiet line under it, a count,
+    #      and an arrow when it opens something. Click it, or Enter on it
+    clicked = pyqtSignal()
+
+    def __init__(self, title, meta="", tone="", count="", arrow=True, role="row", trole=""):
         super().__init__()
-        self.name, self.settings = name, settings
-        self.head = QToolButton()
-        self.head.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.head.setAutoRaise(True)
-        self.head.setCheckable(True)
-        self.head.toggled.connect(self.toggle)
-        self.body = QWidget()
-        self.inner = QVBoxLayout(self.body)
-        self.inner.setContentsMargins(TOKENS["gap"] * 3, 0, 0, 0)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.head, alignment=Qt.AlignmentFlag.AlignLeft)
-        lay.addWidget(self.body)
-        self.head.setText(name)
-        self.head.setChecked(settings.value(f"open/{name}", False, type=bool))
-        self.toggle(self.head.isChecked())
-
-    def toggle(self, on):
-        self.head.setArrowType(Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow)
-        self.body.setVisible(on)
-        self.settings.setValue(f"open/{self.name}", on)
-
-
-class Hint(QFrame):
-    # Ai - a one-line tip that explains a view the first few times, then
-    #      fades: Got it hides it for good, and it never blocks anything
-
-    def __init__(self, key, text, settings):
-        super().__init__()
-        self.key, self.settings = key, settings
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        btn = QPushButton("Got it")
-        btn.setFlat(True)
-        btn.clicked.connect(self.dismiss)
+        self.setProperty("role", role)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(TOKENS["hit"] if role in ("more", "addrow") else TOKENS["row"])
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(TOKENS["gap"], TOKENS["gap"] // 2, TOKENS["gap"], TOKENS["gap"] // 2)
-        lay.addWidget(para(text), 1)
-        lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignTop)
+        lay.setContentsMargins(TOKENS["s3"], TOKENS["s1"], TOKENS["s3"], TOKENS["s1"])
+        lay.setSpacing(TOKENS["s3"])
+        if tone:
+            lay.addWidget(dot(tone), alignment=Qt.AlignmentFlag.AlignVCenter)
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(label(title, trole or ("link" if role in ("more", "addrow") else "")))
+        if meta:
+            text.addWidget(label(meta, "meta"))
+        lay.addLayout(text, 1)
+        if count != "":
+            lay.addWidget(label(str(count), "count", wrap=False))
+        self.chev = label("›" if arrow else "", "chev", wrap=False)
+        self.chev.setVisible(arrow)
+        lay.addWidget(self.chev)
+        for w in self.findChildren(QLabel):
+            w.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
-    def dismissed(self):
-        return self.settings.value(f"hint/{self.key}", False, type=bool)
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
 
-    def dismiss(self):
-        self.settings.setValue(f"hint/{self.key}", True)
-        self.hide()
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(e)
+
+
+class Card(QFrame):
+    # Ai - a rounded box. With a key its heading folds it and it stays the
+    #      way you left it, without one it is always open
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, name="", key="", settings=None, tone="", count="", open_=True):
+        super().__init__()
+        self.setProperty("role", "card")
+        self.key, self.settings = key, settings
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(TOKENS["s1"], TOKENS["s1"], TOKENS["s1"], TOKENS["s1"])
+        lay.setSpacing(0)
+        self.is_open = True
+        if name:
+            self.head = Row(name, tone=tone, count=count, arrow=bool(key), role="cardh", trole="cardt")
+            self.head.setMinimumHeight(TOKENS["hit"] + TOKENS["s2"])
+            lay.addWidget(self.head)
+            if key:
+                self.head.clicked.connect(self.toggle)
+                self.head.setToolTip("Click to fold or open")
+            else:
+                self.head.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                self.head.setCursor(Qt.CursorShape.ArrowCursor)
+                self.head.setAttribute(Qt.WidgetAttribute.WA_Hover, False)
+        self.body = QWidget()
+        self.rows = QVBoxLayout(self.body)
+        self.rows.setContentsMargins(0, 0, 0, 0)
+        self.rows.setSpacing(0)
+        lay.addWidget(self.body)
+        if name and key:
+            self.set_open(settings.value(f"open/{key}", open_, type=bool))
+
+    def set_open(self, on):
+        self.is_open = on
+        self.body.setVisible(on)
+        self.head.chev.setText("▾" if on else "▸")
+
+    def toggle(self):
+        self.set_open(not self.is_open)
+        self.settings.setValue(f"open/{self.key}", self.is_open)
+        self.toggled.emit(self.is_open)
+
+    def add(self, widget):
+        if self.rows.count():
+            line = QFrame()
+            line.setProperty("role", "line")
+            line.setFixedHeight(1)
+            self.rows.addWidget(line)
+        self.rows.addWidget(widget)
 
 
 class Palette(QDialog):
@@ -607,13 +847,15 @@ class Palette(QDialog):
 
     def __init__(self, parent, choices):
         super().__init__(parent)
-        self.setWindowTitle("Go to")
+        self.setWindowTitle("Search")
         self.resize(600, 440)
         self.choices = choices
         self.chosen = None
-        self.box = QLineEdit(placeholderText="Type to find a project, a problem, a change or an action")
+        self.box = QLineEdit(placeholderText="Type to find a project, a problem, a change, a note or an action")
         self.list = QListWidget()
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(TOKENS["s4"], TOKENS["s4"], TOKENS["s4"], TOKENS["s4"])
+        lay.setSpacing(TOKENS["s3"])
         lay.addWidget(self.box)
         lay.addWidget(self.list)
         self.box.textChanged.connect(self.fill)
@@ -624,9 +866,9 @@ class Palette(QDialog):
     def fill(self, text):
         words = text.lower().split()
         self.list.clear()
-        for label, kind, action in self.choices:
-            if all(w in f"{label} {kind}".lower() for w in words):
-                it = QListWidgetItem(f"{label}      ·  {kind}")
+        for name, kind, action in self.choices:
+            if all(w in f"{name} {kind}".lower() for w in words):
+                it = QListWidgetItem(f"{name}      ·  {kind}")
                 it.setData(Qt.ItemDataRole.UserRole, action)
                 self.list.addItem(it)
                 if self.list.count() >= 200:
@@ -644,6 +886,34 @@ class Palette(QDialog):
         if it is not None:
             self.chosen = it.data(Qt.ItemDataRole.UserRole)
             self.accept()
+
+
+class Fold(QWidget):
+    # Ai - a heading with an arrow inside the project form, the body is
+    #      hidden until clicked, and stays the way you left it
+
+    def __init__(self, name, settings):
+        super().__init__()
+        self.name, self.settings = name, settings
+        self.head = QToolButton()
+        self.head.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.head.setCheckable(True)
+        self.head.toggled.connect(self.toggle)
+        self.body = QWidget()
+        self.inner = QVBoxLayout(self.body)
+        self.inner.setContentsMargins(TOKENS["s5"], 0, 0, 0)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.head, alignment=Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(self.body)
+        self.head.setText(name)
+        self.head.setChecked(settings.value(f"open/{name}", False, type=bool))
+        self.toggle(self.head.isChecked())
+
+    def toggle(self, on):
+        self.head.setArrowType(Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow)
+        self.body.setVisible(on)
+        self.settings.setValue(f"open/{self.name}", on)
 
 
 class ProjectDialog(QDialog):
@@ -692,6 +962,8 @@ class ProjectDialog(QDialog):
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(TOKENS["s4"], TOKENS["s4"], TOKENS["s4"], TOKENS["s4"])
+        lay.setSpacing(TOKENS["s3"])
         lay.addLayout(top)
         lay.addWidget(more)
         lay.addWidget(buttons)
@@ -742,13 +1014,29 @@ class ProjectDialog(QDialog):
 
 #    Window
 
+# Ai - one screen at a time, like Manager:
+#        home   every project, a dot says if something is wrong
+#        list   one project, one of its three views
+#        item   one problem or change, the plain words first
+#      Back, Escape or Alt+Left always goes one step up
+
+TABS = ["Problems", "Changes", "Notes"]
+
+HINTS = {
+    "home": "Pick a project to open it. A <b>red dot</b> means something is wrong right now.",
+    "problems": "What is wrong, worst first. <b>Fine</b> stays folded until you open it.",
+    "changes": "What changed, newest first. Open one to read what it means for you.",
+    "notes": "Every note you wrote. <b>Copy notes for Claude</b> puts them all on the clipboard.",
+}
+
+
 class Window(QMainWindow):
 
     def __init__(self):
         super().__init__()
         self.settings = QSettings("rebuild", "changes")
         self.setWindowTitle("Changes")
-        self.resize(self.settings.value("size", None) or QSize(1180, 720))
+        self.resize(self.settings.value("size", None) or QSize(760, 860))
         self.pool = QThreadPool.globalInstance()
         self.jobs = []
         self.projects = load_projects()
@@ -756,210 +1044,123 @@ class Window(QMainWindow):
         self.notes = {}
         self.rows = {}
         self.data = {}
+        self.refsel = {}
         self.current = None
-        self.diff_args = []
-        self.show_clear = False
+        self.trail = []
+        self.screen = "home"
+        self.tab = self.settings.value("tab", 0, type=int)
+        self.shown = {}
+        self.scroll_at = {}
         self.pending = None
+        self.diff_args = []
+        self.note = self.note_box = self.note_btn = self.diff = None
 
         self.save_timer = QTimer(self, singleShot=True, interval=600)
         self.save_timer.timeout.connect(self.save_now)
 
-        # Ai - column one: projects
+        # Ai - the header: back, where you are, search and more
 
-        self.plist = QListWidget()
-        self.plist.currentRowChanged.connect(self.pick_project)
-        self.plist.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.plist.customContextMenuRequested.connect(self.project_menu)
-        add = QPushButton("+  Add project")
-        add.setToolTip("Any folder with code in it")
-        add.clicked.connect(self.add_project)
-        self.edit_btn = QPushButton("Project settings")
-        self.edit_btn.setToolTip("Right-click a project for more")
-        self.edit_btn.clicked.connect(self.edit_project)
-        pcol = QWidget()
-        pv = QVBoxLayout(pcol)
-        pv.setContentsMargins(0, 0, 0, 0)
-        pv.addWidget(muted(bold("Projects")))
-        pv.addWidget(self.plist, 1)
-        pv.addWidget(add)
-        pv.addWidget(self.edit_btn)
+        self.back = button("", self.go_back, "flat", "Back one step. Escape")
+        self.htitle = label("", "title")
+        self.hsub = label("", "sub")
+        search = button("Search", self.open_palette, "flat", "Find any project, problem, change or action. Ctrl+K")
+        self.more_btn = button("More", self.show_menu, "flat", "Everything else you can do here")
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.addWidget(self.back)
+        top.addStretch()
+        top.addWidget(search)
+        top.addWidget(self.more_btn)
 
-        # Ai - column two: one view of the project
+        self.seg = QFrame()
+        self.seg.setProperty("role", "seg")
+        sl = QHBoxLayout(self.seg)
+        sl.setContentsMargins(2, 2, 2, 2)
+        sl.setSpacing(2)
+        self.segs = []
+        for i, name in enumerate(TABS):
+            b = button(name, lambda i=i: self.set_tab(i), "segb", f"Ctrl+{i + 1}")
+            b.setCheckable(True)
+            sl.addWidget(b, 1)
+            self.segs.append(b)
 
-        self.tabs = QTabBar()
-        for t in ("Problems", "Changes", "Notes"):
-            self.tabs.addTab(t)
-        self.tabs.setExpanding(False)
-        self.version = QComboBox()
-        self.version.setToolTip("Which branch's changes to show")
-        self.version.activated.connect(lambda _i: self.reload(fetch_first=False))
-        self.search = QLineEdit()
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self.filter)
-        self.hints = [
-            Hint("problems", "<b>Problems</b> lists what is wrong. <b>Wrong right now</b> comes first, "
-                 "<b>Built in</b> is how it was made, and <b>Fine</b> is folded away.", self.settings),
-            Hint("changes", "<b>Changes</b> lists what changed, newest first. Click one for what it means "
-                 "for you. The code stays folded until you open it.", self.settings),
-            Hint("notes", "<b>Notes</b> collects every note you wrote. "
-                 "<b>Copy notes for Claude</b> puts them all on the clipboard.", self.settings),
-        ]
-        self.list = QListWidget()
-        self.list.setWordWrap(True)
-        self.list.setSpacing(3)
-        self.list.currentItemChanged.connect(self.show_item)
-        self.list.itemClicked.connect(self.clicked)
+        header = QWidget()
+        hv = QVBoxLayout(header)
+        hv.setContentsMargins(TOKENS["s1"], TOKENS["s2"], TOKENS["s1"], TOKENS["s2"])
+        hv.setSpacing(TOKENS["s1"])
+        hv.addLayout(top)
+        hv.addWidget(self.htitle)
+        hv.addWidget(self.hsub)
+        hv.addSpacing(TOKENS["s2"])
+        hv.addWidget(self.seg)
 
-        mid = QWidget()
-        mv = QVBoxLayout(mid)
-        mv.setContentsMargins(0, 0, 0, 0)
-        # Ai - the branch picker sits beside the tabs, shown only on Changes
-        self.version.setMaximumWidth(140)
-        self.tabs.setUsesScrollButtons(False)
-        head = QHBoxLayout()
-        head.addWidget(self.tabs)
-        head.addStretch()
-        head.addWidget(self.version)
-        mv.addLayout(head)
-        for h in self.hints:
-            mv.addWidget(h)
-        mv.addWidget(self.search)
-        mv.addWidget(self.list, 1)
+        # Ai - the page: one column of cards
 
-        # Ai - column three: one item
-
-        self.title = scaled(para(), TOKENS["title"], bold=True)
-        self.meta = muted(scaled(para(), TOKENS["small"]))
-        self.state = para()
-        self.foryou = para()
-        self.now = para()
-        self.details = Fold("Details", self.settings)
-        self.details_text = para()
-        self.details_text.linkActivated.connect(self.follow)
-        self.details.inner.addWidget(self.details_text)
-        self.lines = Fold("Files and lines", self.settings)
-        self.filelist = para()
-        self.diff = QTextEdit(readOnly=True)
-        self.diff.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        self.diff.setMinimumHeight(360)
-        self.lines.inner.addWidget(self.filelist)
-        self.lines.inner.addWidget(self.diff)
-        self.lines.head.toggled.connect(self.load_diff)
-
-        self.ask = QPushButton("Ask Claude")
-        self.ask.setToolTip("Copies a question with everything Claude needs to answer it. Ctrl+Shift+A")
-        self.ask.clicked.connect(self.ask_claude)
-        self.note_btn = QPushButton("Add a note")
-        self.note_btn.setToolTip("Ctrl+N")
-        self.note_btn.clicked.connect(self.open_note)
-        actions = QHBoxLayout()
-        actions.addWidget(self.ask)
-        actions.addWidget(self.note_btn)
-        actions.addStretch()
-        self.note = QPlainTextEdit(placeholderText="Your note or question. Saved as you type, kept on this PC.")
-        self.note.setFixedHeight(self.fontMetrics().height() * 6)
-        self.note.textChanged.connect(self.note_changed)
-        self.note_label = bold("Your note")
-
-        detail = QWidget()
-        d = QVBoxLayout(detail)
-        d.setSpacing(TOKENS["gap"])
-        d.addWidget(self.title)
-        d.addWidget(self.meta)
-        d.addWidget(self.state)
-        d.addSpacing(TOKENS["gap"])
-        d.addWidget(self.foryou)
-        d.addWidget(self.now)
-        d.addSpacing(TOKENS["gap"])
-        d.addLayout(actions)
-        d.addWidget(self.note_label)
-        d.addWidget(self.note)
-        d.addSpacing(TOKENS["gap"])
-        d.addWidget(self.details)
-        d.addWidget(self.lines)
-        d.addStretch()
-
-        scroll = QScrollArea(widgetResizable=True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(detail)
-
-        # Ai - shown when nothing is picked, it always says what to do next
-        self.empty = muted(para())
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_btn = QPushButton()
-        self.empty_btn.clicked.connect(lambda: self.empty_action and self.empty_action())
-        self.empty_action = None
-        epage = QWidget()
-        ev = QVBoxLayout(epage)
-        ev.addStretch()
-        ev.addWidget(self.empty)
-        ev.addWidget(self.empty_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        ev.addStretch()
-        self.pages = QStackedWidget()
-        self.pages.addWidget(epage)
-        self.pages.addWidget(scroll)
-
-        self.split = QSplitter()
-        self.split.addWidget(pcol)
-        self.split.addWidget(mid)
-        self.split.addWidget(self.pages)
-        self.split.setStretchFactor(2, 1)
-        self.split.setSizes([180, 380, 620])
-        saved = self.settings.value("split")
-        if saved:
-            self.split.restoreState(saved)
-
-        # Ai - bottom bar: what is happening, and the one action that leaves
-
-        self.status = muted(QLabel(""))
-        keys = QPushButton("Keys")
-        keys.setFlat(True)
-        keys.setToolTip("Every keyboard shortcut. F1")
-        keys.clicked.connect(self.show_keys)
-        self.copy = QPushButton()
-        self.copy.setToolTip("Every note in this project, ready to paste into a Claude chat. Ctrl+Shift+C")
-        self.copy.clicked.connect(self.copy_notes)
-        bar = QHBoxLayout()
-        bar.addWidget(self.status, 1)
-        bar.addWidget(keys)
-        bar.addWidget(self.copy)
+        self.column = QWidget()
+        self.column.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.col = QVBoxLayout(self.column)
+        self.col.setContentsMargins(0, 0, 0, TOKENS["s6"])
+        self.col.setSpacing(TOKENS["s3"])
+        canvas = centered(self.column)
+        canvas.setObjectName("canvas")
+        self.scroll = QScrollArea(widgetResizable=True)
+        self.scroll.setObjectName("page")
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setWidget(canvas)
 
         root = QWidget()
         r = QVBoxLayout(root)
-        r.addWidget(self.split, 1)
-        r.addLayout(bar)
+        r.setContentsMargins(TOKENS["s4"], TOKENS["s2"], TOKENS["s4"], 0)
+        r.setSpacing(0)
+        r.addWidget(centered(header))
+        r.addWidget(self.scroll, 1)
         self.setCentralWidget(root)
 
+        # Ai - short messages show for a moment at the bottom, then go
+        self.toast_label = QLabel(root)
+        self.toast_label.setObjectName("toast")
+        self.toast_label.hide()
+        self.toast_timer = QTimer(self, singleShot=True, interval=TOKENS["toast_ms"])
+        self.toast_timer.timeout.connect(self.toast_label.hide)
+
         self.shortcuts = [
-            ("Ctrl+K", "Go to anything", self.open_palette),
-            ("Ctrl+F", "Search this list", self.search.setFocus),
-            ("Ctrl+1", "Problems", lambda: self.tabs.setCurrentIndex(0)),
-            ("Ctrl+2", "Changes", lambda: self.tabs.setCurrentIndex(1)),
-            ("Ctrl+3", "Notes", lambda: self.tabs.setCurrentIndex(2)),
+            ("Ctrl+K", "Search everything", self.open_palette),
+            ("Ctrl+F", "Search everything", self.open_palette),
+            ("Ctrl+1", "Problems", lambda: self.set_tab(0)),
+            ("Ctrl+2", "Changes", lambda: self.set_tab(1)),
+            ("Ctrl+3", "Notes", lambda: self.set_tab(2)),
+            ("Escape", "Back one step", self.escape),
+            ("Alt+Left", "Back one step", self.go_back),
             ("Alt+Up", "Previous project", lambda: self.step_project(-1)),
             ("Alt+Down", "Next project", lambda: self.step_project(1)),
             ("Ctrl+N", "Add a note", self.open_note),
             ("Ctrl+Shift+A", "Ask Claude about this", self.ask_claude),
             ("Ctrl+Shift+C", "Copy notes for Claude", self.copy_notes),
-            ("F5", "Check again and fetch", lambda: self.reload(fetch_first=True)),
-            ("Escape", "Back to the list", self.list.setFocus),
+            ("F5", "Check again and fetch", self.check_again),
             ("F1", "These keys", self.show_keys),
         ]
         for key, _label, fn in self.shortcuts:
             QShortcut(QKeySequence(key), self, fn)
 
-        self.tabs.setCurrentIndex(self.settings.value("tab", 0, type=int))
-        self.tabs.currentChanged.connect(self.tab_changed)
-        self.show_hint()
-        self.fill_projects()
+        for p in self.projects:
+            self.reload(p, fetch_first=False, quiet=True)
+        last = self.settings.value("project", "")
+        ids = [p["id"] for p in self.projects]
+        if self.settings.value("screen", "home") != "home" and last in ids:
+            self.open_project(ids.index(last))
+        else:
+            self.render()
+        # Ai - nothing is highlighted until you press Tab
+        QTimer.singleShot(0, self.column.setFocus)
 
     # Ai - window
 
     def closeEvent(self, e):
         self.save_now()
         self.settings.setValue("size", self.size())
-        self.settings.setValue("split", self.split.saveState())
-        self.settings.setValue("tab", self.tabs.currentIndex())
+        self.settings.setValue("tab", self.tab)
+        self.settings.setValue("screen", "home" if self.screen == "home" else "list")
         super().closeEvent(e)
 
     def save_now(self):
@@ -972,72 +1173,443 @@ class Window(QMainWindow):
         self.jobs.append(job)
         self.pool.start(job)
 
-    def say(self, text):
-        self.status.setText(text)
+    def toast(self, text):
+        t = self.toast_label
+        t.setText(text)
+        t.adjustSize()
+        root = self.centralWidget()
+        t.move((root.width() - t.width()) // 2, root.height() - t.height() - TOKENS["s5"])
+        t.raise_()
+        t.show()
+        self.toast_timer.start()
 
     def show_keys(self):
-        rows = "".join(f"<tr><td><b>{k}</b>&nbsp;&nbsp;&nbsp;&nbsp;</td><td>{l}</td></tr>"
-                       for k, l, _f in self.shortcuts)
-        QMessageBox.information(self, "Keys", f"<table>{rows}</table>")
+        keys = {}
+        for k, name, _f in self.shortcuts:
+            keys.setdefault(name, []).append(k)
+        rows = "".join(f"<tr><td><b>{' or '.join(k)}</b>&nbsp;&nbsp;&nbsp;&nbsp;</td><td>{name}</td></tr>"
+                       for name, k in keys.items())
+        QMessageBox.information(self, "Keys", f"<table cellpadding='4'>{rows}</table>")
+
+    def set_look(self, theme=None, large=None):
+        if theme is not None:
+            self.settings.setValue("theme", theme)
+        if large is not None:
+            self.settings.setValue("large", large)
+        apply_theme(QApplication.instance(), self.settings.value("theme", "Slate"),
+                    self.settings.value("large", False, type=bool))
+        self.render()
+
+    # Ai - tips: one at a time, on the first few days, then they fade away
+
+    def tip_on(self, key):
+        if self.settings.value(f"hint/{key}", False, type=bool):
+            return False
+        try:
+            days = json.loads(self.settings.value(f"hintdays/{key}", "[]"))
+        except (TypeError, ValueError):
+            days = []
+        today = date.today().isoformat()
+        if today not in days:
+            if len(days) >= TOKENS["tip_days"]:
+                return False
+            self.settings.setValue(f"hintdays/{key}", json.dumps(days + [today]))
+        return True
+
+    def coach(self, key):
+        if not self.tip_on(key):
+            return
+        f = QFrame()
+        f.setProperty("role", "coach")
+        h = QHBoxLayout(f)
+        h.setContentsMargins(TOKENS["s4"], TOKENS["s2"], TOKENS["s2"], TOKENS["s2"])
+        h.addWidget(para(HINTS[key]), 1)
+        x = button("✕", lambda: (self.settings.setValue(f"hint/{key}", True), f.hide()), "flat", "Hide this tip")
+        x.setFixedSize(TOKENS["hit"], TOKENS["hit"])
+        h.addWidget(x, alignment=Qt.AlignmentFlag.AlignTop)
+        self.col.addWidget(f)
+
+    def reset_hints(self):
+        for key in HINTS:
+            self.settings.remove(f"hint/{key}")
+            self.settings.remove(f"hintdays/{key}")
+        self.render()
+
+    # Ai - moving around
+
+    def place(self):
+        if self.screen == "home":
+            return "home"
+        if self.screen == "list" and self.project is not None:
+            return f"list:{self.project['id']}:{self.tab}"
+        return "item"
+
+    def go(self, screen, key=None):
+        self.scroll_at[self.place()] = self.scroll.verticalScrollBar().value()
+        self.screen = screen
+        if key is not None:
+            self.current = key
+        if screen != "item":
+            self.trail = []
+        self.render(self.scroll_at.get(self.place(), 0) if screen != "item" else 0)
+
+    def go_back(self):
+        if self.screen == "item" and self.trail:
+            self.current = self.trail.pop()
+            self.render(0)
+        elif self.screen == "item":
+            self.go("list")
+        elif self.screen == "list":
+            self.go("home")
+
+    def escape(self):
+        # Ai - the first Escape leaves the note you are typing, the next goes back
+        if self.note is not None and self.note.hasFocus():
+            self.column.setFocus()
+        else:
+            self.go_back()
+
+    def set_tab(self, i):
+        if self.project is None:
+            return
+        self.scroll_at[self.place()] = self.scroll.verticalScrollBar().value()
+        self.tab = i
+        self.settings.setValue("tab", i)
+        self.screen = "list"
+        self.trail = []
+        self.render(self.scroll_at.get(self.place(), 0))
+
+    def render(self, pos=None):
+        bar = self.scroll.verticalScrollBar()
+        pos = bar.value() if pos is None else pos
+        self.note = self.note_box = self.note_btn = self.diff = None
+        clear(self.col)
+        if self.screen == "list" and self.project is None:
+            self.screen = "home"
+        {"home": self.render_home, "list": self.render_list, "item": self.render_item}[self.screen]()
+        self.col.addStretch()
+        self.update_header()
+        QTimer.singleShot(0, lambda: bar.setValue(pos))
+
+    def update_header(self):
+        home, item = self.screen == "home", self.screen == "item"
+        self.back.setVisible(not home)
+        self.back.setText("‹  Back" if self.trail else "‹  Projects" if self.screen == "list" else f"‹  {TABS[self.tab]}")
+        self.htitle.setVisible(not item)
+        self.hsub.setVisible(not item)
+        self.seg.setVisible(self.screen == "list")
+        if home:
+            n = len(self.projects)
+            on = sum(d.get("on", 0) for d in self.data.values())
+            self.htitle.setText("Changes")
+            self.hsub.setText(f"{n} project{'s' if n != 1 else ''}" +
+                              (f"  ·  {on} wrong right now" if on else ""))
+            return
+        if self.project is None:
+            return
+        self.htitle.setText(self.project["name"])
+        self.hsub.setText(self.summary(self.project))
+        d = self.data.get(self.project["id"], {})
+        counts = [d.get("on", 0), len(d.get("changes", [])), len(self.noted())]
+        for i, b in enumerate(self.segs):
+            b.setText(f"{TABS[i]}   {counts[i]}" if counts[i] else TABS[i])
+            b.setChecked(i == self.tab)
+
+    def empty(self, head, text="", btn=None, action=None):
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(TOKENS["s4"], TOKENS["s6"], TOKENS["s4"], TOKENS["s5"])
+        v.setSpacing(TOKENS["s3"])
+        for t, role in ((head, "emptyh"), (text, "emptyp")):
+            if t:
+                lab = label(t, role)
+                lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                v.addWidget(lab)
+        if btn:
+            v.addWidget(button(btn, action, "primary"), alignment=Qt.AlignmentFlag.AlignCenter)
+        self.col.addWidget(box)
+
+    def add_rows(self, card, key, items, make):
+        # Ai - a few rows at a time, Show more adds the next ones
+        n = self.shown.get(key, TOKENS["show"])
+        if len(items) <= n + 1:
+            n = len(items)
+        for it in items[:n]:
+            card.add(make(it))
+        if len(items) > n:
+            left = len(items) - n
+            step = min(left, TOKENS["more"])
+            more = Row(f"Show {step} more" + (f"   ·   {left} left" if left > step else ""), role="more", arrow=False)
+            more.clicked.connect(lambda: (self.shown.__setitem__(key, n + TOKENS["more"]), self.render()))
+            card.add(more)
+
+    # Ai - home: every project
+
+    def render_home(self):
+        if not self.projects:
+            self.empty("No projects yet", "A project is any folder with code in it.",
+                       "Add your first project", self.add_project)
+            return
+        self.coach("home")
+        card = Card("Projects")
+        for i, p in enumerate(self.projects):
+            d = self.data.get(p["id"])
+            if d is None:
+                tone, meta, n = "none", "Checking…", ""
+            elif d.get("missing"):
+                tone, meta, n = "warn", "The folder is missing", ""
+            elif d["on"]:
+                tone, meta, n = "bad", f"{d['on']} wrong right now", d["on"]
+            else:
+                tone, meta, n = "good", "Nothing wrong right now", ""
+            row = Row(p["name"], meta, tone, n)
+            row.setToolTip(f"{p['repo']}\nRight-click for more")
+            row.clicked.connect(lambda i=i: self.open_project(i))
+            row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            row.customContextMenuRequested.connect(lambda pos, p=p, row=row: self.project_menu(p, row.mapToGlobal(pos)))
+            card.add(row)
+        self.col.addWidget(card)
+        add = Row("+   Add a project", "Any folder with code in it", role="addrow", arrow=False)
+        add.clicked.connect(self.add_project)
+        self.col.addWidget(add)
+
+    # Ai - list: one view of one project
+
+    def render_list(self):
+        d = self.data.get(self.project["id"])
+        if d is None:
+            self.empty("Checking…", "This takes a few seconds.")
+            return
+        if d.get("missing"):
+            self.empty("The folder is missing", f"{self.project['repo']} is not there, or is not tracked by git.",
+                       "Project settings", self.edit_project)
+            return
+        self.coach(["problems", "changes", "notes"][self.tab])
+        [self.list_problems, self.list_changes, self.list_notes][self.tab](d)
+
+    def list_problems(self, d):
+        # Ai - one card per state, worst first, only the worst is open
+        if not d["problems"]:
+            self.empty("No problems are listed yet", "Claude can write a problems file for this project.",
+                       "Copy the request for Claude", lambda: self.copy_out(PROBLEMS_STYLE, "Request copied"))
+            return
+        groups = {s: [] for s in ORDER}
+        for p in d["problems"]:
+            groups[d["results"][p["id"]][0]].append(p)
+        if not (groups["on"] or groups["design"] or groups["unknown"]):
+            self.empty("Nothing is wrong right now", "Every check came back fine.")
+        first = True
+        for s in ORDER:
+            if not groups[s]:
+                continue
+            card = Card(STATES[s], f"problems/{s}", self.settings, STATE_TONE[s], len(groups[s]),
+                        open_=s == "on" or (first and s != "clear"))
+            first = False
+            self.add_rows(card, f"{self.project['id']}/problems/{s}", groups[s], self.problem_row)
+            self.col.addWidget(card)
+
+    def problem_row(self, p):
+        key = f"problem:{p['id']}"
+        bits = [p.get("area", ""), "you would not notice it" if p.get("quiet") else "",
+                "✎ note" if self.has_note(key) else ""]
+        row = Row(p["title"], "  ·  ".join(b for b in bits if b))
+        row.clicked.connect(lambda: self.open_item(key))
+        return row
+
+    def list_changes(self, d):
+        # Ai - newest first, grouped by how long ago, older ones folded
+        if not d["changes"]:
+            self.empty("No changes yet", "Changes show up here after the first commit.")
+            return
+        base = self.project.get("base")
+        key = f"compare:{base}..{d['ref']}"
+        if key in self.rows:
+            card = Card()
+            row = Row(f"Everything since {base}", "Every change below, added together", "accent")
+            row.clicked.connect(lambda: self.open_item(key))
+            card.add(row)
+            self.col.addWidget(card)
+        groups = {"week": [], "month": [], "older": []}
+        for r in d["changes"]:
+            groups[age(r["date"])].append(r)
+        first = True
+        for g, name in (("week", "Last 7 days"), ("month", "Last 30 days"), ("older", "Older")):
+            if not groups[g]:
+                continue
+            card = Card(name, f"changes/{g}", self.settings, count=len(groups[g]), open_=first)
+            first = False
+            self.add_rows(card, f"{self.project['id']}/changes/{g}", groups[g], self.change_row)
+            self.col.addWidget(card)
+
+    def change_row(self, r):
+        bits = [when(r["date"]), "✎ note" if self.has_note(r["hash"]) else ""]
+        row = Row(r["subject"], "  ·  ".join(b for b in bits if b))
+        row.clicked.connect(lambda: self.open_item(r["hash"]))
+        return row
+
+    def list_notes(self, d):
+        keys = self.noted()
+        if not keys:
+            self.empty("No notes yet", "Open any problem or change and press Add a note.")
+            return
+        card = Card("Your notes", count=len(keys))
+
+        def make(k):
+            n = self.notes[k]
+            first = n["text"].strip().splitlines()[0]
+            kind = "Problem" if k.startswith("problem:") else "Change"
+            row = Row(n["subject"], f"{kind}  ·  {first[:70]}{'…' if len(first) > 70 else ''}")
+            row.clicked.connect(lambda: self.open_item(k))
+            return row
+
+        self.add_rows(card, f"{self.project['id']}/notes", keys, make)
+        self.col.addWidget(card)
+        self.col.addWidget(button(f"Copy {len(keys)} note{'s' if len(keys) != 1 else ''} for Claude",
+                                  self.copy_notes, "primary", "Ready to paste into a Claude chat. Ctrl+Shift+C"))
+
+    # Ai - item: one problem or change, what it means first, the rest folded
+
+    def render_item(self):
+        row = self.rows.get(self.current)
+        if row is None:
+            self.empty("This is not here any more", "It may have changed at the last check.",
+                       "Back to the list", self.go_back)
+            return
+        self.col.addWidget(label(row["subject"], "title", select=True))
+        if row["kind"] == "problem":
+            self.item_problem(row["p"])
+        else:
+            self.item_change(row)
+
+    def words(self, title, text, rich=False):
+        card = Card()
+        card.add(padded(label(title.upper(), "lab"), para(text) if rich else label(text, select=True)))
+        self.col.addWidget(card)
+
+    def item_problem(self, p):
+        d = self.data[self.project["id"]]
+        state, found = d["results"][p["id"]]
+        quiet = "quiet, nothing on screen says so" if p.get("quiet") else "you would notice it"
+        source = "built-in check" if p.get("source") == "git" else self.project.get("problems", "")
+        self.col.addWidget(label(f"{p.get('area', '')}  ·  {quiet}  ·  {source}", "meta"))
+        self.col.addWidget(label(STATES[state], "pill", STATE_TONE[state], wrap=False),
+                           alignment=Qt.AlignmentFlag.AlignLeft)
+        if p.get("means"):
+            self.words("What it means for you", p["means"])
+        if p.get("now") and state in ("on", "unknown"):
+            self.words("What you can do now", p["now"])
+        self.actions()
+        parts = []
+        if found:
+            parts.append(f"<p><b>What the check found</b><br>{html.escape(found).replace(chr(10), '<br>')}</p>")
+        if p.get("v2"):
+            parts.append(f"<p><b>How it gets fixed</b><br>{html.escape(p['v2'])}</p>")
+        fixes = d["fixed_by"].get(p["id"], [])
+        if fixes:
+            links = "<br>".join(f"<a href='change:{r['hash']}'>{html.escape(r['subject'])}</a>" for r in fixes)
+            parts.append(f"<p><b>Fixed by</b><br>{links}</p>")
+        if p.get("check"):
+            parts.append("<p><b>How it is checked</b><br>A short read-only test, run as you:</p>"
+                         f"<pre>{html.escape(p['check'].strip())}</pre>")
+        if parts:
+            self.details("".join(parts))
+
+    def item_change(self, row):
+        if "compare" in row:
+            base, ref = row["compare"]
+            self.col.addWidget(label(f"{base} against {ref}", "meta"))
+            self.words("What it is", "Every file that differs, all the changes in the list added together.")
+            self.diff_args = ["diff", base, ref]
+            self.actions()
+        else:
+            f = parse(row["body"])
+            bits = [when(row["date"]), row.get("author", "")] + ([f["Values"]] if "Values" in f else [])
+            self.col.addWidget(label("  ·  ".join(b for b in bits if b), "meta"))
+            if f.get("For you"):
+                self.words("What it means for you", f["For you"])
+            else:
+                self.words("What it means for you", "<i>This change has no plain-words explanation. "
+                           "Press Ask Claude to get one.</i>", rich=True)
+            self.diff_args = ["show", "--format=", row["hash"]]
+            self.actions()
+            titles = {p["id"]: p["title"] for p in self.data[self.project["id"]]["problems"]}
+            self.details(details_html(f, titles))
+        files = numstat(self.project, self.diff_args)
+        card = Card("Files and lines", "item/lines", self.settings, count=len(files), open_=False)
+        self.diff = QTextEdit(readOnly=True)
+        self.diff.setObjectName("diff")
+        self.diff.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.diff.setMinimumHeight(420)
+        card.add(padded(para(file_html(files)), self.diff))
+        card.toggled.connect(self.load_diff)
+        self.col.addWidget(card)
+        self.load_diff(card.is_open)
+
+    def details(self, text):
+        card = Card("Details", "item/details", self.settings, open_=False)
+        body = para(text)
+        body.linkActivated.connect(self.follow)
+        card.add(padded(body))
+        self.col.addWidget(card)
+
+    def actions(self):
+        # Ai - the two things you can do, then your note, if there is one
+        bar = QHBoxLayout()
+        bar.setSpacing(TOKENS["s2"])
+        bar.addWidget(button("Ask Claude", self.ask_claude, "primary",
+                             "Copies a question with everything Claude needs to answer it. Ctrl+Shift+A"))
+        self.note_btn = button("Add a note", self.open_note, "", "Ctrl+N")
+        bar.addWidget(self.note_btn)
+        bar.addStretch()
+        self.col.addLayout(bar)
+        text = self.notes.get(self.current, {}).get("text", "")
+        self.note = QPlainTextEdit(placeholderText="Your note or question. Saved as you type, kept on this PC.")
+        self.note.setPlainText(text)
+        self.note.setFixedHeight(self.fontMetrics().height() * 7)
+        self.note.textChanged.connect(self.note_changed)
+        self.note_box = Card()
+        self.note_box.add(padded(label("YOUR NOTE", "lab"), self.note))
+        self.col.addWidget(self.note_box)
+        self.show_note(bool(text.strip()))
+
+    def load_diff(self, on):
+        # Ai - read only when opened, a big change costs nothing until then
+        if on and self.diff is not None and self.diff_args and not self.diff.toPlainText():
+            self.diff.setHtml(diff_html(patch(self.project, self.diff_args)))
+
+    def open_item(self, key):
+        self.trail = []
+        self.go("item", key)
+
+    def follow(self, link):
+        # Ai - every link inside the app: a problem, a change, a compare
+        key = link.removeprefix("change:")
+        if self.project is None or key not in self.rows:
+            self.toast("That is not in this project any more")
+            return
+        if self.screen == "item" and self.current and self.current != key:
+            self.trail.append(self.current)
+            self.current = key
+            self.render(0)
+        else:
+            # Ai - Back then goes to the list the item lives in
+            self.tab = 0 if key.startswith("problem:") else 1
+            self.open_item(key)
 
     # Ai - projects
 
-    def fill_projects(self):
-        self.plist.blockSignals(True)
-        self.plist.clear()
-        for p in self.projects:
-            it = QListWidgetItem(p["name"])
-            it.setToolTip(p["repo"])
-            self.plist.addItem(it)
-        self.plist.blockSignals(False)
-        self.edit_btn.setEnabled(bool(self.projects))
-        self.project_badges()
-        if not self.projects:
-            self.project = None
-            self.list.clear()
-            self.empty_state("No projects yet. A project is any folder with code in it.",
-                             "Add your first project", self.add_project)
-            return
-        last = self.settings.value("project", "")
-        ids = [p["id"] for p in self.projects]
-        self.plist.setCurrentRow(ids.index(last) if last in ids else 0)
-
-    def project_badges(self):
-        # Ai - the count of what is wrong right now, beside each name
-        for i, p in enumerate(self.projects):
-            it = self.plist.item(i)
-            if it is None:
-                continue
-            n = self.data.get(p["id"], {}).get("on")
-            it.setText(f"{p['name']}   {n}" if n else p["name"])
-            it.setForeground(QColor(TOKENS["bad"]) if n else self.palette().color(QPalette.ColorRole.Text))
-
-    def pick_project(self, row):
-        if row < 0 or row >= len(self.projects):
-            return
+    def open_project(self, i):
         self.save_now()
-        self.project = self.projects[row]
+        self.project = self.projects[i]
         self.settings.setValue("project", self.project["id"])
         self.notes = load_notes(self.project)
-        self.show_clear = False
-        self.update_copy()
-        self.version.blockSignals(True)
-        self.version.clear()
-        if is_repo(self.project["repo"]):
-            names = refs(self.project["repo"])
-            self.version.addItems(names)
-            want = ref_of(self.project)
-            if want == "HEAD":
-                want = git(self.project["repo"], "rev-parse", "--abbrev-ref", "HEAD").strip()
-            self.version.setCurrentText(want)
-        self.version.blockSignals(False)
-        self.fill()
-        self.reload(fetch_first=False)
-        self.reload(fetch_first=True, quiet=True)
+        self.build_rows()
+        self.go("list")
+        self.reload(self.project, fetch_first=True, quiet=True)
 
     def step_project(self, d):
-        if self.projects:
-            self.plist.setCurrentRow((self.plist.currentRow() + d) % len(self.projects))
+        if self.projects and self.project is not None and self.screen != "home":
+            self.open_project((self.projects.index(self.project) + d) % len(self.projects))
 
     def add_project(self):
         dlg = ProjectDialog(self, new_project("", ""), self.settings)
@@ -1047,51 +1619,123 @@ class Window(QMainWindow):
         if dlg.exec():
             self.projects.append(dlg.project)
             save_projects(self.projects)
-            self.fill_projects()
-            self.plist.setCurrentRow(len(self.projects) - 1)
+            self.reload(dlg.project, fetch_first=False, quiet=True)
+            self.open_project(len(self.projects) - 1)
 
-    def edit_project(self):
-        if self.project is None:
+    def edit_project(self, p=None):
+        p = p or self.project
+        if p is None:
             return
-        dlg = ProjectDialog(self, self.project, self.settings)
+        dlg = ProjectDialog(self, p, self.settings)
         if dlg.exec():
-            i = self.projects.index(self.project)
+            i = self.projects.index(p)
             self.projects[i] = dlg.project
             self.data.pop(dlg.project["id"], None)
             save_projects(self.projects)
-            self.fill_projects()
-            self.plist.setCurrentRow(i)
+            if self.project is p:
+                self.project = dlg.project
+                self.build_rows()
+            self.render()
+            self.reload(dlg.project, fetch_first=False)
 
-    def project_menu(self, pos):
-        if self.project is None:
-            return
+    def project_menu(self, p, at):
         m = QMenu(self)
-        m.addAction("Project settings", self.edit_project)
-        m.addAction("Ask Claude for an overview", self.ask_overview)
-        m.addAction("Open the folder", lambda: subprocess.Popen(["xdg-open", self.project["repo"]]))
+        m.addAction("Open", lambda: self.open_project(self.projects.index(p)))
+        m.addAction("Project settings", lambda: self.edit_project(p))
+        m.addAction("Open the folder", lambda: subprocess.Popen(["xdg-open", p["repo"]]))
         m.addSeparator()
-        m.addAction("Remove from Changes", self.remove_project)
-        m.exec(self.plist.mapToGlobal(pos))
+        m.addAction("Remove from Changes", lambda: self.remove_project(p))
+        m.exec(at)
 
-    def remove_project(self):
+    def remove_project(self, p=None):
+        p = p or self.project
+        if p is None:
+            return
         ok = QMessageBox.question(self, "Remove project",
-                                  f"Remove {self.project['name']} from Changes?\n\n"
+                                  f"Remove {p['name']} from Changes?\n\n"
                                   "Its folder and files are not touched, and your notes on it are kept.")
         if ok == QMessageBox.StandardButton.Yes:
-            self.projects.remove(self.project)
+            self.projects.remove(p)
+            self.data.pop(p["id"], None)
             save_projects(self.projects)
-            self.project = None
-            self.fill_projects()
+            if self.project is p:
+                self.project = None
+            self.go("home")
+
+    def show_menu(self):
+        # Ai - everything that is not needed every time, out of sight until asked
+        m = QMenu(self)
+        if self.project is not None and self.screen != "home":
+            m.addAction("Check again and fetch", self.check_again)
+            names = refs(self.project["repo"]) if is_repo(self.project["repo"]) else []
+            if len(names) > 1:
+                pick = m.addMenu("Show changes from")
+                now = self.data.get(self.project["id"], {}).get("ref") or ref_of(self.project)
+                for name in names:
+                    a = pick.addAction(name, lambda name=name: self.pick_ref(name))
+                    a.setCheckable(True)
+                    a.setChecked(name == now)
+            m.addAction("Ask Claude for an overview", self.ask_overview)
+            m.addAction("Copy notes for Claude", self.copy_notes).setEnabled(bool(self.noted()))
+            c = m.addMenu("Copy for Claude to follow")
+            c.addAction("How to write commits", lambda: self.copy_out(COMMIT_STYLE, "Commit style copied"))
+            c.addAction("A problems file for this project", lambda: self.copy_out(PROBLEMS_STYLE, "Request copied"))
+            m.addSeparator()
+            m.addAction("Project settings", self.edit_project)
+            m.addAction("Open the folder", lambda: subprocess.Popen(["xdg-open", self.project["repo"]]))
+            m.addAction("Remove from Changes", self.remove_project)
+        else:
+            m.addAction("Add a project", self.add_project)
+            m.addAction("Check every project again", self.check_again)
+        m.addSeparator()
+        look = m.addMenu("Look")
+        theme = self.settings.value("theme", "Slate")
+        for name in THEMES:
+            a = look.addAction(name, lambda name=name: self.set_look(theme=name))
+            a.setCheckable(True)
+            a.setChecked(name == theme)
+        look.addSeparator()
+        large = look.addAction("Larger text")
+        large.setCheckable(True)
+        large.setChecked(self.settings.value("large", False, type=bool))
+        large.toggled.connect(lambda on: self.set_look(large=on))
+        m.addAction("Show the tips again", self.reset_hints)
+        m.addAction("Keyboard shortcuts", self.show_keys)
+        m.exec(self.more_btn.mapToGlobal(self.more_btn.rect().bottomLeft()))
+
+    def pick_ref(self, name):
+        self.refsel[self.project["id"]] = name
+        self.reload(self.project, fetch_first=False)
 
     # Ai - loading, off screen
 
-    def reload(self, fetch_first, quiet=False):
-        if self.project is None:
-            return
-        project = self.project
-        ref = self.version.currentText() or ref_of(project)
+    def check_again(self):
+        if self.project is not None and self.screen != "home":
+            self.reload(self.project, fetch_first=True)
+        else:
+            for p in self.projects:
+                self.reload(p, fetch_first=True, quiet=True)
+            self.toast("Checking every project…")
+
+    def build_rows(self):
+        d = self.data.get(self.project["id"], {}) if self.project else {}
+        rows = {}
+        for p in d.get("problems", []):
+            rows[f"problem:{p['id']}"] = {"kind": "problem", "p": p, "subject": p["title"], "date": "",
+                                          "body": f"{p.get('means', '')} {p.get('area', '')}"}
+        for r in d.get("changes", []):
+            rows[r["hash"]] = r
+        base = self.project.get("base") if self.project else ""
+        if base and d.get("changes") and base != d.get("ref"):
+            key = f"compare:{base}..{d['ref']}"
+            rows[key] = {"kind": "change", "hash": key, "date": "", "subject": f"Everything since {base}",
+                         "body": "", "compare": (base, d["ref"])}
+        self.rows = rows
+
+    def reload(self, project, fetch_first, quiet=False):
+        ref = self.refsel.get(project["id"]) or ref_of(project)
         if not quiet:
-            self.say("Fetching and checking…" if fetch_first else "Checking…")
+            self.toast("Fetching and checking…" if fetch_first else "Checking…")
 
         def work():
             if not is_repo(project["repo"]):
@@ -1105,291 +1749,61 @@ class Window(QMainWindow):
 
         def done(data):
             if isinstance(data, Exception):
-                self.say(f"Something went wrong while checking: {data}")
+                self.toast(f"Something went wrong while checking: {data}")
+                return
+            if project not in self.projects:
                 return
             old = self.data.get(project["id"])
             self.data[project["id"]] = data
-            self.project_badges()
-            if self.project is not project:
-                return
             same = old and old.get("results") == data.get("results") and \
                 [r["hash"] for r in old.get("changes", [])] == [r["hash"] for r in data.get("changes", [])]
-            if not same:
-                keep = self.current
-                self.fill()
-                if keep:
-                    self.select(keep)
-            self.say(self.summary())
             if fetch_first:
                 write_summary([(p, d["problems"], d["results"]) for p in self.projects
                                for d in [self.data.get(p["id"])] if d and "problems" in d])
+            if self.screen == "home":
+                self.render()
+            elif self.project is project:
+                self.build_rows()
+                if self.screen == "list" and not same:
+                    self.render()
+                else:
+                    self.update_header()
+                self.open_pending()
+            if not quiet:
+                self.toast(self.summary(project))
 
         self.run(work, done)
 
-    def summary(self):
-        d = self.data.get(self.project["id"], {})
-        if d.get("missing"):
-            return "The project folder is missing"
-        on, n = d.get("on", 0), len(d.get("changes", []))
-        return f"{on} wrong right now   ·   {n} change{'s' if n != 1 else ''}"
-
-    # Ai - the middle list
-
-    def show_hint(self):
-        for i, h in enumerate(self.hints):
-            h.setVisible(i == self.tabs.currentIndex() and not h.dismissed())
-
-    def tab_changed(self, i):
-        self.settings.setValue("tab", i)
-        self.show_hint()
-        self.fill()
-
-    def fill(self):
-        self.list.clear()
-        self.rows = {}
-        self.current = None
-        tab = self.tabs.currentIndex()
-        self.version.setVisible(tab == 1 and self.version.count() > 1)
-        self.search.setPlaceholderText(f"Search {['problems', 'changes', 'notes'][tab]}   Ctrl+F")
-        if self.project is None:
-            return
-        d = self.data.get(self.project["id"])
+    def summary(self, project):
+        d = self.data.get(project["id"])
         if d is None:
-            self.empty_state("Checking…")
-            return
+            return "Checking…"
         if d.get("missing"):
-            self.empty_state(f"The folder {self.project['repo']} is not there, or is not tracked by git.",
-                             "Project settings", self.edit_project)
-            return
-        [self.fill_problems, self.fill_changes, self.fill_notes][tab](d)
-        self.filter(self.search.text())
-
-    def empty_state(self, text, button=None, action=None):
-        self.pages.setCurrentIndex(0)
-        self.empty.setText(text.replace("\n", "<br>"))
-        self.empty_action = action
-        self.empty_btn.setText(button or "")
-        self.empty_btn.setVisible(bool(button))
-
-    def group(self, text, key):
-        head = QListWidgetItem(text)
-        f = head.font()
-        f.setBold(True)
-        head.setFont(f)
-        head.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        head.setData(Qt.ItemDataRole.UserRole, key)
-        self.list.addItem(head)
-
-    def fill_problems(self, d):
-        # Ai - grouped by state, worst first, what is fine is folded away
-        groups = {s: [] for s in ORDER}
-        for p in d["problems"]:
-            groups[d["results"][p["id"]][0]].append(p)
-        for s in ORDER:
-            if not groups[s]:
-                continue
-            folded = s == "clear" and not self.show_clear
-            arrow = ("  ▸" if folded else "  ▾") if s == "clear" else ""
-            self.group(f"{STATES[s]}  ({len(groups[s])}){arrow}", f"group:{s}")
-            for p in groups[s]:
-                key = f"problem:{p['id']}"
-                self.rows[key] = {"kind": "problem", "p": p, "subject": p["title"], "date": "",
-                                  "body": f"{p.get('means', '')} {p.get('area', '')}"}
-                self.add_item(key, folded)
-        if not d["problems"]:
-            self.empty_state("No problems are listed for this project yet.\n\n"
-                             "Claude can write a problems file for it.",
-                             "Copy the request for Claude", lambda: self.copy_out(PROBLEMS_STYLE, "Request copied"))
-        elif not groups["on"] and not groups["design"] and not groups["unknown"]:
-            self.empty_state("Nothing is wrong right now.")
-        else:
-            self.empty_state("Pick a problem on the left.")
-
-    def fill_changes(self, d):
-        for row in d["changes"]:
-            self.rows[row["hash"]] = row
-            self.add_item(row["hash"])
-        base = self.project.get("base")
-        if base and base != d["ref"] and d["changes"]:
-            key = f"compare:{base}..{d['ref']}"
-            self.rows[key] = {"kind": "change", "hash": key, "date": "", "subject": f"Everything since {base}",
-                              "body": "", "compare": (base, d["ref"])}
-            self.add_item(key)
-        self.empty_state("Pick a change on the left." if d["changes"] else "No changes yet.")
-
-    def fill_notes(self, d):
-        # Ai - every noted item, whichever view it lives in
-        keys = [k for k, n in self.notes.items() if n.get("text", "").strip()]
-        for k in keys:
-            n = self.notes[k]
-            label = ("Problem: " if k.startswith("problem:") else "Change: ") + n["subject"]
-            self.rows[f"note:{k}"] = {"kind": "note", "target": k, "subject": label,
-                                      "date": n.get("date", ""), "body": n["text"]}
-            self.add_item(f"note:{k}")
-        if keys:
-            self.empty_state("Click a note to go to what it is about.")
-        else:
-            self.empty_state("No notes yet.\n\nOpen any problem or change and press Add a note.")
-
-    def label(self, key):
-        row = self.rows[key]
-        noted = row["kind"] != "note" and bool(self.notes.get(key, {}).get("text", "").strip())
-        return row["subject"] + ("   ✎" if noted else "")
-
-    def add_item(self, key, folded=False):
-        it = QListWidgetItem(self.label(key))
-        it.setData(Qt.ItemDataRole.UserRole, key)
-        it.setData(Qt.ItemDataRole.UserRole + 1, folded)
-        row = self.rows[key]
-        if row["kind"] == "problem":
-            it.setToolTip(row["p"].get("area", ""))
-            if self.data[self.project["id"]]["results"][row["p"]["id"]][0] == "on":
-                it.setForeground(QColor(TOKENS["bad"]))
-        else:
-            it.setToolTip(row.get("date") or "")
-        self.list.addItem(it)
-
-    def clicked(self, item):
-        key = item.data(Qt.ItemDataRole.UserRole)
-        if key == "group:clear":
-            self.show_clear = not self.show_clear
-            self.fill()
-        elif key.startswith("note:"):
-            self.follow(self.rows[key]["target"])
-
-    def filter(self, text):
-        t = text.lower().strip()
-        for i in range(self.list.count()):
-            it = self.list.item(i)
-            key = it.data(Qt.ItemDataRole.UserRole)
-            if key.startswith("group:"):
-                it.setHidden(bool(t))
-                continue
-            row = self.rows[key]
-            hay = f"{row['subject']} {row.get('body', '')}".lower()
-            folded = bool(it.data(Qt.ItemDataRole.UserRole + 1)) and not t
-            it.setHidden(folded or (bool(t) and t not in hay))
-
-    def select(self, key):
-        for i in range(self.list.count()):
-            if self.list.item(i).data(Qt.ItemDataRole.UserRole) == key:
-                self.list.setCurrentRow(i)
-                return True
-        return False
-
-    def follow(self, link):
-        # Ai - every link inside the app: a problem, a change, a compare
-        self.search.clear()
-        if link.startswith("problem:"):
-            self.tabs.setCurrentIndex(0)
-            if not self.select(link):
-                self.show_clear = True
-                self.fill()
-                self.select(link)
-        else:
-            self.tabs.setCurrentIndex(1)
-            self.select(link.removeprefix("change:"))
-
-    # Ai - the right side
-
-    def show_item(self, item, _old=None):
-        if item is None:
-            return
-        key = item.data(Qt.ItemDataRole.UserRole)
-        if key.startswith(("group:", "note:")):
-            return
-        row = self.rows[key]
-        self.current = key
-        self.pages.setCurrentIndex(1)
-        self.title.setText(html.escape(row["subject"]))
-        if row["kind"] == "problem":
-            self.show_problem(row["p"])
-        else:
-            self.show_change(row)
-        text = self.notes.get(key, {}).get("text", "")
-        self.note.blockSignals(True)
-        self.note.setPlainText(text)
-        self.note.blockSignals(False)
-        self.show_note(bool(text.strip()))
-
-    def show_problem(self, p):
-        d = self.data[self.project["id"]]
-        state, found = d["results"][p["id"]]
-        quiet = "quiet, nothing on screen says so" if p.get("quiet") else "you would notice it"
-        source = "built-in check" if p.get("source") == "git" else self.project.get("problems", "")
-        self.meta.setText(html.escape(f"{p.get('area', '')}   ·   {quiet}   ·   {source}"))
-        colour = {"on": TOKENS["bad"], "unknown": TOKENS["warn"], "clear": TOKENS["good"]}.get(state)
-        label = STATES[state]
-        self.state.setText(f"<b style='color:{colour}'>{label}</b>" if colour else f"<b>{label}</b>")
-        self.state.show()
-        self.foryou.setText(html.escape(p.get("means", "")))
-        if p.get("now") and state in ("on", "unknown"):
-            self.now.setText(f"<b>What you can do now</b><br>{html.escape(p['now'])}")
-            self.now.show()
-        else:
-            self.now.hide()
-        parts = []
-        if found:
-            parts.append(f"<p><b>What the check found</b><br>{html.escape(found).replace(chr(10), '<br>')}</p>")
-        if p.get("v2"):
-            parts.append(f"<p><b>How it gets fixed</b><br>{html.escape(p['v2'])}</p>")
-        fixes = d["fixed_by"].get(p["id"], [])
-        if fixes:
-            links = "<br>".join(f"<a href='change:{r['hash']}'>{html.escape(r['subject'])}</a>" for r in fixes)
-            parts.append(f"<p><b>Fixed by</b><br>{links}</p>")
-        if p.get("check"):
-            parts.append("<p><b>How it is checked</b><br>A short read-only test, run as you:</p>"
-                         f"<pre>{html.escape(p['check'].strip())}</pre>")
-        self.details_text.setText("".join(parts))
-        self.details.setVisible(bool(parts))
-        self.lines.hide()
-        self.diff_args = []
-
-    def show_change(self, row):
-        self.state.hide()
-        self.now.hide()
-        self.lines.show()
-        self.details.show()
-        if "compare" in row:
-            base, ref = row["compare"]
-            self.meta.setText(html.escape(f"{base} against {ref}"))
-            self.foryou.setText("Every file that differs, all the changes in the list added together.")
-            self.details_text.setText("<i>Open Files and lines to see them.</i>")
-            self.diff_args = ["diff", base, ref]
-        else:
-            f = parse(row["body"])
-            bits = [row["date"], row.get("author", "")] + ([f["Values"]] if "Values" in f else [])
-            self.meta.setText(html.escape("   ·   ".join(b for b in bits if b)))
-            self.foryou.setText(html.escape(f.get("For you", "")) or
-                                "<i>This change has no plain-words explanation. Ask Claude to explain it.</i>")
-            titles = {p["id"]: p["title"] for p in self.data[self.project["id"]]["problems"]}
-            self.details_text.setText(details_html(f, titles))
-            self.diff_args = ["show", "--format=", row["hash"]]
-        files = numstat(self.project, self.diff_args)
-        self.lines.head.setText(f"Files and lines  ({len(files)})")
-        self.filelist.setText(file_html(files))
-        self.diff.clear()
-        self.load_diff(self.lines.head.isChecked())
-
-    def load_diff(self, on):
-        # Ai - read only when opened, a big change costs nothing until then
-        if on and self.diff_args and not self.diff.toPlainText():
-            self.diff.setHtml(diff_html(patch(self.project, self.diff_args)))
+            return "The folder is missing"
+        on, n = d.get("on", 0), len(d.get("changes", []))
+        parts = [f"{on} wrong right now" if on else "Nothing wrong right now",
+                 f"{n} change{'s' if n != 1 else ''}"]
+        if self.refsel.get(project["id"]):
+            parts.append(f"from {d.get('ref')}")
+        return "  ·  ".join(parts)
 
     # Ai - notes and Claude
 
+    def has_note(self, key):
+        return bool(self.notes.get(key, {}).get("text", "").strip())
+
     def show_note(self, on):
-        self.note_label.setVisible(on)
-        self.note.setVisible(on)
-        self.note_btn.setVisible(not on)
+        if self.note_box is not None:
+            self.note_box.setVisible(on)
+            self.note_btn.setVisible(not on)
 
     def open_note(self):
-        if self.current is not None:
+        if self.screen == "item" and self.note is not None:
             self.show_note(True)
             self.note.setFocus()
 
     def note_changed(self):
-        if self.current is None:
+        if self.current is None or self.note is None:
             return
         row = self.rows[self.current]
         text = self.note.toPlainText()
@@ -1404,26 +1818,20 @@ class Window(QMainWindow):
             self.notes[self.current] = {"text": text, "subject": row["subject"], "date": row.get("date", ""),
                                         "what": parse(row.get("body", "")).get("What", "")}
         self.save_timer.start()
-        item = self.list.currentItem()
-        if item is not None:
-            item.setText(self.label(self.current))
-        self.update_copy()
+        self.update_header()
 
     def noted(self):
         return [k for k in self.notes if self.notes[k].get("text", "").strip()]
 
-    def update_copy(self):
-        n = len(self.noted())
-        self.copy.setEnabled(n > 0)
-        self.copy.setText(f"Copy {n} note{'s' if n != 1 else ''} for Claude" if n else "No notes yet")
-
     def copy_out(self, text, what):
         copy_text(text)
-        self.say(f"{what}. Paste it into a Claude chat.")
+        self.toast(f"{what}. Paste it into a Claude chat.")
 
     def copy_notes(self):
         keys = self.noted()
         if not keys or self.project is None:
+            if self.project is not None:
+                self.toast("No notes yet in this project")
             return
         probs = [k for k in keys if k.startswith("problem:")]
         changes = sorted([k for k in keys if not k.startswith("problem:")],
@@ -1446,7 +1854,7 @@ class Window(QMainWindow):
     def ask_claude(self):
         if self.project is None:
             return
-        if self.current is None:
+        if self.screen != "item" or self.current not in self.rows:
             self.ask_overview()
             return
         row = self.rows[self.current]
@@ -1482,6 +1890,8 @@ class Window(QMainWindow):
                                 ("follow", f"problem:{p['id']}")))
             for r in d.get("changes", []):
                 choices.append((r["subject"], f"change, {r['date']}", ("follow", f"change:{r['hash']}")))
+            for k in self.noted():
+                choices.append((self.notes[k]["text"].strip().splitlines()[0][:80], "note", ("follow", k)))
         choices += [
             ("Ask Claude for an overview of this project", "action", ("call", self.ask_overview)),
             ("Copy notes for Claude", "action", ("call", self.copy_notes)),
@@ -1491,7 +1901,7 @@ class Window(QMainWindow):
              ("call", lambda: self.copy_out(PROBLEMS_STYLE, "Request copied"))),
             ("Add a project", "action", ("call", self.add_project)),
             ("Project settings", "action", ("call", self.edit_project)),
-            ("Check again and fetch", "action", ("call", lambda: self.reload(fetch_first=True))),
+            ("Check again and fetch", "action", ("call", self.check_again)),
             ("Show the tips again", "action", ("call", self.reset_hints)),
             ("Keyboard shortcuts", "action", ("call", self.show_keys)),
         ]
@@ -1499,16 +1909,13 @@ class Window(QMainWindow):
         if dlg.exec() and dlg.chosen:
             kind, arg = dlg.chosen
             if kind == "project":
-                self.plist.setCurrentRow(arg)
+                self.open_project(arg)
             elif kind == "follow":
+                self.trail = []
+                self.screen = "list"
                 self.follow(arg)
             else:
                 arg()
-
-    def reset_hints(self):
-        for h in self.hints:
-            self.settings.setValue(f"hint/{h.key}", False)
-        self.show_hint()
 
     # Ai - deep links: changes open NAME[/ITEM]
 
@@ -1516,7 +1923,7 @@ class Window(QMainWindow):
         name, _, item = link.partition("/")
         for i, p in enumerate(self.projects):
             if p["name"].lower() == name.lower() or p["id"] == name:
-                self.plist.setCurrentRow(i)
+                self.open_project(i)
                 self.pending = item or None
                 self.open_pending()
                 break
@@ -1524,13 +1931,9 @@ class Window(QMainWindow):
         self.activateWindow()
 
     def open_pending(self):
-        if not self.pending or self.project is None:
-            return
-        if self.project["id"] in self.data:
-            self.follow(self.pending)
-            self.pending = None
-        else:
-            QTimer.singleShot(300, self.open_pending)
+        if self.pending and self.project is not None and self.project["id"] in self.data:
+            link, self.pending = self.pending, None
+            self.follow(link)
 
 
 #    Text
@@ -1563,8 +1966,8 @@ def file_html(rows):
         if add == "-":
             n = "<i>binary</i>"
         else:
-            n = (f"<span style='color:{TOKENS['good']}'>+{add}</span> "
-                 f"<span style='color:{TOKENS['bad']}'>−{rem}</span>")
+            n = (f"<span style='color:{T['ok']}'>+{add}</span> "
+                 f"<span style='color:{T['danger']}'>−{rem}</span>")
         out.append(f"{html.escape(path)} &nbsp; {n}")
     if len(rows) > 60:
         out.append(f"<i>and {len(rows) - 60} more</i>")
@@ -1585,9 +1988,9 @@ def diff_html(text):
         elif line.startswith("rename "):
             out.append(f"<i>{e}</i>")
         elif line.startswith("+"):
-            out.append(f"<span style='color:{TOKENS['good']}'>{e}</span>")
+            out.append(f"<span style='color:{T['ok']}'>{e}</span>")
         elif line.startswith("-"):
-            out.append(f"<span style='color:{TOKENS['bad']}'>{e}</span>")
+            out.append(f"<span style='color:{T['danger']}'>{e}</span>")
         elif line.startswith("@@"):
             out.append("<i>…</i>")
         else:
@@ -1732,6 +2135,8 @@ def main():
     if hand_over(link):
         return
     ensure_hooks()
+    look = QSettings("rebuild", "changes")
+    apply_theme(app, look.value("theme", "Slate"), look.value("large", False, type=bool))
 
     w = Window()
     QLocalServer.removeServer(SOCKET)

@@ -20,7 +20,7 @@ id = "changes-one-file"
 title = "The whole app is one long file"
 area = "Management"
 quiet = true
-means = "About 1,750 lines in one file is harder to read and change safely. It is one file so it can update itself with a single copy."
+means = "About 2,150 lines in one file is harder to read and change safely. It is one file so it can update itself with a single copy."
 v2 = "Split it once the app settles, and update the folder instead of one file."
 
 [[problem]]
