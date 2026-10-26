@@ -1,0 +1,25 @@
+#!/bin/sh
+# Ai - nug-session, what the login screen starts
+#      the settings every program in the desktop should see, then Hyprland
+#      the values in braces are filled in by `rebuild desktop`
+
+export XKB_DEFAULT_LAYOUT="${XKB_LAYOUT}"
+export XKB_DEFAULT_VARIANT="${XKB_VARIANT}"
+
+	# Ai - Qt apps such as Dolphin and Changes follow the GTK theme
+export QT_QPA_PLATFORMTHEME=gtk3
+export QT_QPA_PLATFORM="wayland;xcb"
+
+	# Ai - Electron apps such as Signal, Obsidian and VSCodium run natively
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=24
+
+${GPU_ENV}
+
+	# Ai - newer Hyprland starts through its own small watchdog
+if command -v start-hyprland > /dev/null 2>&1; then
+	exec start-hyprland
+fi
+exec Hyprland

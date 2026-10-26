@@ -1,0 +1,9 @@
+#!/bin/sh
+# Ai - nug-power, the power menu, SUPER + Escape or the button on the bar
+choice="$(printf '%s\n' "Lock" "Log out" "Restart" "Shut down" | fuzzel --dmenu --prompt '⏻  ' --lines 4 --width 20)"
+case "$choice" in
+	Lock)        loginctl lock-session ;;
+	"Log out")   hyprctl dispatch exit ;;
+	Restart)     systemctl reboot ;;
+	"Shut down") systemctl poweroff ;;
+esac

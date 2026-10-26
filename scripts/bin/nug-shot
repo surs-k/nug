@@ -1,0 +1,7 @@
+#!/bin/sh
+# Ai - nug-shot, pick an area: it is copied, and saved in Pictures/Screenshots
+dir="$HOME/Pictures/Screenshots"
+mkdir -p "$dir"
+file="$dir/$(date +%F_%H-%M-%S).png"
+area="$(slurp)" || exit 0
+grim -g "$area" "$file" && wl-copy < "$file" && notify-send -a Screenshot "Screenshot copied" "$file"
