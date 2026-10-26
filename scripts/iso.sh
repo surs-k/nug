@@ -416,7 +416,17 @@ run "check the sudo rules" arch-chroot "$T" visudo -c -f /etc/sudoers.d/10-wheel
 
 step "Disks at start"
 
-uuid_of() { blkid -s UUID -o value "$1" 2> /dev/null || printf '%s' "$2"; }
+	# Ai - an empty id in fstab or crypttab would stop the PC starting, so a
+	#      real run stops here instead, a dry run shows a placeholder
+uuid_of() {
+	local u
+	u="$(blkid -s UUID -o value "$1" 2> /dev/null || true)"
+	if [[ -z "$u" ]]; then
+		(( DRY == 1 )) || die "no id found for $1"
+		u="$2"
+	fi
+	printf '%s' "$u"
+}
 SYS_LUKS_UUID="$(uuid_of "$SYS_ROOT" SYSTEM-UUID)"
 SYS_FS_UUID="$(uuid_of /dev/mapper/cryptsystem SYSTEM-FS-UUID)"
 ESP_UUID="$(uuid_of "$SYS_ESP" ESP-UUID)"
@@ -492,7 +502,7 @@ UUID=$DATA_FS_UUID  /games                   btrfs  $DOPT,subvol=/@games     0 0
 UUID=$DATA_FS_UUID  /var/lib/libvirt/images  btrfs  noatime,nofail,x-systemd.device-timeout=10s,subvol=/@vms  0 0
 UUID=$DATA_FS_UUID  /var/lib/docker          btrfs  $DOPT,subvol=/@docker    0 0
 UUID=$DATA_FS_UUID  /persist                 btrfs  $DOPT,subvol=/@persist   0 0
-UUID=$DATA_FS_UUID  /mnt/data-root           btrfs  noatime,$DOPT,subvolid=5 0 0
+UUID=$DATA_FS_UUID  /mnt/data-root           btrfs  $DOPT,subvolid=5         0 0
 
 # Ai - state that outlives a reinstall, kept on the data disk
 /persist/tailscale    /var/lib/tailscale  none  bind,nofail,x-systemd.requires-mounts-for=/persist  0 0
