@@ -48,6 +48,8 @@ git clone -b v2 https://github.com/surs-k/nug /tmp/nug
 bash /tmp/nug/scripts/prep.sh
 ```
 
+It also saves a read-only copy of your whole v1 system on the data disk, as `@old-system`. That needs free room on the data disk as big as v1 itself, and takes a few minutes.
+
 **Done when:**
 it says `ready for the v2 install`. Then run one last backup: `sudo btrbk run`
 
@@ -73,6 +75,14 @@ rebuild
 ```
 
 It asks two questions and your Mullvad number, then runs on its own. Your turn at the end lists what only you can do.
+
+Then see what v1 had that this PC does not:
+
+```
+rebuild compare
+```
+
+Or open Changes, From v1. Each app, setting and file has a button to bring it over to the right place. Nothing is copied blind. When you are done, `rebuild compare delete` removes the copy of v1.
 
 
 # Undo

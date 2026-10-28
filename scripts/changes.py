@@ -18,6 +18,7 @@ import html
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,45 @@ SUMMARY = CACHE / "problems.txt"
 SEEN = CACHE / "problems.json"
 REBUILD = Path(os.environ.get("REBUILD_REPO", Path.home() / "rebuild"))
 SOCKET = f"changes-{os.getuid()}"
+OLD_SYSTEM = Path("/mnt/data-root/@old-system")
+
+
+#    From v1
+
+# Ai - what the old install had that this one lacks, read from the copy of v1
+#      that prep.sh saved on the data disk, the scan itself is compare.py in
+#      the install repo, bringing something over is rebuild compare in a
+#      terminal, because it needs your password
+COMPARE_KINDS = [
+    ("package", "Apps v1 had"),
+    ("config", "Settings changed or made by hand in v1"),
+    ("stray", "Files outside home that no app made"),
+    ("local", "Programs in /opt and /usr/local"),
+]
+
+
+def compare_available():
+    return (OLD_SYSTEM / "etc").is_dir()
+
+
+def compare_scan():
+    script = REBUILD / "scripts/compare.py"
+    if not script.is_file():
+        raise RuntimeError(f"{script} is not there, pull the install repo first")
+    r = subprocess.run(["python3", "-I", str(script), "scan"], capture_output=True, text=True, timeout=900)
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "the scan failed")
+    return json.loads(r.stdout)
+
+
+def in_terminal(command):
+    # Ai - a terminal of its own, it stays open until Enter so the result can be read
+    script = f'{command}; echo; read -rp "Press Enter to close  " _'
+    for term in ("kitty", "foot", "alacritty", "xterm"):
+        if shutil.which(term):
+            args = [term, "bash", "-c", script] if term == "kitty" else [term, "-e", "bash", "-c", script]
+            return subprocess.run(args).returncode
+    raise RuntimeError("no terminal program found to run rebuild in")
 
 
 #    Tokens
@@ -1052,6 +1092,7 @@ class Window(QMainWindow):
         self.shown = {}
         self.scroll_at = {}
         self.pending = None
+        self.compare = None
         self.diff_args = []
         self.note = self.note_box = self.note_btn = self.diff = None
 
@@ -1238,8 +1279,8 @@ class Window(QMainWindow):
     # Ai - moving around
 
     def place(self):
-        if self.screen == "home":
-            return "home"
+        if self.screen in ("home", "compare"):
+            return self.screen
         if self.screen == "list" and self.project is not None:
             return f"list:{self.project['id']}:{self.tab}"
         return "item"
@@ -1259,7 +1300,7 @@ class Window(QMainWindow):
             self.render(0)
         elif self.screen == "item":
             self.go("list")
-        elif self.screen == "list":
+        elif self.screen in ("list", "compare"):
             self.go("home")
 
     def escape(self):
@@ -1286,7 +1327,8 @@ class Window(QMainWindow):
         clear(self.col)
         if self.screen == "list" and self.project is None:
             self.screen = "home"
-        {"home": self.render_home, "list": self.render_list, "item": self.render_item}[self.screen]()
+        {"home": self.render_home, "list": self.render_list, "item": self.render_item,
+         "compare": self.render_compare}[self.screen]()
         self.col.addStretch()
         self.update_header()
         QTimer.singleShot(0, lambda: bar.setValue(pos))
@@ -1294,10 +1336,19 @@ class Window(QMainWindow):
     def update_header(self):
         home, item = self.screen == "home", self.screen == "item"
         self.back.setVisible(not home)
-        self.back.setText("‹  Back" if self.trail else "‹  Projects" if self.screen == "list" else f"‹  {TABS[self.tab]}")
+        self.back.setText("‹  Back" if self.trail else "‹  Projects" if self.screen in ("list", "compare") else f"‹  {TABS[self.tab]}")
         self.htitle.setVisible(not item)
         self.hsub.setVisible(not item)
         self.seg.setVisible(self.screen == "list")
+        if self.screen == "compare":
+            self.htitle.setText("From v1")
+            d = self.compare
+            n = len(d["items"]) if isinstance(d, dict) else 0
+            self.hsub.setText("Reading the copy of v1…" if d is None else
+                              "Could not read it" if not isinstance(d, dict) else
+                              f"{n} thing{'s' if n != 1 else ''} v1 had that this PC lacks" if n else
+                              "Nothing is missing")
+            return
         if home:
             n = len(self.projects)
             on = sum(d.get("on", 0) for d in self.data.values())
@@ -1345,12 +1396,23 @@ class Window(QMainWindow):
 
     # Ai - home: every project
 
+    def v1_card(self):
+        card = Card()
+        row = Row("From v1", "What the old install had that this PC does not, and a button to bring each over", "accent")
+        row.clicked.connect(self.open_compare)
+        card.add(row)
+        return card
+
     def render_home(self):
         if not self.projects:
+            if compare_available():
+                self.col.addWidget(self.v1_card())
             self.empty("No projects yet", "A project is any folder with code in it.",
                        "Add your first project", self.add_project)
             return
         self.coach("home")
+        if compare_available():
+            self.col.addWidget(self.v1_card())
         card = Card("Projects")
         for i, p in enumerate(self.projects):
             d = self.data.get(p["id"])
@@ -1372,6 +1434,88 @@ class Window(QMainWindow):
         add = Row("+   Add a project", "Any folder with code in it", role="addrow", arrow=False)
         add.clicked.connect(self.add_project)
         self.col.addWidget(add)
+
+    # Ai - from v1: what the old install had, each with a button to bring it over
+
+    def open_compare(self):
+        self.go("compare")
+        if self.compare is None or isinstance(self.compare, Exception):
+            self.load_compare()
+
+    def load_compare(self):
+        self.compare = None
+        self.render()
+        self.run(compare_scan, self.compare_loaded)
+
+    def compare_loaded(self, result):
+        self.compare = result
+        if self.screen == "compare":
+            self.render()
+
+    def render_compare(self):
+        d = self.compare
+        if d is None:
+            self.empty("Reading the copy of v1…", "This takes a minute.")
+            return
+        if isinstance(d, Exception):
+            self.empty("Could not read the copy of v1", str(d), "Try again", self.load_compare)
+            return
+        if not d["items"]:
+            self.empty("Nothing is missing", "This PC has everything v1 had.")
+        for kind, name in COMPARE_KINDS:
+            group = [i for i in d["items"] if i["kind"] == kind]
+            if not group:
+                continue
+            card = Card(name, f"compare/{kind}", self.settings, "warn", len(group), open_=kind == "package")
+            self.add_rows(card, f"compare/{kind}", group, self.compare_row)
+            self.col.addWidget(card)
+        notes = []
+        if d.get("managed"):
+            notes.append(f"{d['managed']} file{'s' if d['managed'] != 1 else ''} this install writes itself "
+                         "are left alone, v1's version would undo what v2 set on purpose.")
+        if d.get("unreadable"):
+            notes.append(f"{d['unreadable']} file{'s' if d['unreadable'] != 1 else ''} only root can read "
+                         "were not checked. rebuild compare in a terminal checks them too.")
+        for n in notes:
+            self.col.addWidget(label(n, "meta"))
+        self.col.addWidget(button("Done, delete the copy of v1", self.forget_old, "",
+                                  "Asks you to type delete first, in a terminal"))
+
+    def compare_row(self, item):
+        meta = item["why"] + (f"  ·  needs {item['waits_for']} first" if item.get("waits_for") else "")
+        row = Row(item["title"], meta, arrow=False)
+        btn = button("Bring over", lambda: self.bring_over([item["id"]]), "flat",
+                     "Opens a terminal, it asks for your password")
+        btn.setEnabled(not item.get("waits_for"))
+        row.layout().addWidget(btn)
+        return row
+
+    def bring_over(self, ids):
+        self.toast("A terminal opens, it asks for your password")
+
+        def work():
+            in_terminal("rebuild compare bring " + " ".join(shlex.quote(i) for i in ids))
+            return compare_scan()
+
+        self.compare = None
+        self.render()
+        self.run(work, self.compare_loaded)
+
+    def forget_old(self):
+        def work():
+            in_terminal("rebuild compare delete")
+            return None if not compare_available() else compare_scan()
+
+        def done(result):
+            if not compare_available():
+                self.compare = None
+                self.go("home")
+                self.toast("The copy of v1 is gone")
+            else:
+                self.compare_loaded(result)
+
+        self.toast("A terminal opens, type delete there to go ahead")
+        self.run(work, done)
 
     # Ai - list: one view of one project
 
@@ -1687,6 +1831,8 @@ class Window(QMainWindow):
         else:
             m.addAction("Add a project", self.add_project)
             m.addAction("Check every project again", self.check_again)
+            if compare_available():
+                m.addAction("What v1 had that this PC lacks", self.open_compare)
         m.addSeparator()
         look = m.addMenu("Look")
         theme = self.settings.value("theme", "Slate")
@@ -1900,6 +2046,10 @@ class Window(QMainWindow):
             ("Copy the request for a problems file", "action",
              ("call", lambda: self.copy_out(PROBLEMS_STYLE, "Request copied"))),
             ("Add a project", "action", ("call", self.add_project)),
+        ]
+        if compare_available():
+            choices.append(("What v1 had that this PC lacks", "action", ("call", self.open_compare)))
+        choices += [
             ("Project settings", "action", ("call", self.edit_project)),
             ("Check again and fetch", "action", ("call", self.check_again)),
             ("Show the tips again", "action", ("call", self.reset_hints)),

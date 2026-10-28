@@ -31,3 +31,6 @@ One entry per choice. A choice is changed only by a new entry, so the old reason
 | 23 | ProtonPlus for newer Proton builds | Concise | one small app, also covers Lutris and Heroic if added | judgment | `scripts/modules/70-gaming.sh` |
 | 24 | Hosting is optional and starts small: Ollama on this PC only, Podman ready, services later | Privacy, Concise | nothing listens beyond this PC, services return one at a time | judgment | `scripts/modules/80-hosting.sh` |
 | 25 | @games keeps its name | Recovery | renaming a subvolume on the kept disk is a risk for no gain yet, your call | your call | `scripts/iso.sh` |
+| 26 | v1 is kept whole on the data disk as `@old-system`, read only, until you delete it | Recovery, Management | nothing is lost to the reinstall and nobody has to remember where a program keeps its parts | your call | `scripts/prep.sh` |
+| 27 | What v1 had is compared in plain words and brought over by a button, never by hand | Management, Educating | moving folders by hand can break the PC, the install decides every place | your call | `scripts/compare.sh` |
+| 28 | A file this install writes itself is never brought over, and a private file never goes into the repo | Security, Recovery | v1's copy would undo what v2 set on purpose, a wifi password in git would reach GitHub | judgment | `scripts/compare.py` |

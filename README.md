@@ -15,6 +15,7 @@ ___
 | `config/` | the desktop's look and your app list |
 | `scripts/iso.sh` | the install, run from the Arch USB |
 | `scripts/setup.sh` | `rebuild`, everything after the first start |
+| `scripts/compare.sh`, `scripts/compare.py` | `rebuild compare`: what v1 had that v2 lacks, and a button to bring each over |
 | `scripts/modules/` | one file per part: system, network, desktop and the rest |
 | `old/` | v1, read only, a part moves out only after review |
 

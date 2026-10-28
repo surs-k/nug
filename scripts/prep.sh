@@ -4,7 +4,10 @@
 #      it checks the PC is ready, and saves onto the data disk what lives on
 #      the system disk and would be lost: the backup drive's key, the SSH
 #      identity, the Tailscale device and the Mullvad login
-#      it reads everything and writes only into the data disk's @persist
+#      it also keeps a read-only copy of the whole old system on the data disk
+#      as @old-system, so after the reinstall rebuild compare can show what the
+#      old system had that the new one lacks
+#      it reads everything and writes only into the data disk
 
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
@@ -85,6 +88,80 @@ fi
 if $SUDO sh -c 'ls /etc/libvirt/qemu/*.xml' > /dev/null 2>&1; then
 	quiet $SUDO install -d -m 700 "$P/libvirt"
 	run "VM definitions" $SUDO sh -c "cp -a /etc/libvirt/qemu/*.xml '$P/libvirt/'"
+fi
+
+
+step "Copy of v1"
+
+	# Ai - the whole old root, read only, on the data disk, so nothing in it is
+	#      lost to the reinstall and nothing has to be remembered by hand
+	#      a Btrfs root is sent as a snapshot, anything else is copied with rsync
+	#      home, games, VMs and containers already live on the data disk, and
+	#      the package cache and old snapshots only take room, so none of those
+OLD="$ROOT/@old-system"
+DONE="$P/state/old-system.done"
+COPY=1
+if $SUDO test -f "$DONE" && [[ -d "$OLD/etc" ]]; then
+	ok "the copy of v1 is already there: $($SUDO cat "$DONE")"
+	yesno "Copy again, so it has your latest changes?" n || COPY=0
+fi
+
+if (( COPY == 1 )); then
+	dim "Counting what v1 holds, this takes a minute."
+	USED="$($SUDO du -sxB1 / 2> /dev/null | cut -f1)"
+	FREE="$(df -B1 --output=avail "$ROOT" | tail -n 1 | tr -d ' ')"
+	NEED=$(( USED + USED / 20 + 2147483648 ))
+	if (( FREE < NEED )); then
+		READY=0
+		printf '    %s✗%s v1 holds %s GB, the data disk has %s GB free, the copy needs %s GB\n' \
+			"$C_BAD" "$C_0" "$(( USED / 1000000000 ))" "$(( FREE / 1000000000 ))" "$(( NEED / 1000000000 ))"
+		dim "Free some room on the data disk, then run prep again."
+	else
+		ok "room for it: $(( USED / 1000000000 )) GB to copy, $(( FREE / 1000000000 )) GB free"
+
+			# Ai - a copy that never finished carries no done mark, it is replaced
+		if [[ -e "$OLD" ]]; then
+			$SUDO btrfs subvolume show "$OLD" > /dev/null 2>&1 || die "$OLD is a plain folder, move it away and run prep again"
+			quiet $SUDO rm -f "$DONE"
+			run "remove the earlier copy" $SUDO btrfs subvolume delete "$OLD"
+		fi
+		quiet $SUDO rm -rf "$ROOT/.old-system-incoming"
+
+		METHOD=rsync
+		if [[ "$(findmnt -no FSTYPE /)" == btrfs ]]; then
+			SNAP=/.nug-prep-snapshot
+			quiet $SUDO btrfs subvolume delete "$SNAP" || true
+			if quiet $SUDO btrfs subvolume snapshot -r / "$SNAP"; then
+				METHOD=btrfs
+				quiet $SUDO install -d -m 755 "$ROOT/.old-system-incoming"
+				run "copy v1 to the data disk" $SUDO bash -c \
+					'set -o pipefail; btrfs send "$1" | btrfs receive "$2"' _ "$SNAP" "$ROOT/.old-system-incoming"
+				run "name it @old-system" $SUDO mv "$ROOT/.old-system-incoming/${SNAP##*/}" "$OLD"
+				quiet $SUDO rmdir "$ROOT/.old-system-incoming"
+				soft "remove the temporary snapshot" $SUDO btrfs subvolume delete "$SNAP"
+			else
+				dim "v1's root could not be snapshotted, copying file by file instead"
+			fi
+		fi
+		if [[ "$METHOD" == rsync ]]; then
+			has rsync || die "rsync is missing on this PC, install it:  sudo pacman -S rsync"
+			run "make @old-system" $SUDO btrfs subvolume create "$OLD"
+			run "copy v1 to the data disk" $SUDO rsync -aHAXx --numeric-ids \
+				--exclude=/home --exclude=/games --exclude=/mnt --exclude=/.snapshots \
+				--exclude=/var/cache/pacman/pkg --exclude=/var/lib/libvirt/images --exclude=/var/lib/docker \
+				--exclude=/proc --exclude=/sys --exclude=/dev --exclude=/run --exclude=/tmp / "$OLD/"
+			run "make the copy read only" $SUDO btrfs property set -ts "$OLD" ro true
+		fi
+
+		if [[ -d "$OLD/var/lib/pacman/local" ]]; then
+			printf '%s %s\n' "$(date +%F)" "$METHOD" | put "$DONE"
+			ok "v1 is saved on the data disk as @old-system, read only"
+			todo "After the reinstall, rebuild compare shows what v1 had that v2 lacks."
+		else
+			READY=0
+			printf '    %s✗%s the copy has no package list in it, so it cannot be compared\n' "$C_BAD" "$C_0"
+		fi
+	fi
 fi
 
 

@@ -71,6 +71,24 @@ soft "cache trim weekly" $SUDO systemctl enable paccache.timer
 soft "SSD trim weekly" $SUDO systemctl enable fstrim.timer
 
 
+step "From v1"
+
+	# Ai - what rebuild compare brought over from the old system and saved here,
+	#      packages by name, setting files in config/carried at their own path,
+	#      so a reinstall puts them back without the old system
+if [[ -f "$CONF/packages.list" ]]; then
+	while read -r name; do
+		any "$name" "$name" || true
+	done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$CONF/packages.list")
+fi
+if [[ -d "$CONF/carried" ]]; then
+	while IFS= read -r -d '' file; do
+		put "${file#"$CONF/carried"}" "$(stat -c %a "$file")" < "$file"
+	done < <(find "$CONF/carried" -type f -print0 | sort -z)
+fi
+ok "what you brought over from v1 is in place"
+
+
 step "Check"
 
 if has yay; then ok "AUR builds work"; else warn "yay is missing"; fi

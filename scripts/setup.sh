@@ -10,6 +10,7 @@
 #      rebuild NAME ...        run these modules again, done or not
 #      rebuild apps            the apps, on or off
 #      rebuild apps on NAME    turn one on, off works the same
+#      rebuild compare         what the old system had that this one lacks, bring it over
 #      rebuild --dry-run ...   show what would happen, change nothing
 
 ARGS=()
@@ -78,6 +79,7 @@ status() {
 case "${1:-}" in
 	status|list) status; exit 0 ;;
 	apps)        shift; exec bash "$SCRIPTS/apps.sh" "$@" ;;
+	compare)     shift; exec bash "$SCRIPTS/compare.sh" "$@" ;;
 	-h|--help|help)
 		sed -n '/^#      rebuild/s/^#      /  /p' "$0"
 		exit 0 ;;
