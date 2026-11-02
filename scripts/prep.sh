@@ -33,13 +33,19 @@ ok "@persist is ready on the data disk"
 	#      opens with, the reinstall asks for it, so it is proven here first
 DATA_DEV="$($SUDO cryptsetup status cryptdata | sed -n 's/^ *device: *//p')"
 [[ -n "$DATA_DEV" ]] || die "cannot find the data disk's encrypted partition"
-dim "Type the data disk passphrase, the one the reinstall will ask for."
-if $SUDO cryptsetup open --test-passphrase "$DATA_DEV" < /dev/tty; then
-	ok "you know the data disk's passphrase"
-else
+while true; do
+	if ask_program "Type the data disk passphrase" \
+		"The reinstall asks for it, and nothing can recover it, so it is proven here first." \
+		$SUDO cryptsetup open --test-passphrase "$DATA_DEV"; then
+		ok "you know the data disk's passphrase"
+		break
+	fi
+	if problem "That passphrase does not open the data disk." \
+		"The reinstall asks for the same one, with a wrong one it cannot keep your data." \
+		"Try again, or skip it and the prep says it is not ready." retry skip; then continue; fi
 	READY=0
-	printf '    %s✗%s that passphrase does not open the data disk\n' "$C_BAD" "$C_0"
-fi
+	break
+done
 
 
 step "Save settings"
@@ -103,7 +109,11 @@ DONE="$P/state/old-system.done"
 COPY=1
 if $SUDO test -f "$DONE" && [[ -d "$OLD/etc" ]]; then
 	ok "the copy of v1 is already there: $($SUDO cat "$DONE")"
-	yesno "Copy again, so it has your latest changes?" n || COPY=0
+	SUGGESTED=2
+	choose "Copy v1 again?" "The copy on the data disk is from the last prep. Copying again brings it up to date with what changed since." 2 \
+		"Copy again: it has your latest changes, takes a few minutes" \
+		"Keep the copy that is there" || exit 0
+	if (( CHOICE == 2 )); then COPY=0; fi
 fi
 
 if (( COPY == 1 )); then

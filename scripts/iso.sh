@@ -19,7 +19,19 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh"
 T=/mnt
 KEY=/run/nug.key
 
+	# Ai - the Linux text console has no scrollback, tmux does, so the install
+	#      runs inside it with the mouse wheel on, and holds the last screen
+	#      until Enter, or it would vanish with the session
+if [[ -z "${TMUX:-}" && -z "${NUG_NO_TMUX:-}" ]] && (( SCREEN == 1 && TTY == 1 )) && has tmux; then
+	printf -v CMD '%q ' bash "$(readlink -f "$0")" "$@"
+	quiet tmux kill-session -t nug || true
+	tmux new-session -d -s nug "env DRY=$DRY NUG_NO_TMUX=1 $CMD; printf '\n  Press Enter to close  '; read -r _"
+	tmux set-option -t nug mouse on
+	exec tmux attach -t nug
+fi
+
 title "Install" "from the Arch ISO onto this PC"
+if [[ -n "${TMUX:-}" ]]; then dim "Scroll back with the mouse wheel, or Ctrl+b then [ and the arrow keys. At any question, l reads the log."; fi
 
 
 #    Look
@@ -27,10 +39,12 @@ title "Install" "from the Arch ISO onto this PC"
 step "Check the PC"
 
 [[ "$(cat /sys/firmware/efi/fw_platform_size 2> /dev/null || true)" == 64 ]] \
-	|| die "this PC did not start in 64-bit UEFI mode, start the USB in UEFI mode"
+	|| die "This PC did not start in 64-bit UEFI mode." \
+		"The boot menu and Secure Boot this install sets up need UEFI." \
+		"Restart, pick the USB's UEFI entry in the firmware boot menu, and run this again."
 ok "started in UEFI mode"
 
-(( EUID == 0 )) || die "run it as root, the Arch ISO already is"
+(( EUID == 0 )) || die "This is not running as root." "The install writes to disks." "Run it from the Arch ISO, which is root already."
 
 	# Ai - a stopped earlier attempt leaves /mnt mounted and the disks open,
 	#      and the retry would fail on busy devices instead of starting over
@@ -44,7 +58,11 @@ fi
 quiet loadkeys "$KEYMAP" || true
 quiet timedatectl set-ntp true || true
 
-wait_for 20 online || die "no internet, connect first (iwctl for Wi-Fi), then run this again"
+until wait_for 20 online; do
+	problem "There is no internet." \
+		"The install downloads everything it needs, so it cannot start without it." \
+		"Connect first, iwctl does Wi-Fi, then pick Try again." retry
+done
 ok "online"
 
 	# Ai - the hardware decides a few packages, read from sysfs so no tool is needed
@@ -64,8 +82,17 @@ ok "graphics: $GPU, processor: ${UCODE%-ucode}$VM"
 
 step "Questions"
 
-dim "Everything you type is here. After the plan screen it runs on its own."
-printf '\n'
+dim "Every question comes first, then one plan screen, then it runs on its own."
+dim "Nothing is changed until you type ERASE on the plan screen."
+
+	# Ai - a second look inside the kept disk is closed again if you quit
+on_quit() {
+	rm -f "$KEY"
+	if [[ -e /dev/mapper/nugpeek ]]; then
+		umount "$PEEK" 2> /dev/null || true
+		cryptsetup close nugpeek 2> /dev/null || true
+	fi
+}
 
 ## Disks
 
@@ -75,7 +102,8 @@ USB_DISK="none"
 if [[ -n "$BOOT_DEV" ]]; then USB_DISK="/dev/$(lsblk -no PKNAME "$BOOT_DEV" 2> /dev/null | head -n 1)"; fi
 
 mapfile -t DISKS < <(lsblk -dnpo NAME,TYPE | awk '$2 == "disk" {print $1}' | grep -v -e '^/dev/zram' -e '^/dev/loop' | grep -vx "$USB_DISK" || true)
-(( ${#DISKS[@]} >= 2 )) || die "this needs two disks, a system disk and a data disk, found ${#DISKS[@]}"
+(( ${#DISKS[@]} >= 2 )) || die "This needs two disks, a system disk and a data disk, found ${#DISKS[@]}." \
+	"The system and your data live on separate disks." "Connect the second disk, or add one to the VM, and run this again."
 
 	# Ai - what is on each disk, in words, so the right one is easy to spot
 holds() {
@@ -90,6 +118,9 @@ holds() {
 	esac
 }
 
+disk_size() { lsblk -dno SIZE "$1" | tr -d ' '; }
+disk_row()  { printf '%-14s %-7s %-24.24s %s' "$1" "$(disk_size "$1")" "$(lsblk -dno MODEL "$1" | sed 's/ *$//')" "$(holds "$1")"; }
+
 SYS_GUESS="" DATA_GUESS=""
 for d in "${DISKS[@]}"; do
 	if lsblk -nro PARTLABEL "$d" | grep -qx cryptdata; then DATA_GUESS="$d"; fi
@@ -102,127 +133,191 @@ if [[ -z "$SYS_GUESS" ]]; then
 	done | sort -n | head -n 1 | cut -d' ' -f2)"
 fi
 
-printf '    %s#  %-14s %-7s %-5s %-24s %s%s\n' "$C_DIM" "Disk" "Size" "Type" "Model" "Holds" "$C_0"
-i=1
-for d in "${DISKS[@]}"; do
-	printf '    %s  %-14s %-7s %-5s %-24.24s %s\n' "$i" "$d" "$(lsblk -dno SIZE "$d" | tr -d ' ')" \
-		"$(lsblk -dno TRAN "$d" | tr -d ' ')" "$(lsblk -dno MODEL "$d" | sed 's/ *$//')" "$(holds "$d")"
-	i=$(( i + 1 ))
-done
-printf '\n'
+SYSTEM_DISK="" DATA_DISK="" KEEP_DATA="" DATA_PART="" HOSTNAME_NEW="" USERNAME="" USER_PASS=""
+PEEK=/tmp/nug-peek
+HOMES=() PERSIST=no BACKUP_UUID=""
+MIN_PASS=8
 
-pick_disk() {
-	local q=$1 def=$2 a d
-	while true; do
-		a="$(ask "$q" "$def")"
-		if [[ "$a" =~ ^[0-9]+$ ]] && (( a >= 1 && a <= ${#DISKS[@]} )); then a="${DISKS[a-1]}"; fi
-		[[ "$a" == /dev/* ]] || a="/dev/$a"
-		for d in "${DISKS[@]}"; do
-			if [[ "$d" == "$a" ]]; then printf '%s' "$a"; return 0; fi
-		done
-		printf '      pick a number or a name from the list\n' > /dev/tty
+q_system() {
+	local items=() i def=0 sug=0
+	for i in "${!DISKS[@]}"; do
+		items+=("$(disk_row "${DISKS[i]}")")
+		if [[ "${DISKS[i]}" == "${SYSTEM_DISK:-$SYS_GUESS}" ]]; then def=$(( i + 1 )); fi
+		if [[ "${DISKS[i]}" == "$SYS_GUESS" ]]; then sug=$(( i + 1 )); fi
 	done
+	SUGGESTED=$sug
+	choose "Which disk becomes the new system? Everything on it is erased." \
+		"The new system goes on this disk, encrypted. Your data disk is picked next." "$def" "${items[@]}" || return $?
+	SYSTEM_DISK="${DISKS[CHOICE-1]}"
+	answered "System disk" "$SYSTEM_DISK, $(disk_size "$SYSTEM_DISK"), was $(holds "$SYSTEM_DISK")"
 }
 
-while true; do
-	SYSTEM_DISK="$(pick_disk "System disk, erased" "$SYS_GUESS")"
-	DATA_DISK="$(pick_disk "Data disk" "$DATA_GUESS")"
-	[[ "$SYSTEM_DISK" != "$DATA_DISK" ]] && break
-	printf '      those are the same disk, pick two different ones\n' > /dev/tty
-done
-
-DATA_PART="$(partname "$DATA_DISK" 1)"
+q_data() {
+	local items=() pick=() d def=0 sug=0
+	for d in "${DISKS[@]}"; do
+		if [[ "$d" == "$SYSTEM_DISK" ]]; then continue; fi
+		pick+=("$d")
+		items+=("$(disk_row "$d")")
+		if [[ "$d" == "${DATA_DISK:-$DATA_GUESS}" ]]; then def=${#pick[@]}; fi
+		if [[ "$d" == "$DATA_GUESS" ]]; then sug=${#pick[@]}; fi
+	done
+	if (( def == 0 && ${#pick[@]} == 1 )); then def=1; fi
+	if (( sug == 0 && ${#pick[@]} == 1 )); then sug=1; fi
+	SUGGESTED=$sug
+	choose "Which disk holds your data?" \
+		"Home, games, VMs and AI live there. If it already holds your data, you are asked next whether to keep it." "$def" "${items[@]}" || return $?
+	DATA_DISK="${pick[CHOICE-1]}"
+	DATA_PART="$(partname "$DATA_DISK" 1)"
+	answered "Data disk" "$DATA_DISK, $(disk_size "$DATA_DISK"), has $(holds "$DATA_DISK")"
+}
 
 	# Ai - keeping is the default whenever the data disk is one of ours,
 	#      erasing it has to be asked for on purpose
-if cryptsetup isLuks "$DATA_PART" 2> /dev/null; then
-	if yesno "Keep the data disk as it is (your files, settings and games)" y; then
-		KEEP_DATA=yes
-	else
+q_keep() {
+	local def=1
+	if ! cryptsetup isLuks "$DATA_PART" 2> /dev/null; then
+		say "$DATA_DISK has no encrypted data on it yet, it will be set up new"
 		KEEP_DATA=no
+		return 20
 	fi
-else
-	say "$DATA_DISK has no encrypted data on it yet, it will be set up new"
-	KEEP_DATA=no
-fi
+	if [[ "$KEEP_DATA" == no ]]; then def=2; fi
+	SUGGESTED=1
+	choose "Keep what is on the data disk?" \
+		"$DATA_DISK holds your encrypted data. Keeping it is the safe choice, nothing on it is erased." "$def" \
+		"Keep it: your files, settings and games stay as they are" \
+		"Erase it and start empty: everything on $DATA_DISK is lost" || return $?
+	if (( CHOICE == 1 )); then KEEP_DATA=yes; else KEEP_DATA=no; fi
+	answered "Data disk" "$( [[ "$KEEP_DATA" == yes ]] && printf 'kept as it is' || printf 'erased, starts empty')"
+}
 
 ## Passphrase
 
-printf '\n'
-if [[ "$KEEP_DATA" == yes ]]; then
-	dim "The disk passphrase is the one your data disk already has."
-	dim "The new system disk gets the same one."
-	while true; do
-		LUKS_PASS="$(secret "Disk passphrase")"
-		( umask 077; printf '%s' "$LUKS_PASS" > "$KEY" )
-		cryptsetup open --test-passphrase --key-file "$KEY" "$DATA_PART" 2> /dev/null && break
-		printf '      that does not open the data disk, once more\n' > /dev/tty
-	done
-	ok "the passphrase opens your data disk"
-else
-	dim "One disk passphrase unlocks both disks. You type it at every start."
-	LUKS_PASS="$(secret_twice "Disk passphrase")"
-	( umask 077; printf '%s' "$LUKS_PASS" > "$KEY" )
-fi
-unset LUKS_PASS
+check_data_pass() {
+	( umask 077; printf '%s' "$1" > "$KEY" )
+	if ! cryptsetup open --test-passphrase --key-file "$KEY" "$DATA_PART" 2> /dev/null; then
+		printf 'that does not open the data disk'
+		return 1
+	fi
+}
+
+check_new_pass() {
+	if (( ${#1} < MIN_PASS )); then
+		printf 'too short, at least %s characters' "$MIN_PASS"
+		return 1
+	fi
+}
 
 	# Ai - a look inside the kept disk, read only, for smart defaults: who you
 	#      are, and the settings saved there for the next install
-PEEK=/tmp/nug-peek
-HOMES=() PERSIST=no BACKUP_UUID=""
-if [[ "$KEEP_DATA" == yes ]]; then
+peek() {
+	local h
+	HOMES=() PERSIST=no BACKUP_UUID=""
+	if [[ "$KEEP_DATA" != yes ]]; then return 0; fi
 	cryptsetup open --readonly --key-file "$KEY" "$DATA_PART" nugpeek
 	mkdir -p "$PEEK"
 	if mount -o ro,subvolid=5 /dev/mapper/nugpeek "$PEEK" 2> /dev/null; then
 		for h in "$PEEK"/@home/*/; do
 			h="${h%/}"
-			[[ "${h##*/}" == ai || "${h##*/}" == lost+found ]] || HOMES+=("${h##*/}")
+			if [[ "${h##*/}" != ai && "${h##*/}" != lost+found ]]; then HOMES+=("${h##*/}"); fi
 		done
 		if [[ -d "$PEEK/@persist" ]]; then PERSIST=yes; fi
 		BACKUP_UUID="$(cat "$PEEK/@persist/keys/backup.uuid" 2> /dev/null || true)"
 		umount "$PEEK"
 	fi
 	cryptsetup close nugpeek
-fi
+}
+
+q_pass() {
+	if [[ "$KEEP_DATA" == yes ]]; then
+		text "Type your data disk's passphrase" \
+			"The new system disk gets the same one, so one passphrase unlocks both." \
+			"none, it is the one your data disk already has" "" "" check_data_pass secret || return $?
+		answered "Disk passphrase" "opens your data disk"
+	else
+		text "Choose the disk passphrase" \
+			"One passphrase unlocks both disks, you type it at every start, and nothing can recover it." \
+			"at least $MIN_PASS characters, typed twice" "a few words, like: green kettle on the moon" "" check_new_pass twice || return $?
+		( umask 077; printf '%s' "$ANSWER" > "$KEY" )
+		answered "Disk passphrase" "chosen, ${#ANSWER} characters"
+	fi
+	ANSWER=""
+	peek
+}
 
 ## Names
 
-printf '\n'
-HOSTNAME_NEW="$(ask "Name for this PC" "$HOSTNAME_DEFAULT")"
-USER_DEF=""
-if (( ${#HOMES[@]} == 1 )); then USER_DEF="${HOMES[0]}"; fi
-while true; do
-	USERNAME="$(ask "Your username" "$USER_DEF")"
-	[[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] && break
-	printf '      lowercase letters, numbers, - and _ only\n' > /dev/tty
-done
-USER_PASS="$(secret_twice "Password for $USERNAME")"
+check_host() {
+	if [[ ! "$1" =~ ^[a-z][a-z0-9-]{1,29}$ ]]; then
+		printf 'lowercase letters, numbers and -, starting with a letter, 2 to 30 characters'
+		return 1
+	fi
+}
+
+check_user() {
+	if [[ ! "$1" =~ ^[a-z_][a-z0-9_-]{1,31}$ ]]; then
+		printf 'lowercase letters, numbers, - and _ only, 2 to 32 characters'
+		return 1
+	fi
+}
+
+q_host() {
+	text "What should this PC be called?" "The laptop also looks for it on the tailnet by this name." \
+		"lowercase letters, numbers and -, 2 to 30 characters" "$HOSTNAME_DEFAULT" \
+		"${HOSTNAME_NEW:-$HOSTNAME_DEFAULT}" check_host || return $?
+	HOSTNAME_NEW=$ANSWER
+	answered "PC name" "$HOSTNAME_NEW"
+}
+
+q_user() {
+	local def="${USERNAME:-}" why="It owns your files and logs you in."
+	if [[ -z "$def" && ${#HOMES[@]} -eq 1 ]]; then def="${HOMES[0]}"; fi
+	if (( ${#HOMES[@]} == 1 )); then why="Your data disk has a home folder called ${HOMES[0]}, the same name keeps your files yours."; fi
+	text "What is your username?" "$why" "lowercase letters, numbers, - and _, 2 to 32 characters" "${def:-sam}" "$def" check_user || return $?
+	USERNAME=$ANSWER
+	answered "Username" "$USERNAME"
+}
+
+q_userpass() {
+	text "Choose the password for $USERNAME" "It logs you in and unlocks sudo." \
+		"at least $MIN_PASS characters, typed twice" "a few words, like: blue lamp over the river" "" check_new_pass twice || return $?
+	USER_PASS=$ANSWER
+	ANSWER=""
+	answered "Password for $USERNAME" "chosen, ${#USER_PASS} characters"
+}
 
 ## Plan
 
 	# Ai - the one screen that says exactly what happens to each disk
-printf '\n  %sThe plan%s\n\n' "$C_B" "$C_0"
-printf '    %sERASE%s      %s  %s  becomes the new system\n' "$C_BAD" "$C_0" "$SYSTEM_DISK" "$(lsblk -dno SIZE "$SYSTEM_DISK" | tr -d ' ')"
-if [[ "$KEEP_DATA" == yes ]]; then
-	printf '    %skeep%s       %s  %s  your data, as it is\n' "$C_GOOD" "$C_0" "$DATA_DISK" "$(lsblk -dno SIZE "$DATA_DISK" | tr -d ' ')"
-else
-	printf '    %sERASE%s      %s  %s  becomes the new data disk\n' "$C_BAD" "$C_0" "$DATA_DISK" "$(lsblk -dno SIZE "$DATA_DISK" | tr -d ' ')"
-fi
-for d in "${DISKS[@]}"; do
-	[[ "$d" == "$SYSTEM_DISK" || "$d" == "$DATA_DISK" ]] && continue
-	printf '    %suntouched%s  %s  %s\n' "$C_DIM" "$C_0" "$d" "$(holds "$d")"
-done
-printf '\n'
-dim "PC name $HOSTNAME_NEW, user $USERNAME, keyboard $KEYMAP, $TIMEZONE"
-if [[ "$PERSIST" == yes ]]; then dim "saved settings found on the data disk, they come back"; fi
-if [[ -n "$BACKUP_UUID" ]]; then dim "the backup drive is set up again from the data disk"; fi
-printf '\n'
+plan_body() {
+	local d
+	printf '    %sERASE%s      %s  %s  becomes the new system\n' "$C_BAD" "$C_0" "$SYSTEM_DISK" "$(disk_size "$SYSTEM_DISK")"
+	if [[ "$KEEP_DATA" == yes ]]; then
+		printf '    %skeep%s       %s  %s  your data, as it is\n' "$C_GOOD" "$C_0" "$DATA_DISK" "$(disk_size "$DATA_DISK")"
+	else
+		printf '    %sERASE%s      %s  %s  becomes the new data disk\n' "$C_BAD" "$C_0" "$DATA_DISK" "$(disk_size "$DATA_DISK")"
+	fi
+	for d in "${DISKS[@]}"; do
+		if [[ "$d" == "$SYSTEM_DISK" || "$d" == "$DATA_DISK" ]]; then continue; fi
+		printf '    %suntouched%s  %s  %s\n' "$C_DIM" "$C_0" "$d" "$(holds "$d")"
+	done
+	printf '\n    %sPC name %s, user %s, keyboard %s, %s%s\n' "$C_DIM" "$HOSTNAME_NEW" "$USERNAME" "$KEYMAP" "$TIMEZONE" "$C_0"
+	if [[ "$PERSIST" == yes ]]; then printf '    %ssaved settings found on the data disk, they come back%s\n' "$C_DIM" "$C_0"; fi
+	if [[ -n "$BACKUP_UUID" ]]; then printf '    %sthe backup drive is set up again from the data disk%s\n' "$C_DIM" "$C_0"; fi
+}
 
-if ! confirm_word ERASE; then
-	rm -f "$KEY"
-	printf '\n    Nothing was changed.\n\n'
-	exit 0
+q_plan() {
+	typed ERASE "The plan" "This is exactly what happens. It takes about 10 to 20 minutes and runs on its own." plan_body || return $?
+}
+
+run_questions q_system q_data q_keep q_pass q_host q_user q_userpass q_plan
+
+	# Ai - from here quitting leaves something behind, and says what
+if [[ "$KEEP_DATA" == yes ]]; then
+	QUIT_NOTE="Your data disk is as it was. The system disk is part way through being set up and will not start. Run iso.sh again and it begins from the start, nothing needs undoing first."
+else
+	QUIT_NOTE="Both disks are part way through being set up, the data disk may already be erased. Run iso.sh again and it begins from the start, nothing needs undoing first."
 fi
+QUIT_CODE=1
 printf '\n'
 dim "Hands off from here, it takes about 10 to 20 minutes."
 
@@ -615,7 +710,7 @@ if [ ! -f "$HOME/.local/state/nug/done/setup" ] && [ -t 1 ]; then
 fi
 EOF
 
-quiet cp "$LOG" "$T/var/log/nug-install.log"
+quiet install -D -m 644 "$LOG" "$T/var/log/nug/install.log"
 
 	# Ai - names go to systemd-resolved from the first start, done outside the
 	#      chroot, which holds its own copy of this file while it runs
@@ -649,6 +744,8 @@ for c in "${checks[@]}"; do
 	fi
 done
 
+	# Ai - the whole log goes with the new system, so it can be read there
+quiet install -D -m 644 "$LOG" "$T/var/log/nug/install.log"
 rm -f "$KEY"
 if (( DRY == 0 )); then
 	sync
@@ -657,7 +754,9 @@ if (( DRY == 0 )); then
 	cryptsetup close cryptsystem || true
 fi
 
-(( FAILED == 0 )) || die "$FAILED check(s) failed, do not restart yet, send the log: $LOG"
+(( FAILED == 0 )) || die "$FAILED check(s) failed." \
+	"The install finished but something it should have made is missing, the PC may not start." \
+	"Do not restart yet. Press l, read what failed, and send the log: $LOG"
 
 todo "Take out the USB and restart."
 todo "Type the disk passphrase, then log in as $USERNAME."

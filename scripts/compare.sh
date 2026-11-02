@@ -106,10 +106,18 @@ bring() {
 
 #    Delete
 
+forget_body() {
+	printf '    %s%s%s is deleted, %s on the data disk\n' "$C_BAD" "$OLD" "$C_0" "$(du -sh "$OLD" 2> /dev/null | cut -f1)"
+}
+
 forget() {
 	open_old
-	say "This deletes the copy of v1 for good: $(du -sh "$OLD" 2> /dev/null | cut -f1) on the data disk."
-	confirm_word delete || { dim "nothing was deleted"; return 0; }
+	NAV_BACK=1 BACK_LABEL="leave it, nothing is deleted"
+	if ! typed delete "Delete the copy of v1?" \
+		"It is gone for good, and what you did not bring over cannot be recovered." forget_body; then
+		dim "nothing was deleted"
+		return 0
+	fi
 	run "delete the copy of v1" $SUDO btrfs subvolume delete "$OLD"
 	quiet $SUDO rm -f /persist/state/old-system.done
 	ok "the copy of v1 is gone"
@@ -126,7 +134,7 @@ case "${1:-}" in
 		step "Old system"
 		open_old
 		ok "the copy of v1 is there"
-		if (( DRY == 0 )); then sudo -v || die "sudo did not accept the password"; fi
+		need_sudo
 		step "Bring over"
 		bring "$@"
 		step "Done"
@@ -136,7 +144,7 @@ case "${1:-}" in
 	delete)
 		title "Compare" "delete the copy of v1"
 		step "Old system"
-		if (( DRY == 0 )); then sudo -v || die "sudo did not accept the password"; fi
+		need_sudo
 		step "Delete"
 		forget
 		step "Done"
@@ -157,67 +165,61 @@ step "Old system"
 open_old
 ok "the copy of v1 is there"
 	# Ai - read as root, some settings files are readable by nobody else
-if (( DRY == 0 )); then sudo -v || die "sudo did not accept the password"; fi
+need_sudo
 dim "reading it, this takes a minute"
 
 
 step "What is missing"
 
 LINES="$($SUDO "${SCAN[@]}" scan --lines --old "$OLD")"
-IDS=()
-N=0
+IDS=() ITEMS=()
+declare -A COUNT=([package]=0 [config]=0 [stray]=0 [local]=0)
 
-# Ai - four groups, each in words that say what it is, numbered across all
+# Ai - four groups, each in words that say what it is, numbered across all,
+#      so a group is a range: apps 1-3, settings 4-7
 for kind in package config stray local; do
 	case "$kind" in
-		package) head="Apps v1 had" ;;
-		config)  head="Settings changed or made by hand in v1" ;;
-		stray)   head="Files outside home that no app made" ;;
-		local)   head="Programs in /opt and /usr/local" ;;
+		package) tag="app     " ;;
+		config)  tag="setting " ;;
+		stray)   tag="file    " ;;
+		local)   tag="program " ;;
 	esac
-	first=1
 	while IFS=$'\t' read -r id k t why waits; do
 		[[ "$k" == "$kind" ]] || continue
-		if (( first == 1 )); then printf '\n  %s%s%s\n' "$C_B" "$head" "$C_0"; first=0; fi
-		N=$(( N + 1 ))
 		IDS+=("$id")
+		COUNT[$kind]=$(( COUNT[$kind] + 1 ))
 		if [[ -n "$waits" ]]; then
-			printf '    %s%3s%s  %s  %s%s, needs %s first%s\n' "$C_ASK" "$N" "$C_0" "$t" "$C_DIM" "$why" "$waits" "$C_0"
+			ITEMS+=("$tag$t  ${C_DIM}$why, needs $waits first$C_0")
 		else
-			printf '    %s%3s%s  %s  %s%s%s\n' "$C_ASK" "$N" "$C_0" "$t" "$C_DIM" "$why" "$C_0"
+			ITEMS+=("$tag$t  ${C_DIM}$why$C_0")
 		fi
 	done <<< "$LINES"
 done
+N=${#IDS[@]}
 
 if (( N == 0 )); then
-	printf '\n'
 	ok "nothing is missing, this PC has everything v1 had"
 	todo "When you are sure, delete the copy of v1:  rebuild compare delete"
 	finish
 	exit 0
 fi
-printf '\n'
+ok "${COUNT[package]} apps, ${COUNT[config]} settings, ${COUNT[stray]} files outside home, ${COUNT[local]} programs"
 dim "Files this install writes itself are left alone, v1's version would undo what v2 set on purpose."
 
 
 step "Bring over"
 
-dim "Numbers with spaces, a group name (package, config, stray, local), or all. Enter to stop."
-PICK="$(ask "Bring over which?" "")"
-declare -A WANT=()
-for word in $PICK; do
-	case "$word" in
-		all)                       for id in "${IDS[@]}"; do WANT[$id]=1; done ;;
-		package|config|stray|local) for id in "${IDS[@]}"; do if [[ "$id" == "$word":* ]]; then WANT[$id]=1; fi; done ;;
-		*[!0-9]*|"")               warn "do not know what \"$word\" is" ;;
-		*)                         if (( word >= 1 && word <= N )); then WANT[${IDS[word-1]}]=1; else warn "there is no number $word"; fi ;;
-	esac
-done
+	# Ai - the screen lists everything, so nothing has to be remembered
+LAST_A=${COUNT[package]}
+LAST_S=$(( LAST_A + COUNT[config] ))
+LAST_F=$(( LAST_S + COUNT[stray] ))
+pick "What should come over from v1?" \
+	"Apps are 1-$LAST_A, settings $(( LAST_A + 1 ))-$LAST_S, files $(( LAST_S + 1 ))-$LAST_F, programs $(( LAST_F + 1 ))-$N. Nothing is copied blind." \
+	"${ITEMS[@]}" || exit 0
+
 	# Ai - in the order of the list, so an app is in place before its settings
 CHOSEN=()
-for id in "${IDS[@]}"; do
-	if [[ -n "${WANT[$id]:-}" ]]; then CHOSEN+=("$id"); fi
-done
+for i in $(printf '%s\n' "${PICKED[@]}" | sort -nu); do CHOSEN+=("${IDS[i-1]}"); done
 
 if (( ${#CHOSEN[@]} == 0 )); then
 	dim "nothing chosen, run rebuild compare again any time"

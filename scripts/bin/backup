@@ -22,12 +22,31 @@ else
 	BAD="" WARN="" GOOD="" ASK="" DIM="" B="" O=""
 fi
 
-ok()   { printf '  %s✓%s %s\n' "$GOOD" "$O" "$*"; }
-bad()  { printf '  %s✗%s %s\n' "$BAD" "$O" "$*"; }
-note() { printf '  %s!%s %s\n' "$WARN" "$O" "$*"; }
-dim()  { printf '  %s%s%s\n' "$DIM" "$*" "$O"; }
-die()  { bad "$*"; exit 1; }
-ask()  { local a; printf '  %s?%s %s ' "$ASK" "$O" "$1" > /dev/tty; IFS= read -r a < /dev/tty; printf '%s' "$a"; }
+	# Ai - backup keeps its own short helpers, a quick status needs nothing else
+helpers() {
+	ok()   { printf '  %s✓%s %s\n' "$GOOD" "$O" "$*"; }
+	bad()  { printf '  %s✗%s %s\n' "$BAD" "$O" "$*"; }
+	note() { printf '  %s!%s %s\n' "$WARN" "$O" "$*"; }
+	dim()  { printf '  %s%s%s\n' "$DIM" "$*" "$O"; }
+	die()  { bad "$*"; exit 1; }
+}
+helpers
+
+	# Ai - the question screens are lib.sh's, in the install repo, loaded only
+	#      when one is needed, so backup status never depends on the repo
+ui() {
+	local lib="${NUG_REPO:-$HOME/rebuild}/scripts/lib.sh"
+	if [[ -n "${NUG_UI:-}" ]]; then return 0; fi
+	[[ -r "$lib" ]] || die "the question screens are in $lib, and it is not there"
+	LOG=/tmp/nug-backup.log
+	# shellcheck disable=SC1090
+	source "$lib"
+	set +e
+	trap - ERR
+	shopt -u nullglob
+	NUG_UI=1
+	helpers
+}
 
 	# Ai - days since a date in a file, or nothing if there is no file
 age_days() {
@@ -101,10 +120,15 @@ external() {
 	sudo mkdir -p "$STATE"
 	uuid="$(cat "$STATE/external.uuid" 2> /dev/null || true)"
 	if [[ -z "$uuid" ]]; then
-		printf '\n  Plugged-in encrypted drives:\n\n'
-		lsblk -pnro NAME,SIZE,TRAN,FSTYPE,MODEL | awk '$4 == "crypto_LUKS"' | sed 's/^/    /'
-		printf '\n'
-		dev="$(ask "Which partition is the external drive, for example /dev/sdc1:")"
+		ui
+		local parts=() items=() line
+		while read -r line; do
+			if [[ -n "$line" ]]; then parts+=("${line%% *}"); items+=("$line"); fi
+		done < <(lsblk -pnro NAME,SIZE,TRAN,FSTYPE,MODEL | awk '$4 == "crypto_LUKS"')
+		(( ${#parts[@]} )) || die "no encrypted drive is plugged in, plug the external drive in and run this again"
+		choose "Which partition is the external drive?" \
+			"These are the plugged-in encrypted partitions. Only the one you pick is used, and it is remembered." 0 "${items[@]}" || exit 0
+		dev="${parts[CHOICE-1]}"
 		[[ -b "$dev" ]] || die "not a partition: $dev"
 		uuid="$(sudo blkid -s UUID -o value "$dev")"
 		[[ -n "$uuid" ]] || die "that partition has no encryption on it"
@@ -113,8 +137,11 @@ external() {
 	dev="/dev/disk/by-uuid/$uuid"
 	[[ -b "$dev" ]] || die "the external drive is not plugged in"
 
-	dim "Unlocking the external drive, type its passphrase."
-	if [[ ! -e /dev/mapper/external ]]; then sudo cryptsetup open "$dev" external || die "it did not unlock"; fi
+	if [[ ! -e /dev/mapper/external ]]; then
+		ui
+		ask_program "Type the external drive's passphrase" "It unlocks the drive so the monthly copy can be written." \
+			sudo cryptsetup open "$dev" external || die "it did not unlock"
+	fi
 	sudo mkdir -p "$EXTERNAL"
 	if ! mountpoint -q "$EXTERNAL"; then
 		sudo mount -o noatime,compress=zstd:1 /dev/mapper/external "$EXTERNAL" || die "it did not mount"
@@ -190,13 +217,17 @@ test_restore() {
 setup() {
 	local dev part uuid key=/etc/cryptsetup-keys.d/backup.key
 	if grep -q " $INTERNAL " /etc/fstab; then die "a backup drive is already set up"; fi
-	printf '\n  Disks that are not the system or data disk:\n\n'
-	lsblk -dpnro NAME,SIZE,TRAN,MODEL | while read -r d rest; do
-		lsblk -nro MOUNTPOINTS,PARTLABEL "$d" | grep -qE '^/ |cryptsystem|cryptdata' && continue
-		printf '    %s %s\n' "$d" "$rest"
-	done
-	printf '\n'
-	dev="$(ask "Which disk becomes the backup drive, for example /dev/sda:")"
+	ui
+	local disks=() items=() d rest
+	while read -r d rest; do
+		if lsblk -nro MOUNTPOINTS,PARTLABEL "$d" | grep -qE '^/ |cryptsystem|cryptdata'; then continue; fi
+		disks+=("$d")
+		items+=("$d  $rest")
+	done < <(lsblk -dpnro NAME,SIZE,TRAN,MODEL | grep -v -e zram -e loop)
+	(( ${#disks[@]} )) || die "no disk is free for a backup drive, only the system and data disks are here"
+	choose "Which disk becomes the backup drive?" \
+		"The system and data disks are not listed. If the disk is not already a backup drive, it is erased next." 0 "${items[@]}" || exit 0
+	dev="${disks[CHOICE-1]}"
 	[[ -b "$dev" && "$(lsblk -dno TYPE "$dev")" == disk ]] || die "not a whole disk: $dev"
 	part="$dev$([[ "$dev" =~ [0-9]$ ]] && printf p)1"
 
@@ -204,20 +235,22 @@ setup() {
 	sudo sh -c "umask 077; [ -s $key ] || dd if=/dev/urandom of=$key bs=512 count=8 status=none"
 
 	if sudo cryptsetup isLuks "$part" 2> /dev/null; then
-		dim "$part is already encrypted. Type its passphrase to add this PC's key."
-		sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
+		ask_program "Type $part's passphrase" "It is already encrypted. This PC's key is added so the drive opens at start." \
+			sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
 	else
-		printf '\n  %sEverything on %s will be erased.%s\n' "$BAD" "$dev" "$O"
-		[[ "$(ask "Type ERASE to go ahead:")" == ERASE ]] || die "nothing was changed"
+		erase_body() { printf '    %sEverything on %s is erased%s, then it becomes the backup drive.\n' "$C_BAD" "$dev" "$C_0"; }
+		NAV_BACK=1 BACK_LABEL="go back, nothing is erased"
+		typed ERASE "Erase $dev?" "This cannot be undone." erase_body || { dim "nothing was changed"; exit 0; }
 		sudo wipefs -af "$dev" > /dev/null
 		sudo sgdisk --zap-all -n1:0:0 -t1:8309 -c1:backup "$dev" > /dev/null
 		sudo partprobe "$dev"
 		sudo udevadm settle
-		dim "Pick a passphrase for the backup drive, your disk passphrase is a good choice."
-		sudo cryptsetup luksFormat --batch-mode --verify-passphrase --type luks2 --pbkdf argon2id \
+		ask_program "Choose the backup drive's passphrase" \
+			"Your disk passphrase is a good choice. It is asked twice. It opens the drive if this PC is gone." \
+			sudo cryptsetup luksFormat --batch-mode --verify-passphrase --type luks2 --pbkdf argon2id \
 			--pbkdf-memory 262144 --label backup "$part" || die "encryption failed"
-		dim "Type the same passphrase once more to add this PC's key."
-		sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
+		ask_program "Type the same passphrase once more" "It adds this PC's key, so the drive opens at start without it." \
+			sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
 		sudo cryptsetup open --key-file "$key" "$part" backup
 		sudo mkfs.btrfs -q -f -L backup /dev/mapper/backup
 		sudo cryptsetup close backup

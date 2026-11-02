@@ -105,30 +105,72 @@ title "Setup" "everything after the base system"
 #    Questions
 
 # Ai - every question is asked here, before anything runs, and only once,
-#      an answer is kept for every later run
+#      an answer is kept for every later run, nothing is written until the
+#      last one is answered, so quitting changes nothing
 
-	# Ai - the optional modules, asked the first time only
+declare -A PICK=()
+
+	# Ai - the optional parts, one screen each, on or off
+q_optional() {
+	local name=$1 what def=1 sug=1
+	what="$(printf '%s\n' "${MODULES[@]}" | sed -n "s/^$name|\([^|]*\)|.*/\1/p")"
+	if [[ "$name" == hosting ]]; then sug=2; fi
+	def=$sug
+	if [[ "${PICK[$name]:-}" == on ]]; then def=1; fi
+	if [[ "${PICK[$name]:-}" == off ]]; then def=2; fi
+	SUGGESTED=$sug
+	choose "Set up ${name^}?" "$what. It is optional, you can turn it on later with: rebuild $name" "$def" \
+		"On: $what" "Off: leave it out for now" || return $?
+	if (( CHOICE == 1 )); then PICK[$name]=on; else PICK[$name]=off; fi
+	answered "${name^}" "${PICK[$name]}"
+}
+
+check_mullvad() {
+	if [[ ! "${1// /}" =~ ^[0-9]{16}$ ]]; then
+		printf 'a Mullvad account number is 16 digits'
+		return 1
+	fi
+}
+
+	# Ai - the Mullvad number is kept in memory only and handed to the network
+	#      module, never written anywhere
+q_mullvad_way() {
+	SUGGESTED=1
+	choose "Log in to Mullvad now?" \
+		"Your Mullvad account number logs this PC in. It is kept in memory only, never written anywhere." 1 \
+		"Type the number now" "Skip for now, log in from the Mullvad app later" || return $?
+	MULLVAD_WAY=$CHOICE
+	if (( CHOICE == 2 )); then answered "Mullvad" "skipped for now"; fi
+}
+
+q_mullvad_number() {
+	if (( MULLVAD_WAY == 2 )); then return 20; fi
+	text "Your Mullvad account number" "It is not saved anywhere." "16 digits, spaces are fine" "1234 5678 9012 3456" "" check_mullvad secret || return $?
+	MULLVAD_NUMBER="${ANSWER// /}"
+	export MULLVAD_NUMBER
+	ANSWER=""
+	answered "Mullvad" "number typed, kept in memory only"
+}
+
+MULLVAD_WAY=2
+ASK=()
 for row in "${MODULES[@]}"; do
 	IFS='|' read -r name what kind <<< "$row"
-	[[ "$kind" == optional && -z "$(choice "module_$name" "")" ]] || continue
-	def=y
-	if [[ "$name" == hosting ]]; then def=n; fi
-	if yesno "Set up ${name}: $what" "$def"; then
-		set_choice "module_$name" on
-		if (( $# == 0 )); then TODO+=("$name"); fi
-	else
-		set_choice "module_$name" off
+	if [[ "$kind" == optional && -z "$(choice "module_$name" "")" ]]; then
+		eval "q_optional_$name() { q_optional $name; }"
+		ASK+=("q_optional_$name")
 	fi
 done
-
-	# Ai - the Mullvad number, kept in memory only and handed to the network
-	#      module, never written anywhere
 if [[ " ${TODO[*]} " == *" network "* ]] && ! { has mullvad && mullvad account get 2> /dev/null | grep -qi 'mullvad account'; }; then
-	printf '\n'
-	dim "Your Mullvad account number logs this PC in. It is not saved anywhere."
-	dim "Press Enter to skip, you can log in from the Mullvad app later."
-	MULLVAD_NUMBER="$(secret "Mullvad account number")"
-	export MULLVAD_NUMBER
+	ASK+=(q_mullvad_way q_mullvad_number)
+fi
+
+if (( ${#ASK[@]} > 0 )); then
+	run_questions "${ASK[@]}"
+	for name in "${!PICK[@]}"; do
+		set_choice "module_$name" "${PICK[$name]}"
+		if [[ "${PICK[$name]}" == on ]] && (( $# == 0 )); then TODO+=("$name"); fi
+	done
 fi
 
 if (( ${#TODO[@]} == 0 )); then
@@ -147,8 +189,7 @@ done
 
 printf '\n'
 dim "To do: ${ORDERED[*]}"
-dim "Your password once, for sudo. Then it runs on its own."
-if (( DRY == 0 )); then sudo -v || die "sudo did not accept the password"; fi
+need_sudo
 
 	# Ai - sudo stays awake for the whole run, and stops when rebuild does
 if (( DRY == 0 )); then
@@ -166,7 +207,10 @@ export NUG_RUN_DIR
 i=1
 for name in "${ORDERED[@]}"; do
 	what="$(printf '%s\n' "${MODULES[@]}" | sed -n "s/^$name|\([^|]*\)|.*/\1/p")"
-	printf '\n  %s━━ %s of %s  %s%s  %s%s%s\n' "$C_DIM" "$i" "${#ORDERED[@]}" "$C_0$C_B" "${name^}" "$C_0$C_DIM" "$what" "$C_0"
+	bar "${name^}" "module $i of ${#ORDERED[@]}"
+	dim "$what"
+	NUG_MODULE="${name^}" NUG_MODULE_POS="$i of ${#ORDERED[@]}"
+	export NUG_MODULE NUG_MODULE_POS
 	rc=0
 	bash "$(mod_file "$name")" || rc=$?
 	if (( rc == 10 )); then

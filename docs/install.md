@@ -31,6 +31,8 @@ git clone -b v2 https://github.com/surs-k/nug
 bash nug/scripts/iso.sh
 ```
 
+Every question is a screen of its own: pick a number, Enter takes the suggested one, `b` goes back, `q` quits, `l` reads the log. Quitting before the plan screen changes nothing. The install runs inside tmux, so the mouse wheel scrolls back, or press Ctrl+b then `[`. The whole log is `/tmp/nug-install.log`, and in the new system `/var/log/nug/install.log`.
+
 **Done when:**
 it ends with Your turn. Restart, log in, run `rebuild`, restart again, and the login screen appears.
 
