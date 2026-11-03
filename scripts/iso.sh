@@ -31,7 +31,7 @@ if [[ -z "${TMUX:-}" && -z "${NUG_NO_TMUX:-}" ]] && (( SCREEN == 1 && TTY == 1 )
 fi
 
 title "Install" "from the Arch ISO onto this PC"
-if [[ -n "${TMUX:-}" ]]; then dim "Scroll back with the mouse wheel, or Ctrl+b then [ and the arrow keys. At any question, l reads the log."; fi
+if [[ -n "${TMUX:-}" ]]; then dim "Scroll back with the mouse wheel, or Ctrl+b then [ and the arrow keys."; fi
 
 
 #    Look
@@ -136,7 +136,6 @@ fi
 SYSTEM_DISK="" DATA_DISK="" KEEP_DATA="" DATA_PART="" HOSTNAME_NEW="" USERNAME="" USER_PASS=""
 PEEK=/tmp/nug-peek
 HOMES=() PERSIST=no BACKUP_UUID=""
-MIN_PASS=8
 
 q_system() {
 	local items=() i def=0 sug=0
@@ -200,13 +199,6 @@ check_data_pass() {
 	fi
 }
 
-check_new_pass() {
-	if (( ${#1} < MIN_PASS )); then
-		printf 'too short, at least %s characters' "$MIN_PASS"
-		return 1
-	fi
-}
-
 	# Ai - a look inside the kept disk, read only, for smart defaults: who you
 	#      are, and the settings saved there for the next install
 peek() {
@@ -236,9 +228,9 @@ q_pass() {
 	else
 		text "Choose the disk passphrase" \
 			"One passphrase unlocks both disks, you type it at every start, and nothing can recover it." \
-			"at least $MIN_PASS characters, typed twice" "a few words, like: green kettle on the moon" "" check_new_pass twice || return $?
+			"anything you like, typed twice" "green kettle on the moon" "" "" twice || return $?
 		( umask 077; printf '%s' "$ANSWER" > "$KEY" )
-		answered "Disk passphrase" "chosen, ${#ANSWER} characters"
+		answered "Disk passphrase" "chosen"
 	fi
 	ANSWER=""
 	peek
@@ -247,22 +239,22 @@ q_pass() {
 ## Names
 
 check_host() {
-	if [[ ! "$1" =~ ^[a-z][a-z0-9-]{1,29}$ ]]; then
-		printf 'lowercase letters, numbers and -, starting with a letter, 2 to 30 characters'
+	if [[ ! "$1" =~ ^[a-z][a-z0-9-]{0,29}$ ]]; then
+		printf 'lowercase letters, numbers and -, starting with a letter, up to 30 characters'
 		return 1
 	fi
 }
 
 check_user() {
-	if [[ ! "$1" =~ ^[a-z_][a-z0-9_-]{1,31}$ ]]; then
-		printf 'lowercase letters, numbers, - and _ only, 2 to 32 characters'
+	if [[ ! "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+		printf 'lowercase letters, numbers, - and _ only, up to 32 characters'
 		return 1
 	fi
 }
 
 q_host() {
 	text "What should this PC be called?" "The laptop also looks for it on the tailnet by this name." \
-		"lowercase letters, numbers and -, 2 to 30 characters" "$HOSTNAME_DEFAULT" \
+		"lowercase letters, numbers and -, starting with a letter" "$HOSTNAME_DEFAULT" \
 		"${HOSTNAME_NEW:-$HOSTNAME_DEFAULT}" check_host || return $?
 	HOSTNAME_NEW=$ANSWER
 	answered "PC name" "$HOSTNAME_NEW"
@@ -272,17 +264,17 @@ q_user() {
 	local def="${USERNAME:-}" why="It owns your files and logs you in."
 	if [[ -z "$def" && ${#HOMES[@]} -eq 1 ]]; then def="${HOMES[0]}"; fi
 	if (( ${#HOMES[@]} == 1 )); then why="Your data disk has a home folder called ${HOMES[0]}, the same name keeps your files yours."; fi
-	text "What is your username?" "$why" "lowercase letters, numbers, - and _, 2 to 32 characters" "${def:-sam}" "$def" check_user || return $?
+	text "What is your username?" "$why" "lowercase letters, numbers, - and _" "${def:-sam}" "$def" check_user || return $?
 	USERNAME=$ANSWER
 	answered "Username" "$USERNAME"
 }
 
 q_userpass() {
 	text "Choose the password for $USERNAME" "It logs you in and unlocks sudo." \
-		"at least $MIN_PASS characters, typed twice" "a few words, like: blue lamp over the river" "" check_new_pass twice || return $?
+		"anything you like, typed twice" "blue lamp over the river" "" "" twice || return $?
 	USER_PASS=$ANSWER
 	ANSWER=""
-	answered "Password for $USERNAME" "chosen, ${#USER_PASS} characters"
+	answered "Password for $USERNAME" "chosen"
 }
 
 ## Plan
@@ -756,7 +748,7 @@ fi
 
 (( FAILED == 0 )) || die "$FAILED check(s) failed." \
 	"The install finished but something it should have made is missing, the PC may not start." \
-	"Do not restart yet. Press l, read what failed, and send the log: $LOG"
+	"Do not restart yet. Choose Read the full log to see what failed, and send the log: $LOG"
 
 todo "Take out the USB and restart."
 todo "Type the disk passphrase, then log in as $USERNAME."

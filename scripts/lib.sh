@@ -213,7 +213,7 @@ run() {
 		fi
 		problem "$label did not work." \
 			"Everything after this step needs it, so the install is waiting here." \
-			"Try again. If it fails the same way, press l, read the end of the log and send it." retry
+			"Try again. If it fails the same way, read the full log and send it." retry
 	done
 }
 
@@ -330,17 +330,14 @@ load_theme() {
 
 # Ai - every question is one screen, drawn on its own, the way less is:
 #        what is being decided, why it matters, numbered choices, one line each,
-#        the suggested one marked and taken by Enter, then b, q and l
-#        b goes back to the previous question, q quits, l reads the log
+#        the suggested one marked and taken by Enter, and nothing else on it
+#        no key has to be remembered, Ctrl+C leaves, and says what that leaves
 #      a wrong answer keeps the screen and says in one line what was wrong
 #      after the answer the screen goes back and one line says what was chosen
 #      answers come back in CHOICE or ANSWER, never on stdout, because
 #      quitting has to end the script itself, and a subshell cannot do that
-#      return 0 means answered, 10 means back, 20 means this question does not
-#      apply, quitting does not return
+#      return 0 means answered, 20 means this question does not apply
 
-NAV_BACK=0           # 1 when there is a question before this one
-BACK_LABEL="go back to the previous question"
 QUIT_NOTE="Nothing has been changed yet."
 QUIT_CODE=0
 CHOICE=0
@@ -365,7 +362,7 @@ ui_close() {
 	SCREEN_OPEN=0
 }
 trap 'ui_close' EXIT
-trap 'ui_close; printf "\n"; exit 130' INT
+trap 'ui_quit 130' INT
 
 ui_log() {
 	[[ -r "$LOG" ]] || return 0
@@ -390,15 +387,6 @@ ui_head() {
 	printf '\n'
 }
 
-	# Ai - the keys that are always there, and what quitting leaves behind
-ui_keys() {
-	printf '\n'
-	if (( NAV_BACK == 1 )); then printf '    %sb%s  %s\n' "$C_ASK" "$C_0" "$BACK_LABEL"; fi
-	printf '    %sq%s  quit\n' "$C_ASK" "$C_0"
-	printf '%s\n' "$QUIT_NOTE" | fold -s -w 62 | sed "s/^/       ${C_DIM}/; s/\$/${C_0}/"
-	printf '    %sl%s  read the full log, q comes back here\n' "$C_ASK" "$C_0"
-}
-
 ui_wrong() { printf '    %s✗%s %s\n' "$C_BAD" "$C_0" "$1" > /dev/tty; }
 
 ui_read() {
@@ -410,18 +398,6 @@ ui_read() {
 	else
 		IFS= read -r READ < /dev/tty || die "no keyboard input"
 	fi
-}
-
-	# Ai - what b, q and l do, the same on every screen
-	#      sets NAV to back, redraw, or nothing, quit never returns
-ui_nav() {
-	NAV=""
-	case "$1" in
-		[bB])
-			if (( NAV_BACK == 1 )); then NAV=back; else ui_wrong "this is the first question, there is nothing before it"; NAV=again; fi ;;
-		[qQ]) ui_quit ;;
-		[lL]) ui_log; NAV=redraw ;;
-	esac
 }
 
 # choose TITLE WHY DEFAULT ITEM...
@@ -447,21 +423,16 @@ choose() {
 				fi
 				printf '\n'
 			done
-			ui_keys
 		} > /dev/tty
 		while true; do
 			ui_read "Your choice" ; a="${READ// /}"
 			if [[ -z "$a" && "$def" -gt 0 ]]; then a=$def; fi
-			ui_nav "$a"
-			if [[ "$NAV" == back ]]; then ui_close; return 10; fi
-			if [[ "$NAV" == redraw ]]; then break; fi
-			if [[ "$NAV" == again ]]; then continue; fi
 			if [[ "$a" =~ ^[0-9]+$ ]] && (( a >= 1 && a <= n )); then
 				CHOICE=$a
 				ui_close
 				return 0
 			fi
-			ui_wrong "pick a number from 1 to $n, or b, q or l"
+			ui_wrong "pick a number from 1 to $n"
 		done
 	done
 }
@@ -480,23 +451,15 @@ text() {
 			ui_head "$title" "$why"
 			if [[ -n "$rules" ]]; then printf '    Rules    %s\n' "$rules"; fi
 			if [[ -n "$example" ]]; then printf '    Example  %s\n' "$example"; fi
-			ui_keys
 		} > /dev/tty
 		while true; do
 			if [[ -n "$def" ]]; then ui_read "Type it, Enter takes $def" ; else ui_read "Type it" "$([[ "$mode" == plain ]] || printf secret)"; fi
 			a="$READ"
-			ui_nav "$a"
-			if [[ "$NAV" == back ]]; then ui_close; return 10; fi
-			if [[ "$NAV" == redraw ]]; then break; fi
-			if [[ "$NAV" == again ]]; then continue; fi
 			if [[ -z "$a" && -n "$def" ]]; then a=$def; fi
 			if [[ -z "$a" ]]; then ui_wrong "it cannot be empty"; continue; fi
 			if [[ -n "$check" ]] && ! reason="$("$check" "$a")"; then ui_wrong "$reason"; continue; fi
 			if [[ "$mode" == twice ]]; then
 				ui_read "Type it again, to be sure" secret ; again="$READ"
-				ui_nav "$again"
-				if [[ "$NAV" == back ]]; then ui_close; return 10; fi
-				if [[ "$NAV" == redraw ]]; then break; fi
 				if [[ "$again" != "$a" ]]; then ui_wrong "those did not match, once more"; continue; fi
 			fi
 			ANSWER=$a
@@ -531,7 +494,6 @@ pick() {
 				printf '%sn%s next page, %sp%s page before\n' "$C_ASK" "$C_0" "$C_ASK" "$C_0"
 			fi
 			printf '\n    %sall%s  take every one, or type numbers like  2 5 7-9,  Enter takes none\n' "$C_ASK" "$C_0"
-			ui_keys
 		} > /dev/tty
 		while true; do
 			ui_read "Which ones"; a="$READ"
@@ -539,10 +501,6 @@ pick() {
 				[nN]) if (( last < n )); then page=$(( page + 1 )); break; fi; ui_wrong "this is the last page"; continue ;;
 				[pP]) if (( page > 0 )); then page=$(( page - 1 )); break; fi; ui_wrong "this is the first page"; continue ;;
 			esac
-			ui_nav "${a// /}"
-			if [[ "$NAV" == back ]]; then ui_close; return 10; fi
-			if [[ "$NAV" == redraw ]]; then break; fi
-			if [[ "$NAV" == again ]]; then continue; fi
 			PICKED=()
 			if [[ "${a,,}" == all ]]; then
 				for (( i = 1; i <= n; i++ )); do PICKED+=("$i"); done
@@ -580,24 +538,20 @@ typed() {
 			ui_head "$title" "$why"
 			"$body"
 			printf '\n    %s%s%s  type it to go ahead\n' "$C_ASK" "$word" "$C_0"
-			ui_keys
 		} > /dev/tty
 		while true; do
 			ui_read "Type $word to go ahead" ; a="$READ"
 			if [[ "$a" == "$word" ]]; then ui_close; return 0; fi
-			ui_nav "$a"
-			if [[ "$NAV" == back ]]; then ui_close; return 10; fi
-			if [[ "$NAV" == redraw ]]; then break; fi
-			if [[ "$NAV" == again ]]; then continue; fi
-			ui_wrong "type $word exactly as shown, or b to go back, or q to quit"
+			ui_wrong "type $word exactly as shown"
 		done
 	done
 }
 
 # problem WHAT WHY TODO [retry] [skip]
 #   an error is one screen: what happened, why it matters, what to do, then
-#   the choices, the raw end of the log sits under it, dimmed
-#   returns 0 for Try again, 1 for Skip, quitting exits with 1
+#   numbered choices, Try again, Skip when it is safe, Read the full log, Quit,
+#   the raw end of the log sits under it, dimmed
+#   returns 0 for Try again, 1 for Skip, Quit ends the script with 1
 problem() {
 	local what=$1 why=$2 act=$3 retry=${4:-} skip=${5:-} a n=0 raw
 	local -a keys=() items=()
@@ -610,9 +564,10 @@ problem() {
 	fi
 	if [[ -n "$retry" ]]; then keys+=(retry); items+=("Try again"); fi
 	if [[ -n "$skip" ]]; then keys+=(skip); items+=("Skip this and go on, it is safe to"); fi
+	keys+=(log quit)
+	items+=("Read the full log, then come back here" "Quit")
 	n=${#keys[@]}
 	QUIT_CODE=1
-	NAV_BACK=0
 	ui_open
 	while true; do
 		{
@@ -620,22 +575,24 @@ problem() {
 			printf '  %s\n' "$why"
 			printf '  %s%s%s\n\n' "$C_B" "$act" "$C_0"
 			for (( a = 1; a <= n; a++ )); do printf '    %s%d%s  %s\n' "$C_ASK" "$a" "$C_0" "${items[a-1]}"; done
-			ui_keys
 			printf '\n%s' "$C_DIM"
-			printf '%s\n' "$raw" | sed 's/^/  /'
+			printf 'Quitting: %s\n' "$QUIT_NOTE" | fold -s -w 72 | sed 's/^/  /'
+			printf '\n%s\n' "$raw" | sed 's/^/  /'
 			printf '%s' "$C_0"
 		} > /dev/tty
 		while true; do
 			ui_read "Your choice"; a="${READ// /}"
-			NAV_BACK=0 ui_nav "$a"
-			if [[ "$NAV" == redraw ]]; then break; fi
 			if [[ "$a" =~ ^[0-9]+$ ]] && (( a >= 1 && a <= n )); then
+				case "${keys[a-1]}" in
+					log)  ui_log; break ;;
+					quit) ui_quit 1 ;;
+				esac
 				ui_close
 				trap on_error ERR
 				if [[ "${keys[a-1]}" == retry ]]; then return 0; fi
 				return 1
 			fi
-			ui_wrong "pick a number from 1 to $n, or q or l"
+			ui_wrong "pick a number from 1 to $n"
 		done
 	done
 }
@@ -654,23 +611,15 @@ answered() {
 	ok "$1: $2"
 }
 
-	# Ai - questions in order, b steps back, a question that does not apply
-	#      returns 20 and is skipped in whichever direction you are going
+	# Ai - questions in order, a question that does not apply returns 20
+	#      and is skipped
 run_questions() {
-	local fns=("$@") i=0 dir=1 rc
-	while (( i < ${#fns[@]} )); do
-		NAV_BACK=$(( i > 0 ? 1 : 0 ))
+	local fn rc
+	for fn in "$@"; do
 		rc=0
-		"${fns[i]}" || rc=$?
-		case "$rc" in
-			0)  dir=1;  i=$(( i + 1 )) ;;
-			10) dir=-1; i=$(( i - 1 )) ;;
-			20) i=$(( i + dir )) ;;
-			*)  return "$rc" ;;
-		esac
-		if (( i < 0 )); then i=0; dir=1; fi
+		"$fn" || rc=$?
+		if (( rc != 0 && rc != 20 )); then return "$rc"; fi
 	done
-	NAV_BACK=0
 }
 
 	# Ai - for a program that asks by itself, cryptsetup or sudo: the screen
@@ -740,7 +689,7 @@ pac() {
 	if [[ "$plan" == *"conflict"* || "$plan" == *"removing"* ]]; then
 		printf '%s\n' "$plan" >&3
 		die "Installing $* would remove something." "pacman said it conflicts with what is installed, and a silent yes could remove a program you use." \
-			"Nothing was changed. Press l, read the conflict, then remove or keep it by hand and run it again."
+			"Nothing was changed. Read the full log for the conflict, then remove or keep it by hand and run it again."
 	fi
 	run "install $*" $SUDO pacman -S --needed --noconfirm "$@"
 }
@@ -832,7 +781,7 @@ on_error() {
 	trap - ERR
 	problem "It stopped in: ${CURRENT:-the start}." \
 		"A command failed that nobody planned for. What ran before it is done, nothing after it ran." \
-		"Run it again, it goes on from here. If it stops again, press l and send the log."
+		"Run it again, it goes on from here. If it stops again, read the full log and send it."
 	exit "$rc"
 }
 trap on_error ERR

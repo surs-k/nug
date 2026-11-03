@@ -239,7 +239,6 @@ setup() {
 			sudo cryptsetup luksAddKey --pbkdf pbkdf2 "$part" "$key" || die "the key was not added"
 	else
 		erase_body() { printf '    %sEverything on %s is erased%s, then it becomes the backup drive.\n' "$C_BAD" "$dev" "$C_0"; }
-		NAV_BACK=1 BACK_LABEL="go back, nothing is erased"
 		typed ERASE "Erase $dev?" "This cannot be undone." erase_body || { dim "nothing was changed"; exit 0; }
 		sudo wipefs -af "$dev" > /dev/null
 		sudo sgdisk --zap-all -n1:0:0 -t1:8309 -c1:backup "$dev" > /dev/null

@@ -112,7 +112,6 @@ forget_body() {
 
 forget() {
 	open_old
-	NAV_BACK=1 BACK_LABEL="leave it, nothing is deleted"
 	if ! typed delete "Delete the copy of v1?" \
 		"It is gone for good, and what you did not bring over cannot be recovered." forget_body; then
 		dim "nothing was deleted"
