@@ -49,6 +49,17 @@ if [[ -z "${VM_GUEST_FRESH:-}" ]] && curl -fsS --max-time 20 "$HOST/repo.tar" -o
 	VM_GUEST_FRESH=1 exec bash "$HERE/vm-guest.sh"
 fi
 
+	# Ai - vm-test.sh probe: the host may offer one script of questions to
+	#      run in here, its answers go back over the same log
+	#      this is how a problem inside the VM is looked at without a login
+if curl -fsS --max-time 5 "$HOST/probe.sh" -o /tmp/probe.sh 2>/dev/null; then
+	say "PROBE START"
+	bash /tmp/probe.sh 2>&1
+	say "PROBE END"
+	rm -f /tmp/probe.sh
+	exit 0
+fi
+
 if [[ -f "$DONE" ]]; then
 	say "already finished, nothing to do"
 	exit 0

@@ -7,6 +7,7 @@
 	#
 	#      vm-test.sh run      install from scratch, run every stage, fetch the report
 	#      vm-test.sh again    after a fix: boot the same VM and carry the stages on
+	#      vm-test.sh probe F  boot the VM, run script file F inside it, print what it says
 	#      vm-test.sh open     start the installed VM in a window to look around
 	#      vm-test.sh report   show the last report again
 	#      vm-test.sh log      follow what the VM is printing
@@ -44,7 +45,8 @@ while [[ $# -gt 0 ]]; do
 		--desktops) DESKTOPS="${2:-}"; shift 2 ;;
 		--keep)     KEEP=1; shift ;;
 		--no-gl)    GL=0; shift ;;
-		*) printf 'Unknown option: %s\n' "$1" >&2; exit 1 ;;
+		-*) printf 'Unknown option: %s\n' "$1" >&2; exit 1 ;;
+		*)  PROBE_FILE="$1"; shift ;;
 	esac
 done
 
@@ -300,6 +302,26 @@ cmd_again() {
 	run_stages again
 }
 
+cmd_probe() {
+	local file=$1
+	need_tools
+	[[ -r "$file" ]] || die "Give a script file to run inside the VM."
+	[[ -f "$DIR/system.qcow2" ]] || die "Nothing installed yet. Run: vm-test.sh run"
+	alive && die "The test VM is already running.  vm-test.sh stop"
+	stop_all
+	serve_repo
+	cp "$file" "$DIR/www/probe.sh"
+	start_tpm
+	qemu_args none
+	rm -f "$DIR/serial-probe.log"
+	qemu-system-x86_64 "${QARGS[@]}" -serial "file:$DIR/serial-probe.log" -daemonize || die "The VM did not start."
+	follow_until "$DIR/serial-probe.log" "REBUILD VM: PROBE END" 15 > /dev/null
+	tr -d '\r' < "$DIR/serial-probe.log" | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' \
+		| awk '/REBUILD VM: PROBE START/ {on=1; next} /REBUILD VM: PROBE END/ {on=0} on'
+	rm -f "$DIR/www/probe.sh"
+	(( KEEP )) || stop_all
+}
+
 run_stages() {
 	local rc
 
@@ -398,6 +420,7 @@ cmd_clean() {
 case "$CMD" in
 	run)     cmd_run ;;
 	again)   cmd_again ;;
+	probe)   cmd_probe "${PROBE_FILE:-}" ;;
 	open)    cmd_open ;;
 	report)  cmd_extract; cmd_report ;;
 	shot)    cmd_shot ;;
@@ -405,6 +428,6 @@ case "$CMD" in
 	stop)    stop_all; say "VM off." ;;
 	clean)   cmd_clean ;;
 	*)
-		sed -n '3,16p' "$0" | sed 's/^\t# Ai - /  /; s/^\t#      /  /; s/^\t#$//'
+		sed -n '3,17p' "$0" | sed 's/^\t# Ai - /  /; s/^\t#      /  /; s/^\t#$//'
 		printf '\n  Options for run:  --desktops plasma,gnome   --iso FILE   --keep\n\n' ;;
 esac
