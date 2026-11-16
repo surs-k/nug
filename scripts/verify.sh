@@ -379,6 +379,36 @@ if have resolvectl; then
 fi
 
 
+## Watcher
+
+if pacman -Qq opensnitch > /dev/null 2>&1; then
+	if systemctl is-active --quiet opensnitchd 2>/dev/null; then
+		line ok "The connection watcher (OpenSnitch) is running" \
+			"its window lists every connection by program; open OpenSnitch from the app launcher" \
+			"systemctl status opensnitchd"
+		if (( ROOT_OK )); then
+			RULES_OS="$(root sh -c 'ls /etc/opensnitchd/rules 2>/dev/null | wc -l')"
+			line info "The watcher has $RULES_OS saved rule(s)" "each is an answer you gave: this program may, or may not, connect there" "OpenSnitch window, Rules tab"
+			if root grep -q '"DefaultAction": *"allow"' /etc/opensnitchd/default-config.json 2>/dev/null; then
+				line look "Connections nobody answers for are allowed" \
+					"the learning setting: nothing breaks while you watch; switch to deny in OpenSnitch, Preferences, once your rules look right" \
+					"sudo grep DefaultAction /etc/opensnitchd/default-config.json"
+			else
+				line ok "Connections nobody answers for are refused" "" "sudo grep DefaultAction /etc/opensnitchd/default-config.json"
+			fi
+		fi
+	else
+		line bad "The connection watcher (OpenSnitch) is installed but not running" "nothing is being shown or asked" "systemctl status opensnitchd"
+	fi
+else
+	line look "No connection watcher installed" "there is no window showing which program connects where" "rebuild --only 85-connections"
+fi
+
+if pacman -Qq gufw > /dev/null 2>&1; then
+	line ok "The firewall has a window (Gufw)" "open Firewall Configuration from the app launcher" "pacman -Q gufw"
+fi
+
+
 ## Services
 
 if have docker && (( ROOT_OK )) && systemctl is-active --quiet docker 2>/dev/null; then
@@ -414,6 +444,89 @@ TIMERS="$(systemctl list-timers --all --no-legend 2>/dev/null | wc -l)"
 line info "$ENABLED service(s) start with the PC, $TIMERS timer(s) run things on a schedule" \
 	"this is the full list of what runs without you asking; read it once" \
 	"systemctl list-unit-files --state=enabled ; systemctl list-timers"
+
+
+
+#    Sandbox
+
+
+head1 "Sandbox: what each app can touch"
+
+if have flatpak; then
+	APPS="$(flatpak list --app --columns=application 2>/dev/null | grep -v '^Application' | sort -u)"
+	NAPPS="$(grep -c . <<< "$APPS" || true)"
+
+	if (( NAPPS > 0 )); then
+		line ok "$NAPPS app(s) run sandboxed, as Flatpaks" \
+			"each is fenced off from the rest of the system, and its data sits in one folder that is removed with it" \
+			"flatpak list --app"
+
+			# Ai - Flathub marks an app verified when its own author publishes it
+		ASTREAM=/var/lib/flatpak/appstream/flathub/x86_64/active/appstream.xml.gz
+		if [[ -r "$ASTREAM" ]] && have python3; then
+			UNVER="$(python3 - "$ASTREAM" $APPS << 'PYEOF' 2>/dev/null
+import gzip, re, sys
+want = set(sys.argv[2:])
+text = gzip.open(sys.argv[1], "rt", errors="replace").read()
+bad = []
+for comp in text.split("<component")[1:]:
+    m = re.search(r"<id>([^<]+)</id>", comp)
+    if not m:
+        continue
+    cid = m.group(1).removesuffix(".desktop")
+    if cid in want and 'verification::verified">true' not in comp:
+        bad.append(cid)
+print(" ".join(sorted(set(bad))))
+PYEOF
+)"
+			if [[ -z "${UNVER// /}" ]]; then
+				line ok "Every Flatpak app is published by its own author (verified on Flathub)" "" "the blue tick on each app's page at flathub.org"
+			else
+				line look "Flatpak app(s) not published by their own author: $UNVER" \
+					"someone else packaged them; usually fine, but it is one more party to trust" \
+					"each app's page at flathub.org"
+			fi
+		fi
+
+			# Ai - a sandbox with the whole home folder inside it is a thin one
+		WIDE_FS=""
+		while IFS= read -r a; do
+			[[ -n "$a" ]] || continue
+			if flatpak info --show-permissions "$a" 2>/dev/null | grep -E '^filesystems=' | grep -qE '(^|[=;])(host|home)(;|:|$)'; then
+				WIDE_FS+="$a "
+			fi
+		done <<< "$APPS"
+		if [[ -z "$WIDE_FS" ]]; then
+			line ok "No Flatpak app can read your whole home folder" "" "open Flatseal"
+		else
+			line look "Flatpak app(s) that can read your whole home folder: $WIDE_FS" \
+				"their sandbox does not protect your files; narrow it in Flatseal if the app does not need it" \
+				"open Flatseal, pick the app, look at Filesystem"
+		fi
+	else
+		line look "No apps are installed as Flatpaks" "nothing runs sandboxed" "flatpak list --app"
+	fi
+
+	for pair in "com.github.tchx84.Flatseal|Flatseal|a window to see and change what each Flatpak app may touch" \
+		"io.github.flattool.Warehouse|Warehouse|a window to remove a Flatpak app together with all its data"; do
+		IFS='|' read -r wid wname wwhat <<< "$pair"
+		if grep -qx "$wid" <<< "$APPS"; then
+			line ok "$wname is installed" "$wwhat" "open $wname from the app launcher"
+		else
+			line look "$wname is not installed" "$wwhat" "flatpak install flathub $wid"
+		fi
+	done
+else
+	line look "Flatpak is not installed" "no app runs sandboxed" "pacman -Q flatpak"
+fi
+
+NATIVE="$(pacman -Qqe 2>/dev/null | wc -l)"
+line info "$NATIVE package(s) are installed the Arch way and run with your full account rights" \
+	"this is the system itself plus apps like Steam and the browsers; they can read anything you can, and removing one leaves its settings in your home folder" \
+	"pacman -Qe"
+
+line gap "Apps installed the Arch way cannot be sandboxed or fully removed from a window" \
+	"only Flatpak apps get both today; prefer the Flatpak when adding an app (configs/flatpaks.conf)" ""
 
 
 

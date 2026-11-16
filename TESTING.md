@@ -39,12 +39,13 @@ To change what the test installs, edit `scripts/vm-answers.conf`. Those are the 
 rebuild verify
 ```
 
-Runs on the VM and on the real PC. It changes nothing. It reads the system and says, in four groups, what is true right now:
+Runs on the VM and on the real PC. It changes nothing. It reads the system and says, in groups, what is true right now:
 
 | Group | Answers |
 |---|---|
 | Security | Who can get in: disk encryption, how disks unlock, firewall, what listens, remote login, admin rights |
 | Privacy | What leaves the PC: VPN, name lookups, services open to the network, everything that runs without you |
+| Sandbox | What each app can touch: which apps are fenced off, which are published by their own author, which can read your whole home folder |
 | Recovery | Undoing a mistake: system snapshots, home snapshots, copies on a second disk |
 | Performance | Startup time and its slowest parts, memory and its largest users, disk, graphics driver, logged errors |
 | Desktops | What you can log in to |
@@ -81,6 +82,29 @@ Lists every desktop, which are added, and what each is best for. Also in the app
 To switch: log out, pick from the list on the login screen, log in.
 
 Settings that desktops share (GTK, Qt, KDE globals) are copied aside before each add. A desktop can still change them while you use it; `desktop restore` is the way back.
+
+## Windows for seeing and changing things
+
+All four are in the app launcher.
+
+| Window | Shows | Change it there |
+|---|---|---|
+| OpenSnitch | Every connection, by program, as it happens. Asks the first time a program reaches out | Allow or refuse a program; your answers become rules |
+| Firewall Configuration (Gufw) | Whether the firewall is on, and every rule for what may come in | Add or remove a rule |
+| Flatseal | What each sandboxed app may touch: files, network, devices | Switch any permission off |
+| Warehouse | Every sandboxed app and the data it keeps | Remove an app with all its data |
+
+OpenSnitch starts in learning mode: a connection nobody answers for is allowed, so nothing breaks while you watch. Once your rules look right, switch it in OpenSnitch, Preferences, to deny.
+
+## Adding and removing apps
+
+Apps installed as Flatpaks are sandboxed, and removing one removes its data too. The list is `configs/flatpaks.conf`, one app per line:
+
+```bash
+rebuild --only 60-uprefs
+```
+
+installs whatever the list holds. Apps installed the Arch way (Steam, browsers, the system itself) are not sandboxed, and removing one leaves its settings in your home folder. The verify report counts them.
 
 ## What only the VM test changes
 

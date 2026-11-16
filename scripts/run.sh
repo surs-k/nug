@@ -68,6 +68,7 @@ STAGES=(
 	60-uprefs
 	70-docker
 	80-remote
+	85-connections
 	90-health
 	35-tailnet
 )
@@ -86,6 +87,7 @@ declare -A ABOUT=(
 	[60-uprefs]="apps, keybinds, monitors"
 	[70-docker]="Docker, Ollama, self hosted services"
 	[80-remote]="Sunshine, so the laptop can drive this PC"
+	[85-connections]="windows that show and control what connects where"
 	[90-health]="health report and alerts"
 	[35-tailnet]="Tailscale remote access, off unless chosen"
 )
@@ -127,6 +129,7 @@ declare -A DEPENDS=(
 	[60-uprefs]="20-desktop"
 	[70-docker]="20-desktop 30-security"
 	[80-remote]="20-desktop 30-security"
+	[85-connections]="20-desktop 30-security"
 	[90-health]="10-base"
 	[35-tailnet]="30-security"
 )
@@ -320,7 +323,7 @@ gap() {
 
 if need WANT_CHAOTIC_REMOVE || need WANT_DESKTOPS || need WANT_DOCKER || need WANT_STACKS \
 	|| need WANT_TAILSCALE || need WANT_OLLAMA \
-	|| need WANT_SUNSHINE || need WANT_LIBREWOLF; then
+	|| need WANT_SUNSHINE || need WANT_LIBREWOLF || need WANT_WATCH; then
 
 	action "Answer a few questions. Press enter to take each default.
 
@@ -419,6 +422,22 @@ Nothing installs until you are through them."
 			save_cfg WANT_LIBREWOLF yes
 		else
 			save_cfg WANT_LIBREWOLF no
+		fi
+	fi
+
+
+	## Watch
+
+	if need WANT_WATCH; then
+		gap
+		act_line "OpenSnitch shows which program connects to what, and asks"
+		act_line "the first time a program reaches out. Gufw is a window for"
+		act_line "the firewall. Both are for seeing and learning."
+		act_line ""
+		if yesno "Install the connection watcher and the firewall window" y; then
+			save_cfg WANT_WATCH yes
+		else
+			save_cfg WANT_WATCH no
 		fi
 	fi
 

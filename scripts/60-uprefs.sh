@@ -186,14 +186,20 @@ section "Flatpak"
 run "add flathub" $SUDO flatpak remote-add --if-not-exists flathub \
 	https://dl.flathub.org/repo/flathub.flatpakrepo
 
-soft "freetube" $SUDO flatpak install -y --noninteractive flathub io.freetubeapp.FreeTube
-soft "vesktop"  $SUDO flatpak install -y --noninteractive flathub dev.vencord.Vesktop
+	# Ai - the list lives in configs/flatpaks.conf, one app per line, so adding
+	#      or dropping an app is an edit to that file and never to this script
+	#      each is soft, one app failing to download must not end the stage
+FLATLIST="$REPO/configs/flatpaks.conf"
 
-	# Ai - krita for drawing, and the comfyui plugin has a home to be added to
-soft "krita"    $SUDO flatpak install -y --noninteractive flathub org.kde.krita
+	# Ai - read on its own channel, flatpak would otherwise swallow the list
+while IFS='|' read -r fid fname _ <&9; do
+	fid="${fid//[[:space:]]/}"
+	fname="${fname#"${fname%%[![:space:]]*}"}"
+	fname="${fname%"${fname##*[![:space:]]}"}"
+	[[ -n "$fid" && "$fid" != \#* ]] || continue
+	soft "${fname:-$fid}" $SUDO flatpak install -y --noninteractive flathub "$fid"
+done 9< "$FLATLIST"
 
-	# Ai - flatseal edits what each flatpak is allowed to touch
-soft "flatseal" $SUDO flatpak install -y --noninteractive flathub com.github.tchx84.Flatseal
 
 
 #    Bluetooth
@@ -575,6 +581,7 @@ warn  "claude desktop"     command -v claude-desktop
 warn  "freetube"           flatpak info io.freetubeapp.FreeTube
 warn  "krita"              flatpak info org.kde.krita
 warn  "flatseal"           flatpak info com.github.tchx84.Flatseal
+warn  "warehouse"          flatpak info io.github.flattool.Warehouse
 warn  "places installed"   test -f "$HOME/.local/share/user-places.xbel"
 warn  "greeter rotate"     test -x /etc/sddm/Xsetup-rebuild
 
