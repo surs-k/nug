@@ -147,9 +147,9 @@ qemu_args() {
 		none)   QARGS+=(-display none -device virtio-vga) ;;
 		window)
 			if (( GL )); then
-				QARGS+=(-display gtk,gl=on -device virtio-vga-gl)
+				QARGS+=(-display gtk,gl=on,grab-on-hover=on -device virtio-vga-gl)
 			else
-				QARGS+=(-display gtk -device virtio-vga)
+				QARGS+=(-display gtk,grab-on-hover=on -device virtio-vga)
 			fi
 			QARGS+=(-device qemu-xhci -device usb-tablet -audiodev none,id=a0) ;;
 	esac
@@ -391,6 +391,7 @@ cmd_open() {
 	qemu_args window
 	say "Opening the VM in a window. Close the window or run vm-test.sh stop to end."
 	say "If the screen stays black, try: vm-test.sh open --no-gl"
+	say "Keys go to the VM while the pointer is over it. Ctrl+Alt+G gives them back to your desktop."
 	qemu-system-x86_64 "${QARGS[@]}" -serial "file:$DIR/serial-open.log" -daemonize || die "The VM did not start."
 }
 
