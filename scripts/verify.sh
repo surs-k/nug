@@ -486,6 +486,10 @@ PYEOF
 					"someone else packaged them; usually fine, but it is one more party to trust" \
 					"each app's page at flathub.org"
 			fi
+		else
+			line look "Could not check whether each Flatpak app is published by its own author" \
+				"the app catalogue is not downloaded yet; fetch it, then run this again" \
+				"sudo flatpak update --appstream"
 		fi
 
 			# Ai - a sandbox with the whole home folder inside it is a thin one

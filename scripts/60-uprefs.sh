@@ -186,6 +186,10 @@ section "Flatpak"
 run "add flathub" $SUDO flatpak remote-add --if-not-exists flathub \
 	https://dl.flathub.org/repo/flathub.flatpakrepo
 
+	# Ai - the app catalogue, rebuild verify reads it to tell which apps are
+	#      published by their own author
+soft "fetch the app catalogue" $SUDO flatpak update --appstream -y --noninteractive
+
 	# Ai - the list lives in configs/flatpaks.conf, one app per line, so adding
 	#      or dropping an app is an edit to that file and never to this script
 	#      each is soft, one app failing to download must not end the stage
