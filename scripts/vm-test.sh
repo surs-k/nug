@@ -384,6 +384,9 @@ cmd_open() {
 	need_tools
 	[[ -f "$DIR/system.qcow2" ]] || die "Nothing installed yet. Run: vm-test.sh run"
 	alive && die "The test VM is already running.  vm-test.sh stop"
+	stop_all
+		# Ai - the VM takes a fresh copy of the repo as it starts
+	serve_repo
 	start_tpm
 	qemu_args window
 	say "Opening the VM in a window. Close the window or run vm-test.sh stop to end."

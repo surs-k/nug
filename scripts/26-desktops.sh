@@ -21,6 +21,9 @@ require_stage 20-desktop
 
 section "Command"
 
+	# Ai - desktop back copies settings out of the snapshot with rsync
+pac rsync
+
 	# Ai - one command for every desktop on this PC, see desktop.sh
 $SUDO install -Dm755 "$SCRIPTS/desktop.sh" /usr/local/bin/desktop
 
@@ -71,6 +74,7 @@ section "Verify"
 check "desktop command"   test -x /usr/local/bin/desktop
 check "launcher entry"    test -f /usr/share/applications/rebuild-desktops.desktop
 check "catalog readable"  sh -c '/usr/local/bin/desktop catalog | grep -q plasma'
+check "rsync for going back" command -v rsync
 
 warn  "sddm still the login screen" systemctl is-enabled sddm
 

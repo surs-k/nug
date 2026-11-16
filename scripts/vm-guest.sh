@@ -49,6 +49,12 @@ if [[ -z "${VM_GUEST_FRESH:-}" ]] && curl -fsS --max-time 20 "$HOST/repo.tar" -o
 	VM_GUEST_FRESH=1 exec bash "$HERE/vm-guest.sh"
 fi
 
+	# Ai - the installed desktop command follows the fresh copy, so a change
+	#      to it can be tried in the open VM without a reinstall
+if [[ -n "${VM_GUEST_FRESH:-}" && -x /usr/local/bin/desktop ]]; then
+	sudo -n install -m755 "$HOME/rebuild/scripts/desktop.sh" /usr/local/bin/desktop
+fi
+
 	# Ai - vm-test.sh probe: the host may offer one script of questions to
 	#      run in here, its answers go back over the same log
 	#      this is how a problem inside the VM is looked at without a login

@@ -65,13 +65,35 @@ The report is saved to `~/rebuild-report.txt`. It holds no addresses, serials, o
 
 ## Desktops
 
-HyDE on Hyprland is the base and always stays. Others are extra choices on the login screen.
-
 ```bash
 desktop
 ```
 
-Lists every desktop, which are added, and what each is best for. Also in the app launcher as **Desktops**.
+Lists everything, with what each is like. Also in the app launcher as **Desktops**.
+
+### Hyprland setups like HyDE: try, then go back
+
+These are finished desktops other people publish on GitHub: illogical-impulse (end-4), ML4W, Caelestia, JaKooLit. They all write into the same settings folders HyDE uses, so one replaces the other while you try it.
+
+| Command | Does |
+|---|---|
+| `desktop try end4` | Takes a snapshot, then runs that setup's own installer |
+| `desktop back` | Puts everything back the way it was before the trial |
+| `desktop keep` | Stays on the trial and deletes the snapshot |
+
+What `desktop back` returns: every hidden settings folder in your home, the packages (added ones removed, removed ones reinstalled), system settings files the installer changed, and your login shell. Then restart.
+
+What it never touches, in either direction: Documents, Downloads, and every other visible folder.
+
+Changes to app settings you make during a trial are undone with it. A trial is for looking, not for working in.
+
+The installers are other people's programs. They ask their own questions and for your password. Try a setup in the test VM first: `vm-test.sh open`, log in, open a terminal, `desktop try NAME`.
+
+To add a setup to the list, add one line to `SETUPS` at the top of `scripts/desktop.sh`.
+
+### Classic desktops: add beside HyDE
+
+Plasma, GNOME, COSMIC, Niri, Sway, Xfce. These keep their own settings, so they sit beside HyDE as extra choices on the login screen.
 
 | Command | Does |
 |---|---|
@@ -80,8 +102,6 @@ Lists every desktop, which are added, and what each is best for. Also in the app
 | `desktop restore plasma` | Puts shared settings back as they were before it was added |
 
 To switch: log out, pick from the list on the login screen, log in.
-
-Settings that desktops share (GTK, Qt, KDE globals) are copied aside before each add. A desktop can still change them while you use it; `desktop restore` is the way back.
 
 ## Windows for seeing and changing things
 
