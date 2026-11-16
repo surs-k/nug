@@ -61,6 +61,15 @@ retry online
 
 ## Names
 
+	# Ai - the VM test names itself, a real install asks
+if auto; then
+	[[ "$HOSTNAME" == CHANGEME ]] && HOSTNAME=dreamvm
+	[[ "$USERNAME" == CHANGEME ]] && USERNAME=tester
+	save_cfg HOSTNAME "$HOSTNAME"
+	save_cfg USERNAME "$USERNAME"
+	save_cfg AUTO 1
+fi
+
 if [[ "$HOSTNAME" == CHANGEME || "$USERNAME" == CHANGEME ]]; then
 	act_next
 	act_text "Name this machine and yourself."
@@ -530,6 +539,47 @@ printf '%%wheel ALL=(ALL:ALL) ALL\nDefaults lecture = never\n' > /mnt/etc/sudoer
 chmod 440 /mnt/etc/sudoers.d/10-wheel
 
 run "check sudo rules" arch-chroot /mnt visudo -c -f /etc/sudoers.d/10-wheel
+
+
+## Handsoff
+
+	# Ai - VM test only
+	#      the stages after the reboot need sudo with nobody there to type, and
+	#      something has to start them, so the test VM gets a no password rule
+	#      and a service that carries the run on at every boot until it is done
+	#      both are refused outside a VM, and the verify report calls them out
+if auto; then
+	printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$USERNAME" > /mnt/etc/sudoers.d/99-vm-test
+	chmod 440 /mnt/etc/sudoers.d/99-vm-test
+
+	run "check test sudo rule" arch-chroot /mnt visudo -c -f /etc/sudoers.d/99-vm-test
+
+	cat > /mnt/etc/systemd/system/rebuild-vm-test.service << UNITEOF
+[Unit]
+Description=Rebuild VM test, carries the install on after each boot
+After=network-online.target systemd-user-sessions.service
+Wants=network-online.target
+ConditionVirtualization=vm
+
+[Service]
+Type=oneshot
+User=$USERNAME
+WorkingDirectory=/home/$USERNAME
+Environment=HOME=/home/$USERNAME
+Environment=TERM=dumb
+ExecStart=/usr/bin/bash /home/$USERNAME/rebuild/scripts/vm-guest.sh
+StandardInput=null
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/ttyS0
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+	run "enable test runner" arch-chroot /mnt systemctl enable rebuild-vm-test.service
+fi
 
 
 

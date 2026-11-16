@@ -1,0 +1,29 @@
+{
+	"Glass night": {
+		"text": "#eef0ff", "muted": "#a9add0", "accent": "#8fb4ff", "onAccent": "#0c1030",
+		"good": "#7fe0b0", "warn": "#f0705c",
+		"chip": "#141632", "chipOpacity": 0.55,
+		"panel": "#181a3a", "panelOpacity": 0.9,
+		"border": "#ffffff", "borderOpacity": 0.16, "borderWidth": 1,
+		"radius": 14, "chipRadius": 9,
+		"font": "Cantarell", "wallpaper": ""
+	},
+	"Soft pastel": {
+		"text": "#34404f", "muted": "#76849a", "accent": "#5fa8b8", "onAccent": "#ffffff",
+		"good": "#4fae8c", "warn": "#d9775f",
+		"chip": "#fbfdfc", "chipOpacity": 1,
+		"panel": "#fbfdfc", "panelOpacity": 1,
+		"border": "#c9d6e2", "borderOpacity": 1, "borderWidth": 1,
+		"radius": 18, "chipRadius": 12,
+		"font": "Cantarell", "wallpaper": ""
+	},
+	"Forest dusk": {
+		"text": "#e6dfca", "muted": "#9aa58f", "accent": "#a9c47f", "onAccent": "#1c2419",
+		"good": "#a9c47f", "warn": "#e08a5b",
+		"chip": "#232c26", "chipOpacity": 1,
+		"panel": "#232c26", "panelOpacity": 1,
+		"border": "#3b4a40", "borderOpacity": 1, "borderWidth": 1,
+		"radius": 9, "chipRadius": 6,
+		"font": "Cantarell", "wallpaper": ""
+	}
+}

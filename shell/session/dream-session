@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Starts Hyprland with the Dream shell switched on.
+# The same Hyprland config is used either way, this only raises the flag
+# that ~/.config/dream/hypr/dream.lua looks for.
+
+export DREAM_SESSION=1
+exec /usr/bin/start-hyprland "$@"

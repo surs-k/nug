@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# dream: one command for the Dream shell. Run "dream" alone to see what it does.
+
+set -euo pipefail
+
+CFG="$HOME/.config/dream"
+RUN="${XDG_RUNTIME_DIR:-/tmp}"
+# the on/off choice belongs to this one Hyprland session, a new login starts clean
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" && -d "$RUN/hypr/$HYPRLAND_INSTANCE_SIGNATURE" ]]; then
+	FLAG="$RUN/hypr/$HYPRLAND_INSTANCE_SIGNATURE/dream-shell"
+else
+	FLAG="$RUN/dream-shell"
+fi
+DESK="${XDG_SESSION_DESKTOP:-Hyprland}"
+UNIT="dream-shell.service"
+
+# DREAM_QS lets a test point at another quickshell binary
+QS=("${DREAM_QS:-qs}" -c dream)
+
+ipc()     { "${QS[@]}" ipc call dream "$@"; }
+running() { systemctl --user is-active --quiet "$UNIT"; }
+
+start_shell() {
+	running && return 0
+	systemd-run --user --quiet --collect --unit="$UNIT" --description="Dream shell" -- "${QS[@]}"
+}
+stop_shell() { systemctl --user stop "$UNIT" 2>/dev/null || true; }
+
+# HyDE's own bar and notifications, stopped while Dream is on and put back after
+HYDE_UNITS=("hyde-$DESK-bar.service" "hyde-$DESK-bar.scope" "hyde-$DESK-notifications.service")
+
+hyde_stop() {
+	systemctl --user stop "${HYDE_UNITS[@]}" 2>/dev/null || true
+	pkill -x waybar 2>/dev/null || true
+	pkill -x dunst 2>/dev/null || true
+}
+is_on() {
+	local choice=""
+	[[ -f "$FLAG" ]] && read -r choice < "$FLAG"
+	[[ "$choice" == on || ( "$choice" != off && "${DREAM_SESSION:-}" == 1 ) ]]
+}
+hyde_start() {
+	command -v hyde-shell >/dev/null || { echo "HyDE is not installed, nothing to go back to."; return 0; }
+	pgrep -x waybar >/dev/null || hyde-shell app -u "hyde-$DESK-bar.scope" -t scope -- waybar.py --watch >/dev/null 2>&1 &
+	pgrep -x dunst  >/dev/null || hyde-shell app -u "hyde-$DESK-notifications.service" -t service -- dunst >/dev/null 2>&1 &
+}
+
+# Hyprland reads the flag again and swaps the launcher key and the blur rules
+rebind() { [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && hyprctl reload config-only >/dev/null 2>&1 || true; }
+
+case "${1:-help}" in
+	on)
+		echo on > "$FLAG"; rebind; hyde_stop; start_shell
+		echo "Dream shell is on. To go back: dream off" ;;
+	off)
+		echo off > "$FLAG"; stop_shell; rebind; hyde_start
+		echo "Back on the HyDE bar. To return: dream on" ;;
+	start)    start_shell ;;
+	hold)
+		# HyDE brings its own bar back a moment after every Hyprland reload.
+		# Hyprland calls this on each reload while Dream is on, to put it down again.
+		is_on || exit 0
+		( sleep 2; hyde_stop; sleep 4; hyde_stop ) >/dev/null 2>&1 & ;;
+	reload)   stop_shell; start_shell; echo "Dream shell restarted." ;;
+	launcher) ipc launcher ;;
+	settings) ipc settings ;;
+	look)
+		case "${2:-}" in
+			"")   echo "Looks you can pick:"; ipc looks | sed 's/^/  /'; echo "Use: dream look \"Soft pastel\"   or   dream look next" ;;
+			next) ipc nextLook ;;
+			*)    ipc look "$2" ;;
+		esac ;;
+	guide)    xdg-open "$CFG/GUIDE.md" ;;
+	status)
+		if running; then echo "Dream shell: running"; else echo "Dream shell: not running"; fi
+		echo "Settings:    $CFG/settings.json"
+		echo "Looks:       $CFG/looks.json"
+		echo "Guide:       $CFG/GUIDE.md" ;;
+	log)      journalctl --user -u "$UNIT" -n "${2:-40}" --no-pager ;;
+	*)
+		cat << 'HELP'
+
+  dream on          use the Dream bar, launcher and notifications now
+  dream off         go back to the HyDE bar, windows stay where they are
+  dream settings    open the Settings window
+  dream launcher    open the app launcher
+  dream look        list the looks       dream look next      switch to the next one
+  dream guide       open the guide: every part, what it is for, where to change it
+  dream status      is it running, and where its files are
+  dream reload      restart the shell
+  dream log         the shell's recent messages, for when something looks wrong
+
+HELP
+		;;
+esac

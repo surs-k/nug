@@ -145,6 +145,13 @@ fi
 	# Ai - anything that needs you to do something by hand
 	#      deliberately a different shape and colour from every other block, so
 	#      it registers from the corner of your eye without being read
+	# Ai - the question block goes straight to the terminal, so it still shows
+	#      when a caller is capturing stdout
+	#      with no terminal at all, as in the VM test service, it goes to stderr
+	#      fd 4 is that channel, opened once, a path is not used because a
+	#      service's stderr cannot be opened again by name
+{ exec 4> /dev/tty; } 2>/dev/null || exec 4>&2
+
 ACT_IS_OPEN=0
 ACT_LINES=0
 
@@ -153,18 +160,18 @@ act_open() {
 	ACT_IS_OPEN=1
 	ACT_LINES=0
 
-	printf '\n' > /dev/tty
-	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
-	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	printf '\n' >&4
+	printf '%s>>>>>>>>>>>>>>>>>  YOUR TURN  >>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" >&4
+	printf '%s>>%s\n' "$C_ACT" "$C_OFF" >&4
 }
 
 act_rule() {
-	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" >&4
 }
 
 	# Ai - one blank marker line, room inside a single subject
 act_gap() {
-	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
+	printf '%s>>%s\n' "$C_ACT" "$C_OFF" >&4
 }
 
 	# Ai - between two short subjects: blank, arrow line, blank
@@ -199,7 +206,7 @@ act_next() {
 
 	# Ai - no automatic rules, spacing is placed deliberately or not at all
 act_line() {
-	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" > /dev/tty
+	printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$*" >&4
 }
 
 	# Ai - anything piped in gets wrapped, so a disk listing stays inside the
@@ -207,7 +214,7 @@ act_line() {
 act_feed() {
 	local line
 	while IFS= read -r line; do
-		printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$line" > /dev/tty
+		printf '%s>>%s  %s\n' "$C_ACT" "$C_OFF" "$line" >&4
 	done
 }
 
@@ -215,9 +222,9 @@ act_close() {
 	(( ACT_IS_OPEN )) || return 0
 	ACT_IS_OPEN=0
 
-	printf '%s>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
-	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" > /dev/tty
-	printf '\n' > /dev/tty
+	printf '%s>>%s\n' "$C_ACT" "$C_OFF" >&4
+	printf '%s>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>%s\n' "$C_ACT" "$C_OFF" >&4
+	printf '\n' >&4
 }
 
 	# Ai - the first line should always be an instruction, not context
@@ -423,7 +430,7 @@ big_render() {
 	# Ai - the real width when there is a terminal to ask, 80 when there is not
 term_cols() {
 	local r c
-	if read -r r c < <(stty size 2>/dev/null < /dev/tty) \
+	if read -r r c < <( { stty size < /dev/tty; } 2>/dev/null || true) \
 		&& [[ "$c" =~ ^[0-9]+$ ]] && (( c > 20 )); then
 		printf '%s' "$c"
 	else
@@ -798,7 +805,25 @@ LIMINE_TIMEOUT=1
 
 CONFIG="$HOME/.install-config"
 
+	# Ai - AUTO is the hands off mode the VM test uses
+	#      every question takes its default or its saved answer, nothing waits
+	#      on a keyboard, and the run reboots by itself
+	#      it erases disks without asking, so it refuses to start on real hardware
+AUTO=0
+AUTO_PASS="rebuild-vm-test"
+AUTO_SYSTEM_DISK="/dev/vda"
+AUTO_DATA_DISK="/dev/vdb"
+
 [[ -f "$CONFIG" ]] && source "$CONFIG"
+
+[[ "${REBUILD_AUTO:-0}" == 1 ]] && AUTO=1
+
+if [[ "$AUTO" == 1 ]] && ! systemd-detect-virt --quiet --vm; then
+	printf 'Hands off mode only runs inside a virtual machine. Stopping.\n' >&2
+	exit 1
+fi
+
+auto() { [[ "$AUTO" == 1 ]]; }
 
 export USERNAME
 
@@ -862,6 +887,11 @@ act_prompt() { printf '%s>>%s  %s' "$C_ACT" "$C_OFF" "$*"; }
 
 ask() {
 	local prompt=$1 default=${2:-} reply
+	if auto; then
+		[[ -n "$default" ]] || { printf 'No saved answer for: %s\n' "$prompt" >&2; exit 1; }
+		printf '%s' "$default"
+		return 0
+	fi
 	if [[ -n "$default" ]]; then
 		read -rp "$(act_prompt "$prompt [$default]: ")" reply < /dev/tty
 		printf '%s' "${reply:-$default}"
@@ -877,6 +907,11 @@ ask() {
 	# Ai - the capital letter is the default, that is the whole convention
 yesno() {
 	local prompt=$1 default=${2:-n} hint reply
+
+	if auto; then
+		[[ "$default" == [yY]* ]]
+		return
+	fi
 
 	if [[ "$default" == [yY]* ]]; then
 		hint="(Y/n)"
@@ -898,6 +933,7 @@ yesno() {
 	#      can ask again instead of ending the whole run
 confirmed() {
 	local reply
+	auto && return 0
 	read -rp "$(act_prompt "${1:-Type YES to continue}: ")" reply < /dev/tty
 	[[ "$reply" == YES ]]
 }
@@ -907,6 +943,10 @@ confirmed() {
 
 secret() {
 	local prompt=$1 reply
+	if auto; then
+		printf '%s' "$AUTO_PASS"
+		return 0
+	fi
 	read -rsp "$(act_prompt "$prompt: ")" reply < /dev/tty
 	printf '\n' > /dev/tty
 	printf '%s' "$reply"
@@ -985,6 +1025,7 @@ retry() {
 	until "$@"; do
 		if (( attempt >= RETRY_LIMIT )); then
 			printf '\n  failed %s times:\n    %s\n' "$RETRY_LIMIT" "$*" >&2
+			auto && exit 1
 			read -rp "  Continue anyway? YES or NO: " reply < /dev/tty
 			[[ "$reply" == YES ]] && return 0
 			exit 1
@@ -1020,6 +1061,11 @@ KEEPALIVE_PID=""
 
 sudo_keepalive() {
 	[[ -n "$SUDO" ]] || return 0
+		# Ai - the VM test has a no password rule, written by iso.sh in hands off mode
+	if auto; then
+		sudo -n true || { printf 'Hands off mode needs sudo without a password\n' >&2; exit 1; }
+		return 0
+	fi
 		# Ai - the prompt carries the block marker, so it reads as part of the block
 	sudo -v -p "$(act_prompt 'Password for %p: ')"
 	(
@@ -1051,6 +1097,13 @@ partname() { printf '%s%s%s' "$1" "$(partsuffix "$1")" "$2"; }
 
 pick_disk() {
 	local prompt=$1 dev
+	if auto; then
+		case "$prompt" in
+			System*) printf '%s' "$AUTO_SYSTEM_DISK" ;;
+			*)       printf '%s' "$AUTO_DATA_DISK" ;;
+		esac
+		return 0
+	fi
 	while true; do
 		read -rp "$(act_prompt "$prompt")" dev < /dev/tty || { printf 'No input\n' >&2; exit 1; }
 		[[ "$dev" == /dev/* ]] || dev="/dev/$dev"

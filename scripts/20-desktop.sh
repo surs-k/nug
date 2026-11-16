@@ -110,6 +110,19 @@ section "Desktop"
 	# Ai - both of these were found missing mid install before, so they go first
 pac luarocks gobject-introspection archlinux-keyring
 
+	# Ai - the sound stack goes in before HyDE asks for it
+	#      asked for all at once, pacman offers jack2 as the default answer
+	#      to "who provides jack", then finds it conflicts with pipewire-jack
+	#      and stops unless someone types y, with these already in there is
+	#      nothing left to ask
+	#      and if jack2 already came in as something else's dependency, it is
+	#      swapped out first, pipewire-jack takes its place for whatever needed it
+if installed jack2; then
+	run "swap jack2 for pipewire-jack" $SUDO pacman -Rdd --noconfirm jack2
+fi
+
+pac pipewire pipewire-alsa pipewire-audio pipewire-pulse pipewire-jack wireplumber
+
 
 ## Clone
 
@@ -120,12 +133,31 @@ else
 fi
 
 
+## Shell
+
+	# Ai - HyDE switches the login shell to zsh with chsh, which stops and asks
+	#      for your password in the middle of its run
+	#      done here as root first, HyDE then finds zsh already set and moves on
+pac zsh
+
+if [[ "$(getent passwd "$USERNAME" | cut -d: -f7)" != /usr/bin/zsh ]]; then
+	run "login shell to zsh" $SUDO chsh -s /usr/bin/zsh "$USERNAME"
+fi
+
+
 ## Install
 
 	# Ai - this one stays loud, it is long and silence looks like a hang
 printf '\n  HyDE installer starts now. This takes a while.\n\n'
 
-( cd "$HOME/HyDE/Scripts" && ./install.sh -n )
+	# Ai - HyDE's installer asks pacman and itself a few yes or no questions
+	#      at a keyboard you press enter, the VM test has no keyboard, so it
+	#      is fed empty lines, which take every default the same way
+if auto; then
+	( cd "$HOME/HyDE/Scripts" && ./install.sh -n < <(yes '' 2>/dev/null || true) )
+else
+	( cd "$HOME/HyDE/Scripts" && ./install.sh -n )
+fi
 
 
 ## Kept

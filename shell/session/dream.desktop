@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Dream
+Comment=Hyprland with the Dream shell. Pick Hyprland instead for the HyDE desktop.
+Exec=/usr/local/bin/dream-session
+Type=Application
+DesktopNames=Hyprland
+Keywords=tiling;wayland;compositor;

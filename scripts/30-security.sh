@@ -57,8 +57,12 @@ else
 	fi
 	unset MULLVAD_ACCT
 
+		# Ai - the VM test has no account, so it carries on without a login
+		#      and the verify report shows the VPN as not connected
+	auto && ! logged_in && { flag "VM test, Mullvad login skipped"; SKIP_LOGIN=1; }
+
 	attempt=1
-	until logged_in; do
+	until logged_in || [[ "${SKIP_LOGIN:-0}" == 1 ]]; do
 		if (( attempt > RETRY_LIMIT )); then
 			printf 'Login failed %s times\n' "$RETRY_LIMIT" >&2
 			exit 1
@@ -157,7 +161,12 @@ connected() {
 	contains "$s" "Connected"
 }
 
-if connected; then
+if [[ "${SKIP_LOGIN:-0}" == 1 ]]; then
+		# Ai - with no account an auto connecting tunnel blocks all traffic,
+		#      and every later stage would fail on downloads
+	soft "auto connect off for the test" $SUDO mullvad auto-connect set off
+	soft "stay disconnected"             $SUDO mullvad disconnect
+elif connected; then
 	note "already connected"
 else
 	run "connect" $SUDO mullvad connect
@@ -216,8 +225,13 @@ run "enable at boot"  $SUDO systemctl enable ufw
 section "Verify"
 
 check "mullvad daemon"    systemctl is-active --quiet mullvad-daemon
-check "mullvad logged in" logged_in
-check "mullvad connected" connected
+if [[ "${SKIP_LOGIN:-0}" == 1 ]]; then
+	warn  "mullvad logged in" logged_in
+	warn  "mullvad connected" connected
+else
+	check "mullvad logged in" logged_in
+	check "mullvad connected" connected
+fi
 check "lan sharing on"    sh -c 'sudo mullvad lan get > /tmp/_lan; grep -qi allow /tmp/_lan'
 check "ufw active"        sh -c 'sudo ufw status > /tmp/_ufw; grep -q "Status: active" /tmp/_ufw'
 

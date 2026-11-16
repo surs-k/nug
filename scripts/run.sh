@@ -26,6 +26,8 @@ while [[ $# -gt 0 ]]; do
 		--all)   MODE=all;   shift ;;
 		--list)  MODE=list;  shift ;;
 		stash)   exec bash "$SCRIPTS/stash.sh" ;;
+		verify)  shift; exec bash "$SCRIPTS/verify.sh" "$@" ;;
+		desktop) shift; exec bash "$SCRIPTS/desktop.sh" "$@" ;;
 		-h|--help)
 			cat << 'HELPEOF'
 
@@ -36,6 +38,8 @@ while [[ $# -gt 0 ]]; do
   rebuild --all              start over from the beginning
   rebuild --list             show what is done and what is not
   rebuild stash              save the system disk's settings before a reinstall
+  rebuild verify             report on security, privacy, recovery and speed
+  rebuild desktop            add, remove or list desktops on the login screen
 
   Stages are safe to run again. Package installs skip what is already
   there, and every section checks before it acts, so a rerun costs
@@ -57,6 +61,7 @@ done
 STAGES=(
 	10-base
 	20-desktop
+	26-desktops
 	30-security
 	40-virt
 	50-bkp-net
@@ -74,6 +79,7 @@ STAGES=(
 declare -A ABOUT=(
 	[10-base]="locale, boot menu, swap, AUR helper"
 	[20-desktop]="graphics driver and HyDE"
+	[26-desktops]="the desktop command, and any extra desktops you chose"
 	[30-security]="Mullvad VPN and the firewall"
 	[40-virt]="KVM and the VM network"
 	[50-bkp-net]="SSH, snapshots, backups, snapshot boot entries"
@@ -114,6 +120,7 @@ section "Order"
 declare -A DEPENDS=(
 	[10-base]=""
 	[20-desktop]="10-base"
+	[26-desktops]="20-desktop"
 	[30-security]="10-base"
 	[40-virt]="30-security"
 	[50-bkp-net]="30-security"
@@ -311,7 +318,7 @@ gap() {
 	NEXT_GAP=small
 }
 
-if need WANT_CHAOTIC_REMOVE || need WANT_DOCKER || need WANT_STACKS \
+if need WANT_CHAOTIC_REMOVE || need WANT_DESKTOPS || need WANT_DOCKER || need WANT_STACKS \
 	|| need WANT_TAILSCALE || need WANT_OLLAMA \
 	|| need WANT_SUNSHINE || need WANT_LIBREWOLF; then
 
@@ -329,6 +336,23 @@ Nothing installs until you are through them."
 		else
 			save_cfg WANT_CHAOTIC_REMOVE no
 		fi
+	fi
+
+
+	## Desktops
+
+		# Ai - HyDE is always installed, these are extra choices on the login
+		#      screen, and the desktop command adds or removes them later
+	if need WANT_DESKTOPS; then
+		gap
+		act_line "Extra desktops for the login screen, beside HyDE."
+		act_line "Add or remove them later with:  desktop"
+		act_line ""
+		bash "$SCRIPTS/desktop.sh" catalog | act_feed
+		act_line ""
+		DESKS="$(ask 'Which ones, comma separated, or none' 'none')"
+		save_cfg WANT_DESKTOPS "${DESKS// /}"
+		NEXT_GAP=big
 	fi
 
 
@@ -421,7 +445,7 @@ mullvad_logged_in() {
 }
 
 	# Ai - a stash carries the login over, so there is nothing to ask
-if stage_is_done 20-desktop && ! stage_is_done 30-security && ! mullvad_logged_in \
+if ! auto && stage_is_done 20-desktop && ! stage_is_done 30-security && ! mullvad_logged_in \
 	&& ! stashed mullvad/device.json; then
 	action "Mullvad needs your account number. It is kept in memory only."
 	MULLVAD_ACCT="$(secret 'Mullvad account number')"
@@ -510,6 +534,15 @@ for s in "${STAGES[@]}"; do
 
 	if [[ -n "${REBOOT[$s]:-}" ]]; then
 		show_todos
+			# Ai - the VM test restarts itself, its service carries on after
+		if auto; then
+			note "hands off mode, restarting now"
+			$SUDO systemctl reboot
+				# Ai - 75 tells vm-guest.sh this is a restart, not the end
+				#      and it is not a failure, so it is kept off the problem list
+			STOP_RECORDED=1
+			exit 75
+		fi
 		action "Reboot now.
 
 Why   ${REBOOT[$s]}
@@ -537,11 +570,8 @@ if [[ -n "${BROKEN//[[:space:]]/}" ]]; then
 	printf '  Everything that could still run, did.\n'
 	printf '  Fix what you can, then:   rebuild\n\n'
 else
-	printf '  Read next:\n'
-	printf '    Guides/Backups.md   snapshots and rollback\n'
-	printf '    Guides/Bootmenu.md  the boot menu and its escape hatch\n'
-	printf '    Guides/Network.md   when the internet breaks\n'
-	printf '    Guides/Selfhost.md  your services\n\n'
+	printf '  See what was set up and what still needs you:\n\n'
+	printf '    rebuild verify\n\n'
 	printf '  Reboot once more to land on a settled system.\n\n'
 fi
 
